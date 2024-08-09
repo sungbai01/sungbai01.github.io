@@ -1,10 +1,10 @@
 {
   "files": {
-    "main.js": "/static/js/main.866e9c69.js",
-    "index.html": "/index.html",
-    "main.866e9c69.js.map": "/static/js/main.866e9c69.js.map"
+    "main.js": "/sungbai01/sungbai01.github.io/static/js/main.e0de675b.js",
+    "index.html": "/sungbai01/sungbai01.github.io/index.html",
+    "main.e0de675b.js.map": "/sungbai01/sungbai01.github.io/static/js/main.e0de675b.js.map"
   },
   "entrypoints": [
-    "static/js/main.866e9c69.js"
+    "static/js/main.e0de675b.js"
   ]
 }
