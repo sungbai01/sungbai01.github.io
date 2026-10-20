@@ -4,8 +4,11 @@ import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { PageFlip } from '../vendor/page-flip/PageFlip';
+import { SizeType } from '../vendor/page-flip/Settings';
+import { FlipCorner } from '../vendor/page-flip/Flip/Flip';
 import { ArrowLeft, ArrowRight, BookOpen, Check, ChevronLeft, List, Minus, Moon, Plus, Search, Sun, Type, X } from 'lucide-react';
 import type { Book } from '../lib/library';
+import { MAX_VOLUME_PAGES, splitBookByPages } from '../lib/volumes';
 import './reader.css';
 
 export interface ReaderProps {
@@ -13,6 +16,9 @@ export interface ReaderProps {
   onClose: () => void;
   /** Zero-based physical page index, matching Book.lastPage. */
   onProgress: (page: number) => void;
+  onSplit?: (book: Book, volumes: Book[]) => Promise<void>;
+  onNextVolume?: () => void;
+  nextVolumeTitle?: string;
 }
 
 type Anchor = { message: number; char: number };
@@ -95,7 +101,7 @@ function PageContent({ page, book, query }: { page: PaperPage; book: Book; query
 }
 
 /** Measures the same blocks and typography used by the visible React pages. */
-function paginate(book: Book, measure: HTMLDivElement): PaperPage[] {
+export function paginate(book: Book, measure: HTMLDivElement): PaperPage[] {
   const pages: PaperPage[] = [{ fragments: [], intro: true }];
   let current = pages[0];
   const opening = document.createElement('div');
@@ -140,10 +146,14 @@ function paginate(book: Book, measure: HTMLDivElement): PaperPage[] {
         paragraph.textContent = content.slice(offset, end);
         return measure.scrollHeight <= measure.clientHeight;
       };
-      let end = content.length;
-      if (!fits(end)) {
-        let low = offset;
-        let high = content.length;
+      // Probe only one page's worth of text. Laying out the entire remaining
+      // message on every page made a single huge message quadratic in length.
+      let low = offset;
+      let high = Math.min(content.length,offset+256);
+      let upperFits=fits(high);
+      while(upperFits&&high<content.length){low=high;high=Math.min(content.length,offset+(high-offset)*2);upperFits=fits(high);}
+      let end = high;
+      if (!upperFits) {
         while (low < high) {
           const middle = Math.ceil((low + high) / 2);
           if (fits(middle)) low = middle;
@@ -174,7 +184,7 @@ function paginate(book: Book, measure: HTMLDivElement): PaperPage[] {
   return pages;
 }
 
-export function Reader({ book, onClose, onProgress }: ReaderProps) {
+export function Reader({ book, onClose, onProgress, onSplit, onNextVolume, nextVolumeTitle }: ReaderProps) {
   const [initialPreferences] = useState(readReaderPreferences);
   const [theme, setTheme] = useState<Theme>(initialPreferences.theme);
   const [fontSize, setFontSize] = useState(initialPreferences.fontSize);
@@ -192,6 +202,16 @@ export function Reader({ book, onClose, onProgress }: ReaderProps) {
   const measureRef = useRef<HTMLDivElement>(null);
   const flipRef = useRef<PageFlip | null>(null);
   const rootsRef = useRef<Root[]>([]);
+  const mountedPagesRef = useRef(new Map<number, { root: Root; element: HTMLElement }>());
+  const renderWindowRef = useRef<(index:number)=>void>(()=>{});
+  const queryRef = useRef(deferredQuery);
+  const splitRef = useRef(onSplit);
+  const nextVolumeRef = useRef(onNextVolume);
+  const queuedTurnRef=useRef<'previous'|'next'|null>(null);
+  const [splitRevision,setSplitRevision] = useState(0);
+  const splitFailureRef = useRef(false);
+  const splittingMessagesRef=useRef<Book['messages']|null>(null);
+  const activeMessagesRef=useRef<Book['messages']|null>(null);
   const pagesRef = useRef<PaperPage[]>([]);
   const anchorRef = useRef<Anchor | null>(null);
   const activeBookRef = useRef<string | null>(null);
@@ -205,6 +225,9 @@ export function Reader({ book, onClose, onProgress }: ReaderProps) {
   callbackRef.current = onProgress;
   closeRef.current = onClose;
   bookRef.current = book;
+  queryRef.current = deferredQuery;
+  splitRef.current = onSplit;
+  nextVolumeRef.current=onNextVolume;
   // Stable content dependencies prevent a parent's progress update rebuilding the book.
   const contentKey = useMemo(() => ({ title: book.title, author: book.author, messages: book.messages }),
     [book.title, book.author, book.messages]);
@@ -265,14 +288,17 @@ export function Reader({ book, onClose, onProgress }: ReaderProps) {
     let instance: PageFlip | null = null;
     let pageRoots: Root[] = [];
     let host: HTMLDivElement | null = null;
+    let queuedFrame=0;
     setLoading(true);
     setError('');
     const frame = requestAnimationFrame(() => {
       if (cancelled || !mountRef.current || !measureRef.current) return;
       const currentBook = bookRef.current;
-      if (activeBookRef.current !== currentBook.id) {
+      if (activeBookRef.current !== currentBook.id || activeMessagesRef.current!==currentBook.messages) {
         anchorRef.current = null;
         activeBookRef.current = currentBook.id;
+        activeMessagesRef.current=currentBook.messages;
+        splitFailureRef.current=false;
         lastReportedRef.current = '';
       }
       const count = dimensions.width >= 760 ? 2 : 1;
@@ -284,6 +310,19 @@ export function Reader({ book, onClose, onProgress }: ReaderProps) {
       measure.style.height = `${height - 132}px`;
       measure.style.fontSize = `${fontSize}px`;
       const nextPages = paginate(currentBook, measure);
+      if (nextPages.length > MAX_VOLUME_PAGES && splitRef.current && !splitFailureRef.current) {
+        if(splittingMessagesRef.current===currentBook.messages)return;
+        splittingMessagesRef.current=currentBook.messages;
+        try {
+          const volumes=splitBookByPages(currentBook,nextPages);
+          void splitRef.current(currentBook,volumes).catch(()=>{
+            if(!cancelled){splitFailureRef.current=true;splittingMessagesRef.current=null;setSplitRevision(value=>value+1);}
+          });
+          return;
+        } catch {
+          splitFailureRef.current=true;
+        }
+      }
       pagesRef.current = nextPages;
       const target = anchorRef.current ? pageForAnchor(nextPages, anchorRef.current)
         : clamp(Math.floor(Number.isFinite(currentBook.lastPage) ? currentBook.lastPage! : 0), 0, nextPages.length - 1);
@@ -302,19 +341,29 @@ export function Reader({ book, onClose, onProgress }: ReaderProps) {
         element.setAttribute('aria-label', `${index + 1}쪽`);
         element.setAttribute('lang', 'ko');
         host!.append(element);
-        const root = createRoot(element);
-        pageRoots.push(root);
-        flushSync(() => root.render(<div className="reader-paper-shell">
-          <div className="reader-running-head">{currentBook.title}</div>
-          <div className="reader-page-content"><PageContent page={page} book={currentBook} query={deferredQuery} /></div>
-          <div className="reader-page-number">{index + 1}</div>
-        </div>));
         return element;
       });
+      const mounted=new Map<number,{root:Root;element:HTMLElement}>();
+      mountedPagesRef.current=mounted;
+      const renderWindow=(index:number)=>{
+        const first=Math.max(0,index-3),last=Math.min(nextPages.length-1,index+5);
+        for(const [number,entry] of mounted){if(number<first||number>last){entry.root.unmount();mounted.delete(number);}}
+        flushSync(()=>{
+          for(let number=first;number<=last;number++){
+            let entry=mounted.get(number);
+            if(!entry){entry={root:createRoot(nodes[number]),element:nodes[number]};mounted.set(number,entry);
+              entry.root.render(<div className="reader-paper-shell"><div className="reader-running-head">{currentBook.title}</div><div className="reader-page-content"><PageContent page={nextPages[number]} book={currentBook} query={queryRef.current}/></div><div className="reader-page-number">{number+1}</div></div>);
+            }
+          }
+        });
+      };
+      renderWindowRef.current=renderWindow;
+      renderWindow(target);
       rootsRef.current = pageRoots;
       const report = (index: number, saveAnchor = true) => {
         const safe = clamp(index, 0, nextPages.length - 1);
         setPageIndex(safe);
+        renderWindow(safe);
         if (saveAnchor) anchorRef.current = nextPages[safe].fragments[0] ?? { message: 0, char: 0 };
         const key = `${currentBook.id}:${safe}`;
         if (lastReportedRef.current !== key) {
@@ -324,15 +373,21 @@ export function Reader({ book, onClose, onProgress }: ReaderProps) {
       };
       try {
         instance = new PageFlip(host, {
-          width, height, size: 'fixed', minWidth: width, maxWidth: width,
+          width, height, size: SizeType.FIXED, minWidth: width, maxWidth: width,
           minHeight: height, maxHeight: height, startPage: target,
           usePortrait: count === 1, autoSize: false, showCover: false,
-          drawShadow: true, maxShadowOpacity: 0.24, flippingTime: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : 850,
+          drawShadow: true, maxShadowOpacity: 0.18, flippingTime: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : 360,
           mobileScrollSupport: true, swipeDistance: 30, useMouseEvents: true,
           clickEventForward: false, showPageCorners: true, disableFlipByClick: false,
         });
         // Publish progress after the curl settles, not while it is drawing.
         instance.on('flip', event => { if (!cancelled) report(Number(event.data)); });
+        instance.on('changeState',event=>{
+          if(event.data==='read'&&queuedTurnRef.current){
+            const direction=queuedTurnRef.current;queuedTurnRef.current=null;
+            queuedFrame=requestAnimationFrame(()=>{if(!cancelled)turnRef.current(direction);});
+          }
+        });
         instance.loadFromHTML(nodes);
         flipRef.current = instance;
         report(instance.getCurrentPageIndex(), !anchorRef.current);
@@ -348,22 +403,29 @@ export function Reader({ book, onClose, onProgress }: ReaderProps) {
     return () => {
       cancelled = true;
       cancelAnimationFrame(frame);
+      cancelAnimationFrame(queuedFrame);
+      queuedTurnRef.current=null;
       flipRef.current = null;
       // PageFlip removes its host; React owns only the content inside each page.
       rootsRef.current = [];
+      const mounted=mountedPagesRef.current;
+      mountedPagesRef.current=new Map();
+      renderWindowRef.current=()=>{};
       // Defer nested React root disposal until this component's effect cleanup ends.
       queueMicrotask(() => {
         pageRoots.forEach(root => root.unmount());
+        mounted.forEach(entry=>entry.root.unmount());
+        mounted.clear();
         instance?.destroy();
         host?.remove();
       });
     };
-  }, [book.id, contentKey, dimensions.width, dimensions.height, fontSize, fontRevision]);
+  }, [book.id, contentKey, dimensions.width, dimensions.height, fontSize, fontRevision,splitRevision]);
 
   // Highlighting does not repaginate: marks have exactly the same font metrics.
   useEffect(() => {
     const currentBook = bookRef.current;
-    rootsRef.current.forEach((root, index) => {
+    mountedPagesRef.current.forEach(({root}, index) => {
       const page = pagesRef.current[index];
       if (!page) return;
       root.render(<div className="reader-paper-shell">
@@ -377,6 +439,7 @@ export function Reader({ book, onClose, onProgress }: ReaderProps) {
   const jump = (page: number) => {
     const safe = clamp(page, 0, Math.max(0, pagesRef.current.length - 1));
     anchorRef.current = pagesRef.current[safe]?.fragments[0] ?? null;
+    renderWindowRef.current(safe);
     flipRef.current?.turnToPage(safe);
     if (error) mountRef.current?.querySelectorAll('.reader-page')[safe]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   };
@@ -387,9 +450,11 @@ export function Reader({ book, onClose, onProgress }: ReaderProps) {
   };
   const turn = (direction: 'previous' | 'next') => {
     const flip = flipRef.current;
-    if (!flip || flip.getState() !== 'read') return;
-    if (direction === 'previous') flip.flipPrev('bottom');
-    else flip.flipNext('bottom');
+    if (!flip) return;
+    if(flip.getState()!=='read'){queuedTurnRef.current=direction;return;}
+    if(direction==='next'&&flip.getCurrentPageIndex()+spread>=pagesRef.current.length&&nextVolumeRef.current){nextVolumeRef.current();return;}
+    if (direction === 'previous') flip.flipPrev(FlipCorner.BOTTOM);
+    else flip.flipNext(FlipCorner.BOTTOM);
   };
   const turnRef = useRef(turn);
   const jumpRef = useRef(jump);
@@ -444,7 +509,7 @@ export function Reader({ book, onClose, onProgress }: ReaderProps) {
       {error && <p className="reader-error" role="status">{error}</p>}
       <div className="reader-turn-controls">
         <button className="reader-icon-button" aria-label="이전 쪽" title="이전 쪽 (←)" disabled={loading || pageIndex === 0 || !!error} onClick={() => turn('previous')}><ArrowLeft size={20} /></button>
-        <button className="reader-icon-button" aria-label="다음 쪽" title="다음 쪽 (→)" disabled={loading || visibleEnd >= pages.length || !!error} onClick={() => turn('next')}><ArrowRight size={20} /></button>
+        <button className="reader-icon-button" aria-label={visibleEnd>=pages.length&&onNextVolume?'다음 권':'다음 쪽'} title={visibleEnd>=pages.length&&onNextVolume?nextVolumeTitle:'다음 쪽 (→)'} disabled={loading || (visibleEnd >= pages.length&&!onNextVolume) || !!error} onClick={() => visibleEnd>=pages.length&&onNextVolume?onNextVolume():turn('next')}><ArrowRight size={20} /></button>
       </div>
     </main>
 

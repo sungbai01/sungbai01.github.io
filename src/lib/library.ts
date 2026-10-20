@@ -28,6 +28,10 @@ export interface Book {
   cover?: string;
   /** Zero-based reader page; the reader determines the page count. */
   lastPage?: number;
+  seriesId?: string;
+  seriesTitle?: string;
+  volumeNumber?: number;
+  volumeCount?: number;
 }
 
 export class LibraryError extends Error {
@@ -123,7 +127,15 @@ interface ImportContext {
 function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, index: number): Book {
   const character = string(value.character_name, value.character, context.character, '캐릭터');
   const user = string(value.user_name, context.user, '나');
-  const messages = rows.map((row, i) => normalizeMessage(row, i, character, user, context.names));
+  const messages = rows.map((row, i) => {
+    // Our own books already contain canonical messages. Backup restore must not
+    // normalize roles, trim speaker names, or change source line endings.
+    if (context.preserveIds && record(row) && typeof row.role === 'string' &&
+        typeof row.name === 'string' && typeof row.content === 'string') {
+      return { role: row.role, name: row.name, content: row.content };
+    }
+    return normalizeMessage(row, i, character, user, context.names);
+  });
   if (!messages.some((message) => message.content.trim())) throw new LibraryError('대화 내용이 비어 있습니다.');
   const createdAt = timestamp(value.createdAt ?? value.created_at ?? value.creation_date, context.now);
   const book: Book = {
@@ -139,6 +151,12 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
   const cover = safeCover(value.cover);
   if (cover) book.cover = cover;
   if (typeof value.lastPage === 'number' && Number.isSafeInteger(value.lastPage) && value.lastPage >= 0) book.lastPage = value.lastPage;
+  if (context.preserveIds) {
+    if (typeof value.seriesId === 'string') book.seriesId = value.seriesId;
+    if (typeof value.seriesTitle === 'string') book.seriesTitle = value.seriesTitle;
+    if (typeof value.volumeNumber === 'number' && Number.isSafeInteger(value.volumeNumber) && value.volumeNumber > 0) book.volumeNumber = value.volumeNumber;
+    if (typeof value.volumeCount === 'number' && Number.isSafeInteger(value.volumeCount) && value.volumeCount > 0) book.volumeCount = value.volumeCount;
+  }
   return book;
 }
 
@@ -352,7 +370,11 @@ function validateBook(book: Book): void {
     typeof book.createdAt !== 'string' || !Number.isFinite(Date.parse(book.createdAt)) ||
     typeof book.updatedAt !== 'string' || !Number.isFinite(Date.parse(book.updatedAt)) || !Array.isArray(book.messages) ||
     !book.messages.every((message) => record(message) && ['role', 'name', 'content'].every((key) => typeof (message as unknown as RecordValue)[key] === 'string')) ||
-    (book.lastPage !== undefined && (!Number.isSafeInteger(book.lastPage) || book.lastPage < 0))) {
+    (book.lastPage !== undefined && (!Number.isSafeInteger(book.lastPage) || book.lastPage < 0)) ||
+    (book.seriesId !== undefined && typeof book.seriesId !== 'string') ||
+    (book.seriesTitle !== undefined && typeof book.seriesTitle !== 'string') ||
+    (book.volumeNumber !== undefined && (!Number.isSafeInteger(book.volumeNumber) || book.volumeNumber < 1)) ||
+    (book.volumeCount !== undefined && (!Number.isSafeInteger(book.volumeCount) || book.volumeCount < 1))) {
     throw new LibraryError('저장할 책의 데이터 형식이 올바르지 않습니다.');
   }
 }
@@ -397,6 +419,37 @@ export async function saveBook(book: Book): Promise<void> {
   await withStores([STORE, PROGRESS_STORE], 'readwrite', (transaction) => {
     const request = transaction.objectStore(STORE).put(stored);
     transaction.objectStore(PROGRESS_STORE).delete(book.id);
+    return request;
+  });
+}
+
+/** Atomically upsert the complete renumbered series, retaining the original ID.
+ * All supplied books lose stale progress overrides in the same transaction.
+ * No records are deleted; an abort leaves both stores unchanged.
+ */
+export async function replaceBookWithVolumes(originalId: string, volumes: Book[]): Promise<void> {
+  if (typeof originalId !== 'string' || !originalId.trim() || !Array.isArray(volumes) || !volumes.length) {
+    throw new LibraryError('교체할 원본 책과 분권 목록이 필요합니다.');
+  }
+  const ids = new Set<string>();
+  const stored = volumes.map((book) => {
+    validateBook(book);
+    if (ids.has(book.id)) throw new LibraryError('분권 목록에 중복된 책 ID가 있습니다.');
+    ids.add(book.id);
+    const { cover: _cover, ...rest } = book;
+    const cover = safeCover(book.cover);
+    return { ...rest, messages: book.messages.map((message) => ({ ...message })), ...(cover ? { cover } : {}) };
+  });
+  if (!ids.has(originalId)) throw new LibraryError('분권 목록에 원본 책 ID가 필요합니다.');
+
+  await withStores([STORE, PROGRESS_STORE], 'readwrite', (transaction) => {
+    const books = transaction.objectStore(STORE);
+    const progress = transaction.objectStore(PROGRESS_STORE);
+    let request!: IDBRequest<IDBValidKey>;
+    for (const book of stored) {
+      request = books.put(book);
+      progress.delete(book.id);
+    }
     return request;
   });
 }

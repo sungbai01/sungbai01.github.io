@@ -31,6 +31,8 @@ export class HTMLPage extends Page {
 
         if (this.temporaryCopy === null) {
             this.copiedElement = this.element.cloneNode(true) as HTMLElement;
+            this.copiedElement.dataset.flipCopy = 'true';
+            this.copiedElement.setAttribute('aria-hidden', 'true');
             this.element.parentElement.appendChild(this.copiedElement);
 
             this.temporaryCopy = new HTMLPage(

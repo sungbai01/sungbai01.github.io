@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { ArrowDownToLine, ArrowLeft, ArrowRight, BookOpen, Bookmark, Check, ChevronDown, Ellipsis, FileUp, FolderOpen, Library, LoaderCircle, Plus, Search, Settings2, Upload, X } from 'lucide-react';
-import { loadBooks, saveBook, saveReadingProgress, deleteBook, importChatFile, BOOK_COLORS, type Book } from './lib/library';
+import { ArrowDownToLine, ArrowRight, BookOpen, Bookmark, Check, ChevronDown, Ellipsis, FileUp, Library, LoaderCircle, Plus, Search, Settings2, Upload, X } from 'lucide-react';
+import { loadBooks, saveBook, saveReadingProgress, replaceBookWithVolumes, deleteBook, importChatFile, BOOK_COLORS, type Book } from './lib/library';
+import { groupBooks, MAX_VOLUME_PAGES, splitBookForStorage } from './lib/volumes';
 import { sampleBooks } from './lib/sample';
 
 const Reader = lazy(() => import('./components/Reader'));
@@ -12,6 +13,52 @@ function currentBookId() { try { const match = location.hash.match(/^#\/book\/([
 function download(name: string, data: unknown) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], {type:'application/json'}));
   const a = document.createElement('a'); a.href=url; a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+
+function mergeSeriesVolumes(books:Book[], original:Book, volumes:Book[]) {
+  const seriesId=original.seriesId??original.id;
+  const seriesTitle=original.seriesTitle??original.title;
+  const siblings=books.filter(book=>(book.seriesId??book.id)===seriesId)
+    .sort((a,b)=>(a.volumeNumber??1)-(b.volumeNumber??1));
+  const position=siblings.findIndex(book=>book.id===original.id);
+  if(position<0)throw new Error('원본 책을 찾지 못했어요.');
+  const occupied=new Set(books.map(book=>book.id));
+  let suffix=2;
+  const parts=volumes.map((volume,index)=>{
+    if(index===0)return {...volume,id:original.id};
+    let id=volume.id;
+    while(occupied.has(id))id=`${original.id}--part-${suffix++}`;
+    occupied.add(id);
+    return {...volume,id};
+  });
+  const series=siblings.flatMap(book=>book.id===original.id?parts:[book])
+    .map((book,index)=>({...book,seriesId,seriesTitle,title:`${seriesTitle} · ${index+1}권`,volumeNumber:index+1,volumeCount:siblings.length-1+parts.length}));
+  return {series,parts,position};
+}
+
+function replaceSeries(books:Book[], original:Book, series:Book[]) {
+  const belongs=(book:Book)=>(book.seriesId??book.id)===(original.seriesId??original.id);
+  const first=books.findIndex(belongs);
+  const next=books.filter(book=>!belongs(book));
+  next.splice(first<0?next.length:first,0,...series);
+  return next;
+}
+
+/** Commit each source replacement atomically; untouched books retain their objects and IDs. */
+async function storeBooks(incoming:Book[], existing:Book[], persistUnchanged=false) {
+  const byId=new Map(incoming.map(book=>[book.id,book]));
+  const existingIds=new Set(existing.map(book=>book.id));
+  let result=[...existing.map(book=>byId.get(book.id)??book),...incoming.filter(book=>!existingIds.has(book.id))];
+  for(const source of groupBooks(incoming).flatMap(group=>group.books)){
+    const book=result.find(item=>item.id===source.id)!;
+    const volumes=splitBookForStorage(book);
+    if(volumes.length>1){
+      const {series}=mergeSeriesVolumes(result,book,volumes);
+      await replaceBookWithVolumes(book.id,series);
+      result=replaceSeries(result,book,series);
+    }else if(persistUnchanged)await saveBook(book);
+  }
+  return result;
 }
 
 function Modal({title, children, onClose, wide=false}: {title:string; children:ReactNode; onClose:()=>void; wide?:boolean}) {
@@ -50,6 +97,8 @@ export default function App() {
   const pendingProgress=useRef(new Map<string,{id:string;page:number;updatedAt:string}>());
   const progressTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
   const progressWrites=useRef<Promise<void>>(Promise.resolve());
+  const splittingBooks=useRef(new Set<string>());
+  const initialLoad=useRef<Promise<Book[]>|null>(null);
   const flushProgress=useCallback(()=>{
     if(progressTimer.current!==null){clearTimeout(progressTimer.current);progressTimer.current=null;}
     const updates=[...pendingProgress.current.values()];pendingProgress.current.clear();
@@ -67,48 +116,116 @@ export default function App() {
     addEventListener('hashchange',flushProgress);addEventListener('pagehide',flushProgress);document.addEventListener('visibilitychange',hide);
     return()=>{flushProgress();removeEventListener('hashchange',flushProgress);removeEventListener('pagehide',flushProgress);document.removeEventListener('visibilitychange',hide);};
   },[flushProgress]);
-  useEffect(()=>{let active=true; (async()=>{try{let data=await loadBooks();for(let i=0;i<data.length;i++){const previous=data[i];const sample=sampleBooks.find(b=>b.id===previous.id);if(sample&&previous.color===legacySampleColors[previous.id]){data[i]={...previous,color:sample.color};await saveBook(data[i]);}}if(!localStorage.getItem(key)&&!data.length){for(const book of sampleBooks)await saveBook(book);data=sampleBooks;}localStorage.setItem(key,'yes');if(active)setBooks(data);}catch{if(active)setError('서재를 열지 못했어요. 브라우저의 저장소 접근을 허용한 뒤 새로고침해 주세요.');}finally{if(active)setLoading(false);}})();return()=>{active=false;};},[]);
+  useEffect(()=>{
+    let active=true;
+    initialLoad.current??=(async()=>{
+      let data=await loadBooks();
+      for(let i=0;i<data.length;i++){
+        const previous=data[i];const sample=sampleBooks.find(book=>book.id===previous.id);
+        if(sample&&previous.color===legacySampleColors[previous.id]){data[i]={...previous,color:sample.color};await saveBook(data[i]);}
+      }
+      if(!localStorage.getItem(key)&&!data.length){for(const book of sampleBooks)await saveBook(book);data=sampleBooks;}
+      data=await storeBooks(data,data);
+      localStorage.setItem(key,'yes');
+      return data;
+    })();
+    void initialLoad.current.then(data=>{if(active){latestBooks.current=data;setBooks(data);}})
+      .catch(()=>{if(active)setError('서재를 열지 못했어요. 브라우저의 저장소 접근을 허용한 뒤 새로고침해 주세요.');})
+      .finally(()=>{if(active)setLoading(false);});
+    return()=>{active=false;};
+  },[]);
   useEffect(()=>{const change=()=>{setRoute(currentBookId());setMenu(null);};addEventListener('hashchange',change);return()=>removeEventListener('hashchange',change);},[]);
   useEffect(()=>{if(!toast)return;const timer=setTimeout(()=>setToast(''),3600);return()=>clearTimeout(timer);},[toast]);
   useEffect(()=>{if(!menu)return;const close=()=>setMenu(null);document.addEventListener('click',close);return()=>document.removeEventListener('click',close);},[menu]);
-  const openBook=(book:Book)=>{location.hash=`/book/${encodeURIComponent(book.id)}`;};
+  const openBook=useCallback((book:Book)=>{location.hash=`/book/${encodeURIComponent(book.id)}`;},[]);
+  const closeBook=useCallback(()=>{location.hash='/';},[]);
   const updateBook=async(book:Book)=>{await saveBook(book);setBooks(prev=>prev.map(b=>b.id===book.id?book:b));};
   const onProgress=useCallback((page:number)=>{
     const id=currentBookId();const book=latestBooks.current.find(b=>b.id===id);
-    if(!book||(pendingProgress.current.get(book.id)?.page??book.lastPage)===page)return;
+    if(!book||splittingBooks.current.has(book.id)||(pendingProgress.current.get(book.id)?.page??book.lastPage)===page)return;
     pendingProgress.current.set(book.id,{id:book.id,page,updatedAt:new Date().toISOString()});
     if(progressTimer.current!==null)clearTimeout(progressTimer.current);
     progressTimer.current=setTimeout(flushProgress,1100);
   },[flushProgress]);
+  const onSplit=useCallback(async(original:Book,volumes:Book[])=>{
+    if(volumes.length<2||splittingBooks.current.has(original.id))return;
+    const seriesId=original.seriesId??original.id;
+    const belongs=(book:Book)=>(book.seriesId??book.id)===seriesId;
+    const siblings=latestBooks.current.filter(belongs);
+    if(!siblings.some(book=>book.id===original.id)||siblings.some(book=>splittingBooks.current.has(book.id)))return;
+    const savedProgress=new Map(pendingProgress.current);
+    for(const sibling of siblings){splittingBooks.current.add(sibling.id);pendingProgress.current.delete(sibling.id);}
+    try{
+      await progressWrites.current;
+      const current=latestBooks.current.map(book=>{
+        const progress=belongs(book)?savedProgress.get(book.id):undefined;
+        return progress?{...book,lastPage:progress.page,updatedAt:progress.updatedAt}:book;
+      });
+      const {series:merged,parts,position}=mergeSeriesVolumes(current,original,volumes);
+      await replaceBookWithVolumes(original.id,merged);
+      setBooks(prev=>{
+        const next=replaceSeries(prev,original,merged);
+        latestBooks.current=next;
+        return next;
+      });
+      const page=original.lastPage??savedProgress.get(original.id)?.page??0;
+      const target=merged[position+Math.max(0,Math.min(parts.length-1,Math.floor(page/MAX_VOLUME_PAGES)))]!;
+      if(currentBookId()===original.id){openBook(target);setRoute(target.id);}
+    }catch(error){
+      for(const sibling of siblings){const progress=savedProgress.get(sibling.id);if(progress)pendingProgress.current.set(sibling.id,progress);}
+      throw error;
+    }finally{
+      for(const sibling of siblings)splittingBooks.current.delete(sibling.id);
+    }
+  },[openBook]);
   const toggleStar=(id:string)=>{const next=stars.includes(id)?stars.filter(v=>v!==id):[...stars,id];try{localStorage.setItem('galpi:stars',JSON.stringify(next));setStars(next);}catch{setToast('책갈피를 저장하지 못했어요.');}};
   async function importFiles(files:FileList|File[]) {
     if(!files.length||busy)return;setBusy(true);setError('');let added=0;const errors:string[]=[];
-    for(const file of Array.from(files)){try{const imported=await importChatFile(file);for(const book of imported){await saveBook(book);setBooks(prev=>[...prev.filter(b=>b.id!==book.id),book]);added++;}}catch(e){errors.push(`${file.name}: ${e instanceof Error?e.message:'파일을 읽지 못했어요.'}`);}}
+    for(const file of Array.from(files)){try{const imported=await importChatFile(file);flushProgress();await progressWrites.current;const next=await storeBooks(imported,await loadBooks(),true);latestBooks.current=next;setBooks(next);added+=imported.length;}catch(e){errors.push(`${file.name}: ${e instanceof Error?e.message:'파일을 읽지 못했어요.'}`);}}
     setBusy(false);if(errors.length)setError(errors.join('\n'));if(added){setToast(`${added}권의 이야기를 책장에 꽂았어요.`);setTab('all');if(!errors.length)setImporting(false);}
   }
-  async function restoreBackup(file?:File){if(!file||busy)return;setBusy(true);setError('');try{const data=JSON.parse(await file.text());if(data.format!=='galpi-backup'||!Array.isArray(data.books))throw new Error('갈피에서 내보낸 책장 백업 파일을 선택해 주세요.');const normalized=await importChatFile(new File([JSON.stringify(data.books)],'backup.json',{type:'application/json'}));for(const b of normalized)await saveBook(b);const merged=await loadBooks();setBooks(merged);setToast(`${normalized.length}권을 복원했어요.`);}catch(e){setError(e instanceof Error?e.message:'백업을 복원하지 못했어요.');}finally{setBusy(false);if(restore.current)restore.current.value='';}}
+  async function restoreBackup(file?:File){if(!file||busy)return;setBusy(true);setError('');try{const data=JSON.parse(await file.text());if(data.format!=='galpi-backup'||!Array.isArray(data.books))throw new Error('갈피에서 내보낸 책장 백업 파일을 선택해 주세요.');const normalized=await importChatFile(new File([JSON.stringify(data.books)],'backup.json',{type:'application/json'}));flushProgress();await progressWrites.current;const merged=await storeBooks(normalized,await loadBooks(),true);latestBooks.current=merged;setBooks(merged);setToast(`${normalized.length}권을 복원했어요.`);}catch(e){setError(e instanceof Error?e.message:'백업을 복원하지 못했어요.');}finally{setBusy(false);if(restore.current)restore.current.value='';}}
   const selected=books.find(b=>b.id===route);
   const reading=books.filter(b=>(b.lastPage??0)>0).sort((a,b)=>String(b.updatedAt).localeCompare(String(a.updatedAt)))[0];
   const shown=books.filter(b=>(tab!=='reading'||(b.lastPage??0)>0)&&(tab!=='saved'||stars.includes(b.id))&&`${b.title} ${b.author} ${b.description}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())).sort((a,b)=>sort==='title'?a.title.localeCompare(b.title,'ko'):sort==='oldest'?String(a.createdAt).localeCompare(String(b.createdAt)):String(b.updatedAt).localeCompare(String(a.updatedAt)));
-  if(route&&!loading&&selected)return <><Suspense fallback={<div className="loading-screen"><LoaderCircle className="animate-spin"/> 책을 펼치고 있어요</div>}><Reader book={selected} onClose={()=>{location.hash='/';}} onProgress={onProgress}/></Suspense>{toast&&<div className="toast" role="status">{toast}</div>}</>;
+  const groups=groupBooks(shown);
+  const singletons:{id:string;title:string;books:Book[]}={id:'ungrouped',title:'단권',books:[]};
+  const shelves=groups.reduce<{id:string;title:string;books:Book[]}[]>((rows,group)=>{
+    if(group.books.some(book=>book.seriesId)){rows.push(group);return rows;}
+    if(!rows.includes(singletons))rows.push(singletons);
+    singletons.books.push(...group.books);
+    return rows;
+  },[]);
+  const nextVolume=selected?.seriesId?groupBooks(books).find(group=>group.id===selected.seriesId)?.books.find(book=>(book.volumeNumber??1)>(selected.volumeNumber??1)):undefined;
+  const nextVolumeId=nextVolume?.id;
+  const onNextVolume=useCallback(()=>{if(nextVolumeId)location.hash=`/book/${encodeURIComponent(nextVolumeId)}`;},[nextVolumeId]);
+  if(route&&!loading&&selected)return <><Suspense fallback={<div className="loading-screen"><LoaderCircle className="animate-spin"/> 책을 펼치고 있어요</div>}><Reader book={selected} onClose={closeBook} onProgress={onProgress} onSplit={onSplit} onNextVolume={nextVolume?onNextVolume:undefined} nextVolumeTitle={nextVolume?.title}/></Suspense>{toast&&<div className="toast" role="status">{toast}</div>}</>;
   return <div className="app-shell">
     <header className="site-header"><a href="#/" className="brand" aria-label="갈피 서재"><span className="brand-mark"><BookOpen size={23} strokeWidth={1.4}/><span/></span><span>갈피<span className="brand-en">galpi</span></span></a><div className="header-right"><button className="icon-btn" aria-label="저장 및 백업" title="저장 및 백업" onClick={()=>setInfo(true)}><Settings2 size={19}/></button></div></header>
     <div className="workspace">
-      <aside className="sidebar"><nav aria-label="서재 메뉴">{[{id:'all',label:'모든 책',icon:Library,count:books.length},{id:'reading',label:'읽던 책',icon:BookOpen,count:books.filter(b=>(b.lastPage??0)>0).length},{id:'saved',label:'책갈피',icon:Bookmark,count:stars.filter(s=>books.some(b=>b.id===s)).length}].map(item=><button key={item.id} title={item.label} className={'nav-item '+(tab===item.id?'active':'')} onClick={()=>{setTab(item.id);setQuery('');}}><item.icon size={18} strokeWidth={1.6}/><span>{item.label}</span><small>{item.count.toString().padStart(2,'0')}</small></button>)}</nav>
-        <button className="sidebar-bottom" title="백업 및 복원" aria-label="백업 및 복원" onClick={()=>setInfo(true)}><FolderOpen size={18}/></button>
+      <aside className="sidebar"><nav aria-label="서재 메뉴">{[{id:'all',label:'모든 책',icon:Library,count:groupBooks(books).length},{id:'reading',label:'읽던 책',icon:BookOpen,count:books.filter(b=>(b.lastPage??0)>0).length},{id:'saved',label:'책갈피',icon:Bookmark,count:stars.filter(s=>books.some(b=>b.id===s)).length}].map(item=><button key={item.id} title={item.label} className={'nav-item '+(tab===item.id?'active':'')} onClick={()=>{setTab(item.id);setQuery('');}}><item.icon size={18} strokeWidth={1.6}/><span>{item.label}</span><small>{item.count.toString().padStart(2,'0')}</small></button>)}</nav>
       </aside>
       <main className="main-content">
         <section className="library-intro"><h1>서재</h1><button className="primary-btn icon-action" title="RisuAI 로그 가져오기" aria-label="RisuAI 로그 가져오기" onClick={()=>{setError('');setImporting(true);}}><Plus size={21}/></button></section>
         {error&&!importing&&<div className="error-banner" role="alert">{error}<button className="icon-btn" aria-label="오류 닫기" onClick={()=>setError('')}><X size={16}/></button></div>}
         {route&&!selected&&!loading&&<div className="error-banner">이 브라우저에 저장되지 않은 책이에요.<a href="#/">서재로 돌아가기</a></div>}
-        {reading&&<section className="resume-card"><button className="resume-cover" aria-label={reading.title+' 이어 읽기'} title="이어 읽기" onClick={()=>openBook(reading)}><Cover book={reading} small/></button><div><h2>{reading.title}</h2><p>{reading.author} · {(reading.lastPage??0)+1}쪽</p></div><button className="icon-btn" title="이어 읽기" aria-label="이어 읽기" onClick={()=>openBook(reading)}><ArrowRight size={21}/></button></section>}
-        <section aria-label="책장" className="collection"><div className="collection-toolbar"><div className="collection-heading"><h2>{tab==='all'?'모든 책':tab==='reading'?'읽던 책':'책갈피'}</h2><span>{shown.length}권</span></div><div className="collection-controls"><label className="search-box"><Search size={16}/><input aria-label="이야기 검색" placeholder="검색" value={query} onChange={e=>setQuery(e.target.value)}/>{query&&<button aria-label="검색 초기화" onClick={()=>setQuery('')}><X size={14}/></button>}</label><label className="sort-select"><select aria-label="책 정렬" value={sort} onChange={e=>setSort(e.target.value)}><option value="recent">최근 펼친 순</option><option value="oldest">오래된 순</option><option value="title">제목순</option></select><ChevronDown size={13}/></label><div className="view-switch" aria-label="책장 보기"><button className={view==='covers'?'active':''} title="표지 보기" aria-label="표지 보기" aria-pressed={view==='covers'} onClick={()=>setView('covers')}><BookOpen size={16}/></button><button className={view==='spines'?'active':''} title="책등 보기" aria-label="책등 보기" aria-pressed={view==='spines'} onClick={()=>setView('spines')}><Library size={16}/></button></div></div></div>
-          {loading?<div className="loading-screen"><LoaderCircle size={22} className="animate-spin"/> 서재를 열고 있어요</div>:shown.length?<div className={view==='covers'?'bookshelf-grid':'spines-shelf'}>{shown.map((book,index)=><article key={book.id} className={`book-item ${view==='spines'?'spine-item':''}`} style={{'--cover':book.color,'--delay':`${index*60}ms`} as CSSProperties}>
-            <div className="book-stage"><button className="book-open" aria-label={`${book.title} 읽기`} onClick={()=>openBook(book)}>{view==='covers'?<Cover book={book}/>:<div className="book-spine"><strong>{book.title}</strong><span>{book.author}</span><i>✳</i></div>}</button><button className={`bookmark-button ${stars.includes(book.id)?'marked':''}`} title={stars.includes(book.id)?'책갈피 해제':'책갈피 꽂기'} aria-label={stars.includes(book.id)?'책갈피 해제':'책갈피 꽂기'} aria-pressed={stars.includes(book.id)} onClick={()=>toggleStar(book.id)}><Bookmark size={17} fill={stars.includes(book.id)?'currentColor':'none'}/></button></div>
-            <div className="book-caption"><div><button className="book-title" onClick={()=>openBook(book)}>{book.title}</button><p>{book.author || '나의 이야기'}</p></div><div className="book-menu-wrap"><button className="icon-btn" title="책 관리" aria-label={`${book.title} 관리`} aria-expanded={menu===book.id} onClick={e=>{e.stopPropagation();setMenu(menu===book.id?null:book.id);}}><Ellipsis size={19}/></button>{menu===book.id&&<div className="dropdown"><button onClick={()=>setEdit(book)}>꾸미기</button><button onClick={()=>download(`${book.title}.json`,[book])}>내보내기</button><button className="danger-text" onClick={()=>setRemove(book)}>삭제</button></div>}</div></div><div className="book-meta"><span>{book.messages.length.toLocaleString()}개의 대화</span><span>{(book.lastPage??0)>0?'읽는 중':'펼치기 전'}</span></div>
-          </article>)}{tab==='all'&&!query&&view==='covers'&&<div className="new-book-slot"><button title="로그 가져오기" aria-label="로그 가져오기" onClick={()=>{setError('');setImporting(true);}}><span className="new-book-outline"><Plus size={26} strokeWidth={1}/></span></button></div>}</div>:<div className="empty-state"><BookOpen size={38} strokeWidth={1}/><h3>{query?'검색 결과 없음':'책이 없어요'}</h3>{tab==='all'&&!query&&<button className="secondary-btn" onClick={()=>setImporting(true)}><Plus size={16}/> 가져오기</button>}</div>}
+        {reading&&<button className="resume-card" aria-label={reading.title+' 이어 읽기'} title="이어 읽기" onClick={()=>openBook(reading)}><span className="resume-cover"><Cover book={reading} small/></span><span className="resume-copy"><strong>{reading.title}</strong><span>{reading.author} · {(reading.lastPage??0)+1}쪽</span></span><ArrowRight size={21} aria-hidden="true"/></button>}
+        <section aria-label="책장" className="collection"><div className="collection-toolbar"><div className="collection-heading"><h2>{tab==='all'?'모든 책':tab==='reading'?'읽던 책':'책갈피'}</h2><span>{groups.length}작품 · {shown.length}권</span></div><div className="collection-controls"><label className="search-box"><Search size={16}/><input aria-label="이야기 검색" placeholder="검색" value={query} onChange={e=>setQuery(e.target.value)}/>{query&&<button aria-label="검색 초기화" onClick={()=>setQuery('')}><X size={14}/></button>}</label><label className="sort-select"><select aria-label="책 정렬" value={sort} onChange={e=>setSort(e.target.value)}><option value="recent">최근 펼친 순</option><option value="oldest">오래된 순</option><option value="title">제목순</option></select><ChevronDown size={13}/></label><div className="view-switch" aria-label="책장 보기"><button className={view==='covers'?'active':''} title="표지 보기" aria-label="표지 보기" aria-pressed={view==='covers'} onClick={()=>setView('covers')}><BookOpen size={16}/></button><button className={view==='spines'?'active':''} title="책등 보기" aria-label="책등 보기" aria-pressed={view==='spines'} onClick={()=>setView('spines')}><Library size={16}/></button></div></div></div>
+          {loading?<div className="loading-screen"><LoaderCircle size={22} className="animate-spin"/> 서재를 열고 있어요</div>:shown.length?<div className="shelf-groups">{shelves.map(shelf=><section key={shelf===singletons?'singletons':`series:${shelf.id}`} aria-label={shelf.title} className="series-shelf" data-series-id={shelf.id}>
+            <header className="series-heading"><h3>{shelf.title}</h3><span>{shelf.books.length}권</span></header>
+            <div className={view==='covers'?'bookshelf-grid':'spines-shelf'}>{shelf.books.map((book,index)=><article key={book.id} className={`book-item ${view==='spines'?'spine-item':''}`} style={{'--cover':book.color,'--delay':`${Math.min(index,8)*60}ms`} as CSSProperties}>
+              <button className="book-read" aria-label={`${book.title} 읽기`} title={`${book.title} 읽기`} onClick={()=>openBook(book)}>
+                <div className="book-stage"><div className="book-open">{view==='covers'?<Cover book={book}/>:<div className="book-spine"><strong>{book.title}</strong><span>{book.author}</span><i aria-hidden="true">✳</i></div>}</div></div>
+                <div className="book-caption"><div><span className="book-title">{book.title}</span><p>{book.author || '나의 이야기'}</p></div></div>
+                <div className="book-meta"><span>{book.messages.length.toLocaleString()}개의 대화</span><span>{(book.lastPage??0)>0?'읽는 중':'펼치기 전'}</span></div>
+              </button>
+              <button className={`bookmark-button ${stars.includes(book.id)?'marked':''}`} title={stars.includes(book.id)?'책갈피 해제':'책갈피 꽂기'} aria-label={`${book.title} ${stars.includes(book.id)?'책갈피 해제':'책갈피 꽂기'}`} aria-pressed={stars.includes(book.id)} onClick={()=>toggleStar(book.id)}><Bookmark size={17} fill={stars.includes(book.id)?'currentColor':'none'}/></button>
+              <div className="book-menu-wrap"><button className="icon-btn" title="책 관리" aria-label={`${book.title} 관리`} aria-expanded={menu===book.id} onClick={e=>{e.stopPropagation();setMenu(menu===book.id?null:book.id);}}><Ellipsis size={19}/></button>{menu===book.id&&<div className="dropdown"><button onClick={()=>setEdit(book)}>꾸미기</button><button onClick={()=>download(`${book.title}.json`,[book])}>내보내기</button><button className="danger-text" onClick={()=>setRemove(book)}>삭제</button></div>}</div>
+            </article>)}</div>
+          </section>)}</div>:<div className="empty-state"><BookOpen size={38} strokeWidth={1}/><h3>{query?'검색 결과 없음':'책이 없어요'}</h3></div>}
+
         </section>
-        <footer className="library-footer"><button title="현재 브라우저에 저장됩니다. 데이터 삭제 전 백업하세요." aria-label="저장 및 백업 안내" onClick={()=>setInfo(true)}><FolderOpen size={17}/></button></footer>
+
       </main>
     </div>
     <input className="sr-only" ref={input} type="file" multiple accept=".json,.jsonl,.ndjson,.txt,.md,.markdown,.chat" onChange={e=>{if(e.target.files)void importFiles(e.target.files);e.target.value='';}}/>

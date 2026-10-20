@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview --host 0.0.0.0",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/volumes.test.ts",
+    "test:browser": "playwright test"
   },
   "dependencies": {
     "@radix-ui/colors": "^3.0.0",
@@ -16,6 +19,7 @@
     "react-dom": "19.3.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@tailwindcss/vite": "4.3.3",
     "@types/react": "latest",
     "@types/react-dom": "latest",
