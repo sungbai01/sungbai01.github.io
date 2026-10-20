@@ -153,7 +153,9 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
   const [editError,setEditError]=useState('');
   const [leafRevision,setLeafRevision]=useState(0);
   const draftsRef=useRef(new Map<string,string>());
-  const [fullscreen,setFullscreen]=useState(()=>{const view=readReaderViewport();return view.touch||view.width<=700;});
+  // A narrow desktop window or a touch-capable PC is still a desktop start.
+  // Auto-expand only when touch is the primary input and hovering is absent.
+  const [fullscreen,setFullscreen]=useState(()=>window.matchMedia('(pointer: coarse)').matches&&window.matchMedia('(hover: none)').matches);
   const [drawerOpen,setDrawerOpen]=useState(false);
   const drawerRef=useRef(false);drawerRef.current=drawerOpen;
   const drawerHandleRef=useRef<HTMLButtonElement>(null);
