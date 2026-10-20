@@ -273,3 +273,7 @@ html[data-library-theme=dark]{color-scheme:dark;background:var(--sand-2)}
 @media(max-width:560px){.book-cover .cover-portrait{height:min(104px,100%);width:auto}}
 @media(max-width:355px){.book-cover .cover-portrait{height:min(96px,100%);width:auto}}
 .book-cover.cover-small .cover-portrait{width:30px;height:30px;aspect-ratio:1}
+
+.book-spine .spine-title-zone{position:relative;display:block;flex:1;width:100%;min-height:0;overflow:hidden}
+.spine-title-rotator{position:absolute;top:2px;left:calc(100% - 1px);transform:rotate(90deg);transform-origin:top left;display:flex;align-items:center;justify-content:flex-start;overflow:hidden}
+.book-spine .spine-title-zone .spine-title{position:static;left:auto;top:auto;transform:none;transform-origin:initial;display:-webkit-box;-webkit-box-orient:vertical;width:100%;min-width:0;max-width:100%;margin:0;padding:0;line-height:1.12;letter-spacing:.2px;writing-mode:horizontal-tb;text-align:left;white-space:normal;word-break:break-all;overflow-wrap:anywhere;overflow:hidden;text-overflow:ellipsis}

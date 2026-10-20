@@ -83,6 +83,7 @@ export abstract class Render {
     /** Timer started from start of rendering */
     protected timer = 0;
     private frameId: number | null = null;
+    private frameGeneration = 0;
     private running = false;
     private dirty = true;
 
@@ -118,6 +119,7 @@ export abstract class Render {
      * @param timer
      */
     private render(timer: number): void {
+        const generation = this.frameGeneration;
         const animation = this.animation;
         if (animation) {
             // RAF timestamps describe the beginning of a frame; input can create
@@ -132,6 +134,7 @@ export abstract class Render {
                 animation.onAnimateEnd?.();
             }
         }
+        if (generation !== this.frameGeneration) return;
         this.timer = timer;
         if (animation || this.dirty) {
             this.dirty = false;
@@ -153,12 +156,32 @@ export abstract class Render {
     /** Sleep completely between changes, including while a drag is held still. */
     private requestFrame(): void {
         if (!this.running || this.frameId !== null) return;
+        const generation = this.frameGeneration;
         this.frameId = requestAnimationFrame(timer => {
+            // An already queued callback must not clear a newer frame's handle.
+            if (generation !== this.frameGeneration) return;
             this.frameId = null;
             if (!this.running) return;
             try { this.render(timer); }
-            finally { if (this.animation !== null || this.dirty) this.requestFrame(); }
+            finally {
+                if (generation === this.frameGeneration && (this.animation !== null || this.dirty)) this.requestFrame();
+            }
         });
+    }
+
+    private discardPendingFrame(): void {
+        this.frameGeneration++;
+        if (this.frameId !== null) cancelAnimationFrame(this.frameId);
+        this.frameId = null;
+    }
+
+    /** Draw selected page references now, without advancing an animation. */
+    public drawNow(): void {
+        this.discardPendingFrame();
+        if (!this.running) return;
+        this.dirty = false;
+        this.drawFrame();
+        if (this.animation !== null || this.dirty) this.requestFrame();
     }
 
     public invalidate(): void {
@@ -167,14 +190,14 @@ export abstract class Render {
     }
 
     public cancelAnimation(): void {
+        this.discardPendingFrame();
         this.animation = null;
         this.invalidate();
     }
 
     public stop(): void {
         this.running = false;
-        if (this.frameId !== null) cancelAnimationFrame(this.frameId);
-        this.frameId = null;
+        this.discardPendingFrame();
         this.animation = null;
     }
 

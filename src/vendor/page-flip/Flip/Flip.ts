@@ -323,23 +323,29 @@ export class Flip {
         for (const p of points) frames.push(() => this.do(p));
 
         const duration = this.getAnimationDuration(points.length);
+        const calculation = this.calc;
 
         this.render.startAnimation(frames, duration, () => {
             // callback function
-            if (!this.calc) return;
+            if (!calculation || this.calc !== calculation) return;
 
             if (isTurned) {
                 if (this.calc.getDirection() === FlipDirection.BACK) this.app.turnToPrevPage();
                 else this.app.turnToNextPage();
             }
 
+            // A flip subscriber may have jumped or begun another turn.
+            if (this.calc !== calculation) return;
+
             if (needReset) {
                 this.render.setBottomPage(null);
                 this.render.setFlippingPage(null);
                 this.render.clearShadow();
 
-                this.setState(FlippingState.READ);
                 this.reset();
+                // Read subscribers may synchronously seek or start a new turn.
+                // Clear the completed calculation before notifying them.
+                this.setState(FlippingState.READ);
             }
         });
     }

@@ -36,6 +36,7 @@ export class PageFlip extends EventObject {
 
     private ui: UI;
     private destroyed = false;
+    private jumpGeneration = 0;
 
     /**
      * Create a new PageFlip instance
@@ -198,7 +199,16 @@ export class PageFlip extends EventObject {
      * @param {number} page - New page number
      */
     public turnToPage(page: number): void {
+        if (this.destroyed || !this.pages || !Number.isInteger(page) ||
+            page < 0 || page >= this.pages.getPageCount()) return;
+        const generation = ++this.jumpGeneration;
+        // A seek discards the old turn; completing it would emit a stale flip.
+        this.cancelUserTouch();
+        if (generation !== this.jumpGeneration || this.destroyed) return;
         this.pages.show(page);
+        // flip/changeState subscribers can synchronously request a newer seek.
+        if (generation !== this.jumpGeneration || this.destroyed) return;
+        this.render.drawNow();
     }
 
     /**
@@ -449,6 +459,7 @@ export class PageFlip extends EventObject {
     public cancelUserTouch(): void {
         this.isUserTouch = false;
         this.isUserMove = false;
+        this.ui?.clearUserTouch();
         this.flipController?.cancel();
     }
 }

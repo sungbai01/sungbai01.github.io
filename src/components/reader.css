@@ -219,8 +219,8 @@
 .reader-bookmark-slip img{width:100%;height:auto;aspect-ratio:1;object-fit:cover;object-position:top;pointer-events:none;border-radius:1px}
 .reader-bookmark-slip strong{font:600 12px/1.65 'Gowun Batang',serif;text-align:center;max-width:100%;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
 .reader .reader-bookmark-character{color:white;text-shadow:0 1px 2px #0008}
-.reader[data-page-layout='spread'] .reader-stage:has(.reader-page-right:hover) .reader-bookmark-slip:not(:hover){opacity:.18}
-.reader[data-page-layout='single'] .reader-page:hover .reader-bookmark-slip:not(:hover){opacity:.18}
+.reader[data-bookmark-current='true'][data-page-layout='spread'] .reader-stage:has(.reader-page-right:hover) .reader-bookmark-slip:not(:hover){opacity:.18}
+.reader[data-bookmark-current='true'][data-page-layout='single'] .reader-page:hover .reader-bookmark-slip:not(:hover){opacity:.18}
 .reader .reader-bookmark-slip:hover,.reader .reader-bookmark-slip:focus-visible{opacity:1}
 .reader-page[data-bookmark-hidden='true'] .reader-bookmark-slip{visibility:hidden}
 .reader-bookmark-peek{position:absolute;z-index:9;left:50%;top:calc((100% - var(--paper-height))/2 - 30px);width:calc(var(--paper-height)*2/15);height:30px;pointer-events:none;transition:left .36s ease}
@@ -262,3 +262,6 @@
 @media(prefers-reduced-motion:reduce){.reader-bookmark-peek{transition:none}}
 
 .reader-paper-shell>.reader-bookmark-slip[data-bookmark-side='before'],.reader-bookmark-fold-layer>.reader-bookmark-slip[data-bookmark-side='before']{transform:translateX(-100%)}
+
+.reader-chapter-heading{flex-direction:column;gap:18px;font-size:clamp(16px,2.4vw,24px);letter-spacing:.2em}
+.reader-chapter-heading:after{content:'';display:block;width:min(120px,42%);height:1px;background:var(--reader-line)}
