@@ -142,7 +142,7 @@ export abstract class UI {
         if (!this.app.getSettings().useMouseEvents) return;
 
         this.distElement.addEventListener('mousedown', this.onMouseDown);
-        this.distElement.addEventListener('touchstart', this.onTouchStart);
+        this.distElement.addEventListener('touchstart', this.onTouchStart, { passive: false });
         window.addEventListener('mousemove', this.onMouseMove);
         window.addEventListener('touchmove', this.onTouchMove, {
             passive: !this.app.getSettings().mobileScrollSupport,
@@ -197,14 +197,11 @@ export abstract class UI {
                     time: Date.now(),
                 };
 
-                // part of swipe detection
-                setTimeout(() => {
-                    if (this.touchPoint !== null) {
-                        this.app.startUserTouch(pos);
-                    }
-                }, this.swipeTimeout);
-
-                if (!this.app.getSettings().mobileScrollSupport) e.preventDefault();
+                // The reader is a fixed book surface. Register a tap immediately;
+                // delaying it by 250ms discarded short taps and let native scroll
+                // and compatibility mouse events compete with the page curl.
+                this.app.startUserTouch(pos);
+                if (e.cancelable) e.preventDefault();
             }
         }
     };

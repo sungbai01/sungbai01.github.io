@@ -13,6 +13,7 @@ export interface Message {
   role: string;
   name: string;
   content: string;
+  chapter?: string;
 }
 
 export interface Book {
@@ -32,6 +33,7 @@ export interface Book {
   seriesTitle?: string;
   volumeNumber?: number;
   volumeCount?: number;
+  volumePolicy?: 'chapters-100-v1';
 }
 
 export class LibraryError extends Error {
@@ -111,6 +113,7 @@ function normalizeMessage(value: unknown, index: number, character: string, user
     role,
     name: string(value.name, value.speaker, speaker, role === 'user' ? user : role === 'assistant' ? character : role === 'system' ? '시스템' : '서술'),
     content: content.replace(/\r\n?/g, '\n'),
+    ...(typeof value.chapter === 'string' ? { chapter: value.chapter } : {}),
   };
 }
 
@@ -132,7 +135,8 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
     // normalize roles, trim speaker names, or change source line endings.
     if (context.preserveIds && record(row) && typeof row.role === 'string' &&
         typeof row.name === 'string' && typeof row.content === 'string') {
-      return { role: row.role, name: row.name, content: row.content };
+      return { role: row.role, name: row.name, content: row.content,
+        ...(typeof row.chapter === 'string' ? { chapter: row.chapter } : {}) };
     }
     return normalizeMessage(row, i, character, user, context.names);
   });
@@ -156,6 +160,7 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
     if (typeof value.seriesTitle === 'string') book.seriesTitle = value.seriesTitle;
     if (typeof value.volumeNumber === 'number' && Number.isSafeInteger(value.volumeNumber) && value.volumeNumber > 0) book.volumeNumber = value.volumeNumber;
     if (typeof value.volumeCount === 'number' && Number.isSafeInteger(value.volumeCount) && value.volumeCount > 0) book.volumeCount = value.volumeCount;
+    if (value.volumePolicy === 'chapters-100-v1') book.volumePolicy = value.volumePolicy;
   }
   return book;
 }
@@ -369,7 +374,8 @@ function validateBook(book: Book): void {
     !['title', 'author', 'description', 'color'].every((key) => typeof (book as unknown as RecordValue)[key] === 'string') ||
     typeof book.createdAt !== 'string' || !Number.isFinite(Date.parse(book.createdAt)) ||
     typeof book.updatedAt !== 'string' || !Number.isFinite(Date.parse(book.updatedAt)) || !Array.isArray(book.messages) ||
-    !book.messages.every((message) => record(message) && ['role', 'name', 'content'].every((key) => typeof (message as unknown as RecordValue)[key] === 'string')) ||
+    !book.messages.every((message) => record(message) && ['role', 'name', 'content'].every((key) => typeof (message as unknown as RecordValue)[key] === 'string') &&
+      (message.chapter === undefined || typeof message.chapter === 'string')) ||
     (book.lastPage !== undefined && (!Number.isSafeInteger(book.lastPage) || book.lastPage < 0)) ||
     (book.seriesId !== undefined && typeof book.seriesId !== 'string') ||
     (book.seriesTitle !== undefined && typeof book.seriesTitle !== 'string') ||
@@ -428,6 +434,16 @@ export async function saveBook(book: Book): Promise<void> {
  * No records are deleted; an abort leaves both stores unchanged.
  */
 export async function replaceBookWithVolumes(originalId: string, volumes: Book[]): Promise<void> {
+  return repackSeries(originalId, volumes, []);
+}
+
+/** Atomically replace a series and remove obsolete books and progress overrides.
+ * Retained IDs win if also listed as obsolete. Failure rolls back both stores.
+ */
+export async function repackSeries(originalId: string, volumes: Book[], obsoleteIds: string[]): Promise<void> {
+  if (!Array.isArray(obsoleteIds) || obsoleteIds.some(id => typeof id !== 'string' || !id.trim())) {
+    throw new LibraryError('삭제할 이전 분권 ID가 올바르지 않습니다.');
+  }
   if (typeof originalId !== 'string' || !originalId.trim() || !Array.isArray(volumes) || !volumes.length) {
     throw new LibraryError('교체할 원본 책과 분권 목록이 필요합니다.');
   }
@@ -450,6 +466,18 @@ export async function replaceBookWithVolumes(originalId: string, volumes: Book[]
       request = books.put(book);
       progress.delete(book.id);
     }
+    for (const id of new Set(obsoleteIds)) {
+      if (!ids.has(id)) { books.delete(id); progress.delete(id); }
+    }
+    return request;
+  });
+}
+
+/** Idempotent: deleting a missing id succeeds. */
+export async function deleteAllBooks(): Promise<void> {
+  await withStores([STORE, PROGRESS_STORE], 'readwrite', transaction => {
+    const request=transaction.objectStore(STORE).clear();
+    transaction.objectStore(PROGRESS_STORE).clear();
     return request;
   });
 }

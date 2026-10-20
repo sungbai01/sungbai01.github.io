@@ -270,7 +270,10 @@ export class Flip {
 
         const y = this.calc.getCorner() === FlipCorner.BOTTOM ? rect.height : 0;
 
-        if (pos.x <= 0) this.animateFlippingTo(pos, { x: -rect.pageWidth, y }, true);
+        const threshold = this.render.getOrientation() === Orientation.PORTRAIT
+            ? (this.calc.getDirection() === FlipDirection.BACK ? -rect.pageWidth / 2 : rect.pageWidth / 2)
+            : 0;
+        if (pos.x <= threshold) this.animateFlippingTo(pos, { x: -rect.pageWidth, y }, true);
         else this.animateFlippingTo(pos, { x: rect.pageWidth, y }, false);
     }
 
@@ -386,7 +389,7 @@ export class Flip {
         const rect = this.getBoundsRect();
 
         if (this.render.getOrientation() === Orientation.PORTRAIT) {
-            if (touchPos.x - rect.pageWidth <= rect.width / 5) {
+            if (touchPos.x - rect.pageWidth <= rect.pageWidth / 2) {
                 return FlipDirection.BACK;
             }
         } else if (touchPos.x < rect.width / 2) {

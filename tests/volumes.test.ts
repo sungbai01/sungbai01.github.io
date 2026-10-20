@@ -2,11 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Book } from '../src/lib/library.ts';
-import { exportBackup, importChatFile, replaceBookWithVolumes } from '../src/lib/library.ts';
-import {
-  MAX_VOLUME_PAGES, MAX_VOLUME_CHARACTERS, MAX_VOLUME_MESSAGES,
-  groupBooks, splitBookByPages, splitBookForStorage,
-} from '../src/lib/volumes.ts';
+import { exportBackup, importChatFile, replaceBookWithVolumes, repackSeries } from '../src/lib/library.ts';
+import { MAX_VOLUME_PAGES, chapterStarts, groupBooks, mergeLegacyVolumes, splitBookByPages, splitBookForStorage } from '../src/lib/volumes.ts';
 
 function fixture(count: number, extra: Partial<Book> = {}) {
   const chunks = Array.from({ length: count }, (_, i) => ` \t${i} 한글😀\r\n `);
@@ -28,215 +25,189 @@ function fixture(count: number, extra: Partial<Book> = {}) {
   return { book, pages, chunks };
 }
 
-function assertStorageConserved(source: Book, volumes: Book[]) {
-  const fragments = volumes.flatMap(volume => volume.messages);
+
+function withChunks(chunks: string[], extra: Partial<Book> = {}) {
+  const { book } = fixture(0, extra);
+  book.messages = [{ role: 'custom ROLE', name: ' original ', content: chunks.join('') }];
+  let offset = 0;
+  const pages = chunks.map(text => {
+    const char = offset;
+    offset += text.length;
+    return { intro: false, fragments: [{ message: 0, char, end: offset, text: 'display', name: 'display' }] };
+  });
+  return { book, pages };
+}
+
+function conserve(book: Book, volumes: Book[]) {
+  const fragments = volumes.flatMap(v => v.messages);
   let index = 0;
-  for (const message of source.messages) {
+  for (const source of book.messages) {
     let content = '';
     do {
       const fragment = fragments[index++];
-      assert.ok(fragment, 'every source message must be represented, including empty messages');
-      assert.equal(fragment.role, message.role);
-      assert.equal(fragment.name, message.name);
+      assert.ok(fragment);
+      const { content: _sourceContent, ...metadata } = source;
+      const { content: _fragmentContent, ...actual } = fragment;
+      assert.deepEqual(actual, metadata);
       content += fragment.content;
-    } while (content.length < message.content.length);
-    assert.equal(content, message.content);
+    } while (content.length < source.content.length);
+    assert.equal(content, source.content);
   }
-  assert.equal(index, fragments.length, 'no duplicate or extra messages');
-  for (const volume of volumes) {
-    assert.ok(volume.messages.length > 0 && volume.messages.length <= MAX_VOLUME_MESSAGES);
-    assert.ok(volume.messages.reduce((total, message) => total + message.content.length, 0) <= MAX_VOLUME_CHARACTERS);
-  }
+  assert.equal(index, fragments.length);
 }
 
-test('coarse split is a no-op at both exact limits, including an empty book', () => {
-  assert.equal(MAX_VOLUME_CHARACTERS, 10000);
-  assert.equal(MAX_VOLUME_MESSAGES, 100);
-  for (const messages of [[], [{ role: 'x', name: '', content: 'a'.repeat(10000) }],
-    Array.from({ length: 100 }, () => ({ role: 'x', name: ' n ', content: 'b'.repeat(100) })),
-  ]) {
-    const { book } = fixture(0, { messages });
+test('storage never pre-splits by characters, messages, or old volume IDs', () => {
+  for (const extra of [{}, { id: 'series--vol-3--part-2', seriesId: 'series', volumeNumber: 3, volumeCount: 8 }]) {
+    const { book } = fixture(0, { ...extra, messages: Array.from({ length: 801 }, (_, i) => ({
+      role: 'x', name: ` ${i} `, chapter: ' chapter ', content: i % 2 ? '' : '😀한글\r\n'.repeat(10001),
+    })) });
+    assert.deepEqual(splitBookForStorage(book), [book]);
     assert.equal(splitBookForStorage(book)[0], book);
-    assert.equal(splitBookForStorage(book).length, 1);
   }
+  assert.equal(splitBookForStorage(fixture(0).book).length, 1);
 });
 
-test('coarse split conserves 800 messages exactly while bounding both budgets', () => {
-  const { book } = fixture(0, {
-    messages: Array.from({ length: 800 }, (_, index) => ({
-      role: `ROLE ${index % 3}`, name: ` \t${index} `,
-      content: index % 11 === 0 ? '' : ` \r\n한글😀\t${index} `.repeat(index % 13 + 1),
-    })),
-  });
-  const snapshot = structuredClone(book);
-  const volumes = splitBookForStorage(book);
-  assert.ok(volumes.length > 1);
-  assertStorageConserved(book, volumes);
-  assert.deepEqual(book, snapshot);
-  assert.deepEqual(splitBookForStorage(book), volumes);
-  for (const volume of volumes) assert.equal(splitBookForStorage(volume)[0], volume);
-});
-
-test('coarse message cap includes empty messages and preserves distinct message boundaries', () => {
-  const { book } = fixture(0, { messages: Array.from({ length: 201 }, () => ({ role: 'same', name: '', content: '' })) });
-  const volumes = splitBookForStorage(book);
-  assert.deepEqual(volumes.map(volume => volume.messages.length), [100, 100, 1]);
-  assertStorageConserved(book, volumes);
-});
-
-test('coarse split handles huge messages, Unicode pairs and one-unit remaining capacity', () => {
-  for (const messages of [
-    [{ role: 'CHAR', name: '\t ', content: 'a'.repeat(9999) + '😀' + '한글\r\n '.repeat(6000) }],
-    [{ role: 'CHAR', name: '\t ', content: '😀'.repeat(15001) }],
-    [{ role: 'user', name: '', content: 'a'.repeat(9999) },
-      { role: 'assistant', name: ' n ', content: '😀'.repeat(6000) }],
-  ]) {
-    const { book } = fixture(0, { messages });
-    const volumes = splitBookForStorage(book);
-    assertStorageConserved(book, volumes);
-    for (const volume of volumes) {
-      for (const message of volume.messages) {
-        assert.equal(message.content.isWellFormed(), true);
-        assert.ok(message.content.length > 0, 'no artificial empty fragments');
-      }
-    }
-  }
-});
-
-test('coarse split preserves existing series metadata and resets uncertain page offsets', async () => {
-  const { book } = fixture(0, {
-    id: 'series--vol-3', seriesId: 'series', seriesTitle: 'Original', volumeNumber: 3, volumeCount: 5, lastPage: 800,
-    messages: [{ role: 'CHAR', name: '  name  ', content: ' \r\n😀\t'.repeat(4000) }],
-  });
-  const volumes = splitBookForStorage(book);
-  assertStorageConserved(book, volumes);
-  volumes.forEach((volume, index) => {
-    assert.deepEqual(volume, {
-      ...book, id: index === 0 ? book.id : `${book.id}--part-${index + 1}`,
-      title: `Original · ${index + 1}권`, volumeNumber: index + 1, volumeCount: volumes.length,
-      messages: volume.messages, lastPage: 0,
-    });
-  });
-  const restored = await importChatFile(new File([await exportBackup(volumes).text()], 'books.json'));
-  assert.deepEqual(restored, volumes);
-  assertStorageConserved(book, restored);
-  assert.equal(book.lastPage, 800);
-});
-
-test('coarse caps hold together when message 100 crosses the character budget', () => {
-  const { book } = fixture(0, {
-    messages: [
-      ...Array.from({ length: 99 }, (_, i) => ({ role: `role-${i}`, name: ` name-${i} `, content: 'a'.repeat(101) })),
-      { role: 'last', name: '', content: '😀'.repeat(10000) },
-      { role: 'empty', name: ' ', content: '' },
-    ],
-  });
-  assertStorageConserved(book, splitBookForStorage(book));
-});
-
-test('0 through 60 measured pages retain the original object', () => {
-  assert.equal(MAX_VOLUME_PAGES, 60);
-  for (const count of [0, 1, 59, 60]) {
-    const { book, pages } = fixture(count);
-    assert.deepEqual(splitBookByPages(book, pages), [book]);
+test('up to 100 measured pages never split, even with many chapter boundaries', () => {
+  assert.equal(MAX_VOLUME_PAGES, 100);
+  for (const count of [0, 1, 27, 99, 100]) {
+    const { book, pages } = withChunks(Array.from({ length: count }, (_, i) => `# Chapter ${i}\ntext\n`));
     assert.equal(splitBookByPages(book, pages)[0], book);
+    assert.equal(splitBookByPages(book, pages).length, 1);
   }
 });
 
-test('61, 120, and 121 pages split exactly, retaining whitespace and all metadata', () => {
-  for (const count of [61, 120, 121]) {
+test('long chapters hard-cut at exactly 100 pages with complete metadata conservation', () => {
+  for (const count of [101, 200, 201, 350]) {
     const { book, pages, chunks } = fixture(count);
-    const snapshot = structuredClone({ book, pages });
+    const before = structuredClone({ book, pages });
     const volumes = splitBookByPages(book, pages);
-    assert.equal(volumes.length, Math.ceil(count / 60));
-    volumes.forEach((volume, i) => {
-      assert.deepEqual(volume, {
-        ...book, id: i === 0 ? book.id : `${book.id}--part-${i + 1}`,
-        title: `Story · ${i + 1}권`, seriesId: book.id, seriesTitle: book.title,
-        volumeNumber: i + 1, volumeCount: volumes.length,
-        messages: [{ ...book.messages[0], content: chunks.slice(i * 60, (i + 1) * 60).join('') }],
-      });
-    });
-    assert.equal(volumes.flatMap(v => v.messages).map(m => m.content).join(''), book.messages[0].content);
-    assert.deepEqual({ book, pages }, snapshot);
-    assert.deepEqual(splitBookByPages(book, pages), volumes);
+    assert.equal(volumes.length, Math.ceil(count / 100));
+    volumes.forEach((volume, i) => assert.deepEqual(volume, {
+      ...book, id: i === 0 ? book.id : `${book.id}--part-${i + 1}`,
+      title: `Story · ${i + 1}권`, seriesId: book.id, seriesTitle: book.title,
+      volumeNumber: i + 1, volumeCount: volumes.length,
+      volumePolicy: 'chapters-100-v1',
+      messages: [{ ...book.messages[0], content: chunks.slice(i * 100, (i + 1) * 100).join('') }],
+    }));
+    conserve(book, volumes);
+    assert.deepEqual({ book, pages }, before);
   }
 });
 
-test('splitting existing volumes and then their parts cannot reuse sibling IDs', () => {
-  const { book, pages } = fixture(121, { id: 'series--vol-2', seriesId: 'series', seriesTitle: 'Original' });
+test('heading offsets inside a message choose the nearest prior chapter-start page', () => {
+  const chunks = Array.from({ length: 220 }, (_, i) => `page ${i}\n`);
+  chunks[30] += '### Earlier chapter\n';
+  chunks[85] += '## Next chapter\n';
+  chunks[150] += '제 3장 다음\n';
+  const { book, pages } = withChunks(chunks, { lastPage: 160 });
+  assert.deepEqual(chapterStarts(book), [30, 85, 150].map(i => ({
+    message: 0, char: chunks.slice(0, i).join('').length + `page ${i}\n`.length,
+  })));
+  const volumes = splitBookByPages(book, pages);
+  assert.deepEqual(volumes.map(v => v.messages[0].content), [
+    chunks.slice(0, 85).join(''), chunks.slice(85, 150).join(''), chunks.slice(150).join(''),
+  ]);
+  assert.deepEqual(volumes.map(v => v.lastPage), [84, 64, 10]);
+  conserve(book, volumes);
+});
+
+test('chapter-start at page 100 is exact; page zero cannot produce empty volumes', () => {
+  const chunks = Array.from({ length: 201 }, (_, i) => `page ${i}\n`);
+  chunks[0] = 'Chapter 1\n';
+  chunks[100] = 'Chapter 2\n';
+  const { book, pages } = withChunks(chunks);
+  const volumes = splitBookByPages(book, pages);
+  assert.equal(volumes.length, 3);
+  assert.equal(volumes[0].messages[0].content, chunks.slice(0, 100).join(''));
+  assert.equal(volumes[1].messages[0].content, chunks.slice(100, 200).join(''));
+  conserve(book, volumes);
+});
+
+test('chapter metadata changes create boundaries; speaker changes never do', () => {
+  const { book } = fixture(0);
+  book.messages = Array.from({ length: 151 }, (_, i) => ({
+    role: `role${i}`, name: `speaker${i}`, content: `message ${i}\n`, chapter: i < 70 ? 'one' : 'two',
+  }));
+  const pages = book.messages.map((m, message) => ({ intro: false, fragments: [
+    { message, char: 0, end: m.content.length, text: m.content, name: m.name },
+  ] }));
+  assert.deepEqual(chapterStarts(book), [{ message: 0, char: 0 }, { message: 70, char: 0 }]);
+  assert.deepEqual(splitBookByPages(book, pages).map(v => v.messages.length), [70, 81]);
+  book.messages.forEach(m => { delete m.chapter; });
+  assert.deepEqual(chapterStarts(book), []);
+  assert.deepEqual(splitBookByPages(book, pages).map(v => v.messages.length), [100, 51]);
+});
+
+test('only explicit line-start headings count, including CRLF offsets', () => {
+  const { book } = fixture(0, { messages: [{ role: 'x', name: '# speaker', content:
+    'inline # no\r\n#### no\r\n Chapter 2 no\r\nChapter 2 yes\r\n제2장 시작\r\n# title\r\n## second\r\n### third\r\nChapter prose\r\n' }] });
+  const offsets = chapterStarts(book).map(start => start.char);
+  assert.deepEqual(offsets, ['Chapter 2 yes', '제2장 시작', '# title', '## second', '### third'].map(t => book.messages[0].content.indexOf(t)));
+});
+
+test('empty messages and intro pages survive at the measured cut', () => {
+  const { book, pages } = fixture(100);
+  pages.unshift({ intro: true, fragments: [] });
+  book.messages.push({ role: 'empty', name: ' ', content: '', chapter: 'end' });
+  pages[100].fragments.push({ message: 1, char: 0, end: 0, text: '', name: '' });
+  const volumes = splitBookByPages(book, pages);
+  assert.equal(volumes[0].messages[0].content, book.messages[0].content.slice(0, pages[99].fragments[0].end));
+  conserve(book, volumes);
+});
+
+test('already split IDs remain scoped to their source volume', () => {
+  const { book, pages } = fixture(201, { id: 'series--vol-2', seriesId: 'series', seriesTitle: 'Original' });
   const volumes = splitBookByPages(book, pages);
   assert.deepEqual(volumes.map(v => v.id), ['series--vol-2', 'series--vol-2--part-2', 'series--vol-2--part-3']);
-  assert.ok(volumes.every(v => v.seriesId === 'series' && v.seriesTitle === 'Original'));
-  // Re-measure the part's own source, as the Reader does.
-  const remeasured = fixture(61, { id: volumes[1].id, seriesId: 'series', seriesTitle: 'Original' });
-  assert.equal(splitBookByPages(remeasured.book, remeasured.pages)[1].id, 'series--vol-2--part-2--part-2');
+  const next = fixture(101, { ...volumes[1], messages: fixture(101).book.messages });
+  assert.equal(splitBookByPages(next.book, next.pages)[1].id, 'series--vol-2--part-2--part-2');
+  conserve(book, volumes);
 });
 
-test('progress maps to each local page range', () => {
-  for (const [lastPage, expected] of [
-    [0, [0, 0, 0]], [59, [59, 0, 0]], [60, [59, 0, 0]],
-    [87, [59, 27, 0]], [120, [59, 59, 0]], [999, [59, 59, 0]],
-  ] as const) {
-    const { book, pages } = fixture(121, { lastPage });
-    assert.deepEqual(splitBookByPages(book, pages).map(v => v.lastPage), expected);
-  }
-});
-
-test('empty messages, multiple messages per page, and source speaker fields survive', () => {
-  const { book, pages } = fixture(61);
-  book.messages.push({ role: 'user', name: '', content: '' }, { role: 'system', name: '\t', content: ' \r\nlast\t ' });
-  pages[60].fragments.push(
-    { message: 1, char: 0, end: 0, text: '', name: 'fallback' },
-    { message: 2, char: 0, end: book.messages[2].content.length, text: 'wrong', name: 'wrong' },
-  );
-  assert.deepEqual(splitBookByPages(book, pages)[1].messages.slice(1), book.messages.slice(1));
-});
-
-test('intro-only pages count toward volume boundaries', () => {
-  const { book, pages, chunks } = fixture(60);
-  pages.unshift({ intro: true, fragments: [] });
-  const volumes = splitBookByPages(book, pages);
-  assert.equal(volumes[0].messages[0].content, chunks.slice(0, 59).join(''));
-  assert.equal(volumes[1].messages[0].content, chunks[59]);
-});
-
-test('incomplete or stale pagination fails without modifying the source', () => {
+test('stale or incomplete measured pages reject without mutation', () => {
   for (const alter of [
     (p: ReturnType<typeof fixture>['pages']) => { p[0].fragments[0].char++; },
     (p: ReturnType<typeof fixture>['pages']) => { p[1].fragments[0].char--; },
     (p: ReturnType<typeof fixture>['pages']) => { p[0].fragments[0].message = 10; },
-    (p: ReturnType<typeof fixture>['pages']) => { p[60].fragments = []; },
+    (p: ReturnType<typeof fixture>['pages']) => { p[100].fragments = []; },
   ]) {
-    const { book, pages } = fixture(61);
-    const snapshot = structuredClone(book);
+    const { book, pages } = fixture(101);
+    const before = structuredClone(book);
     alter(pages);
     assert.throws(() => splitBookByPages(book, pages), RangeError);
-    assert.deepEqual(book, snapshot);
+    assert.deepEqual(book, before);
   }
 });
 
-test('grouping preserves shelf order and sorts volumes numerically without mutation', () => {
-  const { book } = fixture(1);
-  const volume = (n: number): Book => ({ ...book, id: `v${n}`, seriesId: 'series', seriesTitle: 'Series', volumeNumber: n });
-  const books = [volume(10), book, volume(2), volume(1)];
-  const snapshot = structuredClone(books);
-  assert.deepEqual(groupBooks(books).map(g => [g.id, g.title, g.books.map(b => b.id)]), [
-    ['series', 'Series', ['v1', 'v2', 'v10']], ['book', 'Story', ['book']],
-  ]);
-  assert.deepEqual(books, snapshot);
-  assert.deepEqual(groupBooks([]), []);
-});
-
-test('own-format and backup restore preserve exact Message fields and series metadata', async () => {
-  const { book, pages } = fixture(61, { lastPage: 60 });
-  book.messages.push({ role: 'CHAR', name: '', content: '' });
-  pages[60].fragments.push({ message: 1, char: 0, end: 0, text: '', name: 'fallback' });
+test('chapter metadata round-trips own books, backup, and normalized imports', async () => {
+  const { book, pages } = fixture(101);
+  book.messages[0].chapter = '  chapter 1  ';
   const volumes = splitBookByPages(book, pages);
   for (const json of [JSON.stringify(volumes), await exportBackup(volumes).text()]) {
-    const restored = await importChatFile(new File([json], 'books.json'));
-    assert.deepEqual(restored, volumes);
+    assert.deepEqual(await importChatFile(new File([json], 'books.json')), volumes);
   }
+  const imported = await importChatFile(new File([JSON.stringify({ messages: [
+    { role: 'char', name: 'speaker', content: 'text', chapter: '  chapter 1  ' },
+  ] })], 'chat.json'));
+  assert.equal(imported[0].messages[0].chapter, '  chapter 1  ');
+});
+
+test('legacy series merge orders volumes, keeps original first ID, metadata, and all messages', () => {
+  const { book } = fixture(1);
+  const volumes = [3, 1, 2].map(i => ({ ...book, id: `original--part-${i}`, seriesId: 'original',
+    seriesTitle: 'Series', volumeNumber: i, messages: [{ ...book.messages[0], chapter: `ch${i}`, content: ` text ${i} ` }],
+  }));
+  const before = structuredClone(volumes);
+  const merged = mergeLegacyVolumes([volumes[0], book, volumes[1], volumes[2]]);
+  assert.equal(merged[0].id, 'original--part-1');
+  assert.equal(merged[0].title, 'Series');
+  assert.equal(merged[0].author, book.author);
+  assert.deepEqual(merged[0].messages, [volumes[1], volumes[2], volumes[0]].flatMap(v => v.messages));
+  assert.equal(merged[1], book);
+  assert.equal(merged[0].lastPage, 0);
+  assert.deepEqual(volumes, before);
+  assert.deepEqual(mergeLegacyVolumes(merged), merged);
+  assert.deepEqual(groupBooks(volumes)[0].books.map(v => v.volumeNumber), [1, 2, 3]);
 });
 
 // A transaction-level IndexedDB test double: writes stay staged until commit.
@@ -320,7 +291,7 @@ test('replacement commits the complete series and progress cleanup atomically', 
   try {
     const db = transactionDatabase();
     Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: db.api });
-    const { book, pages } = fixture(61, { id: 'original', seriesId: 'series' });
+    const { book, pages } = fixture(101, { id: 'original', seriesId: 'series' });
     const volumes = splitBookByPages(book, pages);
     db.progress.set('original--part-2', 12);
     const sibling = { ...book, id: 'sibling', cover: 'https://unsafe.example/cover.png' };
@@ -354,6 +325,40 @@ test('replacement commits the complete series and progress cleanup atomically', 
       await assert.rejects(replaceBookWithVolumes(id, supplied));
     }
     assert.equal(invalid.opens, 0, 'validate the complete batch before opening storage');
+  } finally {
+    if (previous) Object.defineProperty(globalThis, 'indexedDB', previous);
+    else Reflect.deleteProperty(globalThis, 'indexedDB');
+  }
+});
+
+
+test('repack atomically removes obsolete books/progress, protects kept IDs, and rolls back failures', async () => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB');
+  try {
+    const { book, pages } = fixture(101, { id: 'original', seriesId: 'series' });
+    const volumes = splitBookByPages(book, pages);
+    const db = transactionDatabase();
+    db.books.set('unrelated', { keep: true });
+    Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: db.api });
+    await repackSeries('original', volumes, ['sibling', 'original', 'sibling', 'missing']);
+    assert.equal(db.books.has('sibling'), false);
+    assert.equal(db.progress.has('sibling'), false);
+    assert.deepEqual(db.books.get('original'), volumes[0]);
+    assert.deepEqual(db.books.get('original--part-2'), volumes[1]);
+    assert.deepEqual(db.books.get('unrelated'), { keep: true });
+    assert.deepEqual([...db.progress], [['unrelated', 7]]);
+    assert.deepEqual(db.calls, [{ stores: ['books', 'reading-progress'], mode: 'readwrite' }]);
+    for (const failure of ['request', 'enqueue'] as const) {
+      const failing = transactionDatabase(failure);
+      Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: failing.api });
+      const before = structuredClone({ books: failing.books, progress: failing.progress });
+      await assert.rejects(repackSeries('original', volumes, ['sibling']));
+      assert.deepEqual({ books: failing.books, progress: failing.progress }, before);
+    }
+    const invalid = transactionDatabase();
+    Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: invalid.api });
+    await assert.rejects(repackSeries('original', volumes, ['']));
+    assert.equal(invalid.opens, 0);
   } finally {
     if (previous) Object.defineProperty(globalThis, 'indexedDB', previous);
     else Reflect.deleteProperty(globalThis, 'indexedDB');

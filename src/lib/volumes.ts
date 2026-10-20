@@ -1,62 +1,27 @@
 import type { Book } from './library';
 
-export const MAX_VOLUME_PAGES = 60;
-/** Conservative UTF-16 code-unit budget, matching string.length and DOM offsets. */
-export const MAX_VOLUME_CHARACTERS = 10000;
-export const MAX_VOLUME_MESSAGES = 100;
+export const MAX_VOLUME_PAGES = 100;
 
-/** Bound initial DOM pagination work on load/import/restore, before measuring.
- * The caller splices these parts into the series, relabels all siblings, and
- * persists that full series with replaceBookWithVolumes in one transaction.
- * Titles/numbers are provisional. Page offsets cannot be migrated without
- * measurement, so split parts start at page zero; the caller chooses the route.
- */
-export function splitBookForStorage(book: Book): Book[] {
-  const characters = book.messages.reduce((total, message) => total + message.content.length, 0);
-  if (characters <= MAX_VOLUME_CHARACTERS && book.messages.length <= MAX_VOLUME_MESSAGES) return [book];
+/** Storage/import must wait for actual pagination before splitting. */
+export function splitBookForStorage(book: Book): Book[] { return [book]; }
 
-  const groups: Book['messages'][] = [];
-  let messages: Book['messages'] = [];
-  let used = 0;
-  const flush = () => {
-    if (messages.length) groups.push(messages);
-    messages = [];
-    used = 0;
-  };
-  for (const source of book.messages) {
-    let offset = 0;
-    // Empty messages still consume a message slot and retain their metadata.
-    do {
-      if (messages.length === MAX_VOLUME_MESSAGES || used === MAX_VOLUME_CHARACTERS) flush();
-      let end = Math.min(source.content.length, offset + MAX_VOLUME_CHARACTERS - used);
-      // Do not introduce an unpaired surrogate when slicing a Unicode pair.
-      if (end > offset && end < source.content.length &&
-          /[\uD800-\uDBFF]/.test(source.content.charAt(end - 1)) &&
-          /[\uDC00-\uDFFF]/.test(source.content.charAt(end))) end--;
-      if (end === offset && offset < source.content.length) {
-        flush();
-        continue;
-      }
-      messages.push({ ...source, content: source.content.slice(offset, end) });
-      used += end - offset;
-      offset = end;
-    } while (offset < source.content.length);
-  }
-  flush();
+export type ChapterStart = { message: number; char: number };
 
-  const seriesId = book.seriesId ?? book.id;
-  const seriesTitle = book.seriesTitle ?? book.title;
-  return groups.map((messages, index) => ({
-    ...book,
-    id: index === 0 ? book.id : `${book.id}--part-${index + 1}`,
-    title: `${seriesTitle} · ${index + 1}권`,
-    seriesId,
-    seriesTitle,
-    volumeNumber: index + 1,
-    volumeCount: groups.length,
-    messages,
-    lastPage: 0,
-  }));
+/** Source offsets, including headings inside a message; speakers are irrelevant. */
+export function chapterStarts(book: Book): ChapterStart[] {
+  const starts: ChapterStart[] = [];
+  let previousChapter: string | undefined;
+  book.messages.forEach((message, index) => {
+    const offsets = new Set<number>();
+    if (message.chapter?.trim()) {
+      if (message.chapter !== previousChapter) offsets.add(0);
+      previousChapter = message.chapter;
+    }
+    const headings = /^(?:#{1,3}[ \t]+\S[^\r\n]*|제[ \t]*[0-9０-９]+[ \t]*장[^\r\n]*|Chapter[ \t]+[0-9]+\b[^\r\n]*)/gim;
+    for (const match of message.content.matchAll(headings)) offsets.add(match.index!);
+    for (const char of [...offsets].sort((a, b) => a - b)) starts.push({ message: index, char });
+  });
+  return starts;
 }
 
 type MeasuredPage = {
@@ -64,29 +29,51 @@ type MeasuredPage = {
   intro: boolean;
 };
 
-/** Split measured pages without normalizing source text or speaker metadata.
- * The caller persists the returned books; this helper has no storage effects.
+/** Prefer the last chapter-start page within 100 measured pages. A chapter
+ * beginning inside a page moves that whole page to the next volume, preserving
+ * every source offset. Long chapters fall back to exactly 100 measured pages.
  */
 export function splitBookByPages(book: Book, pages: MeasuredPage[]): Book[] {
   if (pages.length <= MAX_VOLUME_PAGES) return [book];
-
+  const starts = chapterStarts(book);
+  const boundaries = new Set<number>();
+  let nextStart = 0;
+  pages.forEach((page, index) => {
+    for (const fragment of page.fragments) {
+      while (nextStart < starts.length) {
+        const start = starts[nextStart]!;
+        if (start.message > fragment.message ||
+            (start.message === fragment.message && start.char >= fragment.end && fragment.end > fragment.char)) break;
+        if (start.message === fragment.message && start.char >= fragment.char &&
+            (start.char < fragment.end || start.char === fragment.char)) boundaries.add(index);
+        nextStart++;
+      }
+    }
+  });
+  const ranges: { start: number; end: number }[] = [];
+  for (let start = 0; start < pages.length;) {
+    let end = Math.min(start + MAX_VOLUME_PAGES, pages.length);
+    if (end < pages.length) {
+      for (let boundary = end; boundary > start; boundary--) {
+        if (boundaries.has(boundary)) { end = boundary; break; }
+      }
+    }
+    ranges.push({ start, end });
+    start = end;
+  }
   const seriesId = book.seriesId ?? book.id;
   const seriesTitle = book.seriesTitle ?? book.title;
-  const volumeCount = Math.ceil(pages.length / MAX_VOLUME_PAGES);
-  const volumes: Book[] = [];
   let sourceMessage = 0;
   let sourceChar = 0;
-
-  for (let start = 0; start < pages.length; start += MAX_VOLUME_PAGES) {
-    const volumePages = pages.slice(start, start + MAX_VOLUME_PAGES);
+  const volumes = ranges.map(({ start, end }, index): Book => {
     const messages: Book['messages'] = [];
     let previousMessage = -1;
-    for (const page of volumePages) {
+    for (const page of pages.slice(start, end)) {
       for (const fragment of page.fragments) {
         const source = book.messages[fragment.message];
-        // Reject incomplete/stale pagination rather than persist missing text.
         if (!source || fragment.message !== sourceMessage || fragment.char !== sourceChar ||
-            !Number.isSafeInteger(fragment.end) || fragment.end < fragment.char || fragment.end > source.content.length) {
+            !Number.isSafeInteger(fragment.end) || fragment.end < fragment.char || fragment.end > source.content.length ||
+            (fragment.end === fragment.char && source.content.length > 0)) {
           throw new RangeError('Measured pages must cover source messages in order without gaps or overlaps.');
         }
         const content = source.content.slice(fragment.char, fragment.end);
@@ -94,31 +81,42 @@ export function splitBookByPages(book: Book, pages: MeasuredPage[]): Book[] {
         else messages.push({ ...source, content });
         previousMessage = fragment.message;
         sourceChar = fragment.end;
-        if (sourceChar === source.content.length) {
-          sourceMessage++;
-          sourceChar = 0;
-        }
+        if (sourceChar === source.content.length) { sourceMessage++; sourceChar = 0; }
       }
     }
-    const volumeNumber = volumes.length + 1;
-    volumes.push({
+    const volumeNumber = index + 1;
+    return {
       ...book,
-      id: volumeNumber === 1 ? book.id : `${book.id}--part-${volumeNumber}`,
-      title: `${seriesTitle} · ${volumeNumber}권`,
-      seriesId,
-      seriesTitle,
-      volumeNumber,
-      volumeCount,
-      messages,
+      id: index === 0 ? book.id : `${book.id}--part-${volumeNumber}`,
+      title: `${seriesTitle} · ${volumeNumber}권`, seriesId, seriesTitle,
+      volumeNumber, volumeCount: ranges.length, messages,
+      volumePolicy: 'chapters-100-v1',
       ...(book.lastPage === undefined ? {} : {
-        lastPage: Math.max(0, Math.min(volumePages.length - 1, book.lastPage - start)),
+        lastPage: Math.max(0, Math.min(end - start - 1, book.lastPage - start)),
       }),
-    });
-  }
+    };
+  });
   if (sourceMessage !== book.messages.length || sourceChar !== 0) {
     throw new RangeError('Measured pages must cover every source message completely.');
   }
   return volumes;
+}
+
+/** Collapse each explicitly identified series before remeasurement. Keep the
+ * first volume's ID/book metadata and every message (including empty messages).
+ * Progress cannot be mapped until measured again, so restart at page zero.
+ * Persist via repackSeries, passing the removed sibling IDs as obsoleteIds.
+ */
+export function mergeLegacyVolumes(books: Book[]): Book[] {
+  return groupBooks(books).map(({ books: siblings }) => {
+    const first = siblings[0]!;
+    if (siblings.length === 1) return first;
+    return {
+      ...first, title: first.seriesTitle ?? first.title,
+      volumeNumber: 1, volumeCount: 1, lastPage: 0,
+      messages: siblings.flatMap(book => book.messages.map(message => ({ ...message }))),
+    };
+  });
 }
 
 /** Preserve shelf group order and sort each series numerically without mutating input. */

@@ -6,7 +6,8 @@ import { flushSync } from 'react-dom';
 import { PageFlip } from '../vendor/page-flip/PageFlip';
 import { SizeType } from '../vendor/page-flip/Settings';
 import { FlipCorner } from '../vendor/page-flip/Flip/Flip';
-import { ArrowLeft, ArrowRight, BookOpen, Check, ChevronLeft, List, Minus, Moon, Plus, Search, Sun, Type, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BookOpen, Check, ChevronLeft, List, Minus, Moon, Pencil, Plus, Search, Sun, Type, X } from 'lucide-react';
+import BookEditor from './BookEditor';
 import type { Book } from '../lib/library';
 import { MAX_VOLUME_PAGES, splitBookByPages } from '../lib/volumes';
 import './reader.css';
@@ -19,6 +20,7 @@ export interface ReaderProps {
   onSplit?: (book: Book, volumes: Book[]) => Promise<void>;
   onNextVolume?: () => void;
   nextVolumeTitle?: string;
+  onSaveBook?: (book:Book)=>Promise<void>;
 }
 
 type Anchor = { message: number; char: number };
@@ -184,7 +186,9 @@ export function paginate(book: Book, measure: HTMLDivElement): PaperPage[] {
   return pages;
 }
 
-export function Reader({ book, onClose, onProgress, onSplit, onNextVolume, nextVolumeTitle }: ReaderProps) {
+export function Reader({ book, onClose, onProgress, onSplit, onNextVolume, nextVolumeTitle, onSaveBook }: ReaderProps) {
+  const [editing,setEditing]=useState(false);
+  const editingRef=useRef(false);editingRef.current=editing;
   const [initialPreferences] = useState(readReaderPreferences);
   const [theme, setTheme] = useState<Theme>(initialPreferences.theme);
   const [fontSize, setFontSize] = useState(initialPreferences.fontSize);
@@ -255,6 +259,12 @@ export function Reader({ book, onClose, onProgress, onSplit, onNextVolume, nextV
     }
     return results;
   }, [contentKey, deferredQuery]);
+
+  useEffect(() => {
+    const previous=document.body.style.overflow;
+    document.body.style.overflow='hidden';
+    return()=>{document.body.style.overflow=previous;};
+  },[]);
 
   useEffect(() => {
     const stage = stageRef.current;
@@ -451,7 +461,8 @@ export function Reader({ book, onClose, onProgress, onSplit, onNextVolume, nextV
   const turn = (direction: 'previous' | 'next') => {
     const flip = flipRef.current;
     if (!flip) return;
-    if(flip.getState()!=='read'){queuedTurnRef.current=direction;return;}
+    // Corner hover isn't a committed turn. Let buttons override it immediately.
+    if(flip.getState()==='flipping'||flip.getState()==='user_fold'){queuedTurnRef.current=direction;return;}
     if(direction==='next'&&flip.getCurrentPageIndex()+spread>=pagesRef.current.length&&nextVolumeRef.current){nextVolumeRef.current();return;}
     if (direction === 'previous') flip.flipPrev(FlipCorner.BOTTOM);
     else flip.flipNext(FlipCorner.BOTTOM);
@@ -463,6 +474,7 @@ export function Reader({ book, onClose, onProgress, onSplit, onNextVolume, nextV
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
+      if(editingRef.current)return;
       const target = event.target as HTMLElement | null;
       if (event.key === 'Escape') {
         if (panel) { setPanel(null); panelButtonRefs.current[panel]?.focus(); }
@@ -495,6 +507,7 @@ export function Reader({ book, onClose, onProgress, onSplit, onNextVolume, nextV
       <button className="reader-back" onClick={onClose} aria-label="책을 닫고 서재로 돌아가기" title="서재로 돌아가기"><ChevronLeft size={19} /><span>서재</span></button>
       <div className="reader-toolbar-title"><span>{book.title}</span><small>{book.author || readerCopy.unknownAuthor}</small></div>
       <div className="reader-tools">
+        {onSaveBook&&<button className="reader-icon-button" aria-label="본문 편집" title="본문 편집" onClick={()=>{setPanel(null);setEditing(true);}}><Pencil size={18}/></button>}
         <button ref={element => { panelButtonRefs.current.contents = element; }} className={`reader-icon-button ${panel === 'contents' ? 'reader-active' : ''}`} aria-label="목차 보기" title="목차" aria-expanded={panel === 'contents'} aria-controls="reader-contents" onClick={() => togglePanel('contents')}><List size={20} /></button>
         <button ref={element => { panelButtonRefs.current.search = element; }} className={`reader-icon-button ${panel === 'search' ? 'reader-active' : ''}`} aria-label="책 속에서 검색" title="책 속 검색" aria-expanded={panel === 'search'} aria-controls="reader-search" onClick={() => togglePanel('search')}><Search size={19} /></button>
         <button ref={element => { panelButtonRefs.current.appearance = element; }} className={`reader-icon-button ${panel === 'appearance' ? 'reader-active' : ''}`} aria-label="독서 화면 설정" title="독서 화면 설정" aria-expanded={panel === 'appearance'} aria-controls="reader-appearance" onClick={() => togglePanel('appearance')}><Type size={21} /></button>
@@ -549,6 +562,7 @@ export function Reader({ book, onClose, onProgress, onSplit, onNextVolume, nextV
       </div>
     </>}
     <div ref={measureRef} className="reader-measure reader-page-content" aria-hidden="true" />
+    {editing&&onSaveBook&&<BookEditor book={book} messageIndex={pagesRef.current[pageIndex]?.fragments[0]?.message??0} onSave={onSaveBook} onClose={()=>setEditing(false)}/>}
   </div>;
 }
 
