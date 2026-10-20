@@ -1,8 +1,9 @@
 import type { Book, BookAsset } from './library';
-import { extractAssetSegments } from './assets';
+import { extractAssetSegments, imageReferenceRanges, type AssetSegment } from './assets';
+import { systemRanges, visibleProse } from './prose';
 
 export type Anchor = { message: number; char: number };
-export type Fragment = Anchor & { end: number; name: string; text: string };
+export type Fragment = Anchor & { end: number; name: string; text: string; hidden?: boolean };
 export type PaperPage = { fragments: Fragment[]; intro: boolean; asset?: BookAsset; kind?: 'paper' | 'asset' | 'padding' | 'endpaper' | 'back-cover' | 'end' };
 
 /** Removes complete emoji sequences, leaving ordinary digits and punctuation.
@@ -20,7 +21,7 @@ export function speakerName(message: Book['messages'][number]): string {
 
 /** Render the same small Markdown subset as Reader, via text nodes only. */
 function measureText(target: HTMLElement, text: string): void {
-  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|_[^_\n]+_|“[^”]+”|「[^」]+」)/g);
+  const parts = visibleProse(text).split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|_[^_\n]+_|“[^”]+”|「[^」]+」)/g);
   target.replaceChildren();
   for (const part of parts) {
     if (part.startsWith('**') && part.endsWith('**')) {
@@ -45,11 +46,40 @@ export function paginate(book: Book, measure: HTMLDivElement): PaperPage[] {
   const nextPage = () => { current = { fragments: [], intro: false }; pages.push(current); measure.replaceChildren(); };
   book.messages.forEach((message, messageIndex) => {
     const content = message.content || '', name = speakerName(message);
-    const segments = extractAssetSegments(content, book.assets ?? []);
+    const extracted = extractAssetSegments(content, book.assets ?? []);
+    const references = imageReferenceRanges(content);
+    const unresolved = references.filter(range => !extracted.some(segment => segment.type === 'asset' && segment.start === range.start && segment.end === range.end));
+    const hiddenRanges: { start: number; end: number }[] = [];
+    for (const range of [...systemRanges(content, references), ...unresolved].sort((a, b) => a.start - b.start)) {
+      const previous = hiddenRanges[hiddenRanges.length - 1];
+      if (previous && range.start <= previous.end) previous.end = Math.max(previous.end, range.end);
+      else hiddenRanges.push({ ...range });
+    }
+    // Partition system ranges atomically, retaining every source character in
+    // hidden fragments for volume slicing and bookmark offsets. Protected image
+    // references can interrupt a system block without exposing its suffix.
+    const segments = extracted.flatMap<AssetSegment & { hidden?: boolean }>(segment => {
+      if (segment.type === 'asset') return [segment];
+      const pieces: { type: 'text'; text: string; start: number; end: number; hidden?: boolean }[] = [];
+      let cursor = segment.start;
+      for (const range of hiddenRanges) {
+        const start = Math.max(segment.start, range.start), end = Math.min(segment.end, range.end);
+        if (end <= start) continue;
+        if (cursor < start) pieces.push({ type: 'text', text: content.slice(cursor, start), start: cursor, end: start });
+        pieces.push({ type: 'text', text: content.slice(start, end), start, end, hidden: true }); cursor = end;
+      }
+      if (cursor < segment.end) pieces.push({ type: 'text', text: content.slice(cursor, segment.end), start: cursor, end: segment.end });
+      return pieces;
+    });
     if (!content.length) { current.fragments.push({ message: messageIndex, char: 0, end: 0, name, text: '' }); return; }
     for (const segment of segments) {
+      if (segment.type === 'text' && 'hidden' in segment && segment.hidden) {
+        current.fragments.push({ message: messageIndex, char: segment.start, end: segment.end, name,
+          text: content.slice(segment.start, segment.end), hidden: true });
+        continue;
+      }
       if (segment.type === 'asset') {
-        if (current.fragments.length) nextPage();
+        if (current.fragments.length && current.kind !== 'asset') nextPage();
         if ((pages.length - 1) % 2 === 1) { current.kind = 'padding'; nextPage(); }
         current.kind = 'asset'; current.asset = segment.asset;
         current.fragments.push({ message: messageIndex, char: segment.start, end: segment.end, name, text: content.slice(segment.start, segment.end) });

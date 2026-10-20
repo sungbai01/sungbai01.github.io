@@ -11,10 +11,10 @@
  * HTML disabled), never innerHTML. No Risu scripts/macros/assets are executed.
  */
 import { jade, bronze, iris, gold } from '@radix-ui/colors';
-import { imageReferenceNames, normalizeAssets, safeAssetSource } from './assets';
+import { extractAssetSegments, normalizeAssets, safeAssetSource } from './assets';
 
 export type BookAsset = { id: string; name: string; src: string; type?: 'icon' | 'asset' };
-export type BookBookmark = { message: number; char: number; label?: string };
+export type BookBookmark = { message: number; char: number; label?: string; progress?: number };
 
 export interface Message {
   role: string;
@@ -27,6 +27,8 @@ export interface Book {
   id: string;
   title: string;
   author: string;
+  /** Manually supplied model label; never inferred from chat content. */
+  aiModel?: string;
   description: string;
   color: string;
   /** Optional image-derived shade; color remains the resolved display color. */
@@ -119,8 +121,9 @@ function inertDocument(html: string): Document {
   // Turn images into named references before removing resource-bearing tags.
   // Attributes are read as strings; no imported element enters a live document.
   const images = html.replace(/<img\b(?:[^<>"']|"[^"]*"|'[^']*')*>/gi, tag => {
-    const name = imageReferenceNames(tag).find(name => !/[{}\r\n]/.test(name) && !/^(?:data|javascript):/i.test(name));
-    return name ? `{{img::${name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}}` : '';
+    // Preserve unresolved references as inert text, not discarded markup. A
+    // shelf image added later must still be able to resolve their attributes.
+    return tag.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   });
   const disabled = images.replace(/<\/?(?:img|iframe|frame|frameset|link|base|object|embed|video|audio|source|track|image|use|input)\b(?:[^<>"']|"[^"]*"|'[^']*')*>/gi, '');
   return new DOMParser().parseFromString('<meta http-equiv="Content-Security-Policy" content="default-src \'none\';">' + disabled, 'text/html');
@@ -138,12 +141,16 @@ function elementText(element: Element): string {
   return (element.textContent || '').replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-function plainText(content: string): string {
+function plainText(content: string, assets: BookAsset[] = []): string {
+  if (assets.length) content = content.replace(/<img\b(?:[^<>"']|"[^"]*"|'[^']*')*>/gi, tag => {
+    const resolved = extractAssetSegments(tag, assets).find(segment => segment.type === 'asset');
+    return resolved?.type === 'asset' && !/[{}\r\n]/.test(resolved.asset.name) ? `{{img::${resolved.asset.name}}}` : tag;
+  });
   return /<\/?[a-z][^>]*>/i.test(content) ? elementText(inertDocument(content).body) : content;
 }
 
-function normalizeMessage(value: unknown, index: number, character: string, user: string, names: Map<string, string>): Message {
-  if (typeof value === 'string') return { role: 'narrator', name: '서술', content: plainText(value) };
+function normalizeMessage(value: unknown, index: number, character: string, user: string, names: Map<string, string>, assets: BookAsset[] = []): Message {
+  if (typeof value === 'string') return { role: 'narrator', name: '서술', content: plainText(value, assets) };
   if (!record(value)) throw new LibraryError(`${index + 1}번째 메시지 형식이 올바르지 않습니다.`);
   const content = textContent(value.content) ?? textContent(value.data) ?? textContent(value.mes) ?? textContent(value.text);
   if (content === undefined) throw new LibraryError(`${index + 1}번째 메시지에 읽을 수 있는 텍스트가 없습니다.`);
@@ -156,7 +163,7 @@ function normalizeMessage(value: unknown, index: number, character: string, user
   return {
     role,
     name: string(value.name, value.speaker, speaker, role === 'user' ? user : role === 'assistant' ? character : role === 'system' ? '시스템' : '서술'),
-    content: plainText(content).replace(/\r\n?/g, '\n'),
+    content: plainText(content, assets).replace(/\r\n?/g, '\n'),
     ...(typeof value.chapter === 'string' ? { chapter: value.chapter } : {}),
   };
 }
@@ -173,6 +180,7 @@ interface ImportContext {
 }
 
 function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, index: number): Book {
+  const assets = normalizeAssets(value.assets);
   const character = string(value.character_name, value.character, context.character, '캐릭터');
   const user = string(value.user_name, context.user, '나');
   const normalized = rows.map((row, i) => {
@@ -180,10 +188,10 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
     // normalize roles, trim speaker names, or change source line endings.
     if (context.preserveIds && record(row) && typeof row.role === 'string' &&
         typeof row.name === 'string' && typeof row.content === 'string') {
-      return { role: row.role, name: row.name, content: context.removeUserInputs ? plainText(row.content) : row.content,
+      return { role: row.role, name: row.name, content: context.removeUserInputs ? plainText(row.content, assets) : row.content,
         ...(typeof row.chapter === 'string' ? { chapter: row.chapter } : {}) };
     }
-    return normalizeMessage(row, i, character, user, context.names);
+    return normalizeMessage(row, i, character, user, context.names, assets);
   });
   const retained = normalized.map((message, index) => ({ message, index })).filter(({ message }) =>
     !context.removeUserInputs || ['assistant', 'char', 'character', 'bot', 'ai', 'model'].includes(message.role.toLowerCase()));
@@ -209,12 +217,13 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
   if (cover) book.cover = cover;
   const customColor = safeCustomColor(value.customColor);
   if (customColor) book.customColor = customColor;
+  if (typeof value.aiModel === 'string') book.aiModel = value.aiModel;
   const backCover = safeAssetSource(value.backCover);
   if (backCover) book.backCover = backCover;
   const characterIcon = safeAssetSource(value.characterIcon);
   if (characterIcon) book.characterIcon = characterIcon;
   if (value.bookmarkStyle === 'normal' || value.bookmarkStyle === 'character') book.bookmarkStyle = value.bookmarkStyle;
-  if (Array.isArray(value.assets)) book.assets = normalizeAssets(value.assets);
+  if (Array.isArray(value.assets)) book.assets = assets;
   if (Array.isArray(value.bookmarks)) {
     const indices = new Map(retained.map(({ index }, destination) => [index, destination]));
     book.bookmarks = value.bookmarks.flatMap(entry => {
@@ -222,7 +231,9 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
           typeof entry.message !== 'number' || typeof entry.char !== 'number' || entry.char < 0) return [];
       const message = indices.get(entry.message);
       if (message === undefined || entry.char > (normalized[entry.message]?.content.length ?? -1)) return [];
-      return [{ message, char: entry.char, ...(typeof entry.label === 'string' ? { label: entry.label } : {}) }];
+      return [{ message, char: entry.char, ...(typeof entry.label === 'string' ? { label: entry.label } : {}),
+        ...(!context.removeUserInputs && typeof entry.progress === 'number' && Number.isFinite(entry.progress) && entry.progress >= 0 && entry.progress <= 1
+          ? { progress: entry.progress } : {}) }];
     });
   }
   if (context.preserveIds) {
@@ -525,13 +536,15 @@ function validateBook(book: Book): void {
     (book.backCover !== undefined && typeof book.backCover !== 'string') ||
     (book.characterIcon !== undefined && typeof book.characterIcon !== 'string') ||
     (book.bookmarkStyle !== undefined && book.bookmarkStyle !== 'normal' && book.bookmarkStyle !== 'character') ||
+    (book.aiModel !== undefined && typeof book.aiModel !== 'string') ||
     (book.assets !== undefined && (!Array.isArray(book.assets) || !book.assets.every(asset => record(asset) &&
       typeof asset.id === 'string' && !!asset.id.trim() && typeof asset.name === 'string' && !!asset.name.trim() && typeof asset.src === 'string' &&
       (asset.type === undefined || asset.type === 'icon' || asset.type === 'asset')))) ||
     (book.bookmarks !== undefined && (!Array.isArray(book.bookmarks) || !book.bookmarks.every(mark => record(mark) &&
       Number.isSafeInteger(mark.message) && mark.message >= 0 && mark.message < book.messages.length &&
       Number.isSafeInteger(mark.char) && mark.char >= 0 && mark.char <= book.messages[mark.message]!.content.length &&
-      (mark.label === undefined || typeof mark.label === 'string'))))) {
+      (mark.label === undefined || typeof mark.label === 'string') &&
+      (mark.progress === undefined || (typeof mark.progress === 'number' && Number.isFinite(mark.progress) && mark.progress >= 0 && mark.progress <= 1)))))) {
     throw new LibraryError('저장할 책의 데이터 형식이 올바르지 않습니다.');
   }
 }

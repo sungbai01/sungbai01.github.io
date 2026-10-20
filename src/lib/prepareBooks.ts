@@ -1,31 +1,51 @@
 import type { Book } from './library';
 import { cleanText, paginate } from './pagination';
 import { splitBookByPages } from './volumes';
-import { extractAssetSegments } from './assets';
+import { imageReferenceRanges } from './assets';
+import { systemRanges, visibleProse } from './prose';
 import '../components/reader.css';
 
 /** Fixed import layout; reader font/viewport changes never regroup volumes. */
 export const IMPORT_PAGE_LAYOUT = { width: 400, height: 650, padding: 32, contentWidth: 336, contentHeight: 558, fontSize: 18 } as const;
 
-function removeBookEmoji(book: Book): Book {
+function preprocessBook(book: Book, removeEmoji: boolean): Book {
   // Known image references are identifiers, not prose. Keep their original
   // spelling (including emoji in an asset name) so image resolution survives.
-  const strippedContent = (content: string, end = content.length) => extractAssetSegments(content, book.assets ?? []).map(segment => {
-    const slice = content.slice(segment.start, Math.min(end, segment.end));
-    return segment.start >= end ? '' : segment.type === 'asset' ? slice : cleanText(slice);
-  }).join('');
-  return { ...book, title: cleanText(book.title), author: cleanText(book.author), description: cleanText(book.description),
-    messages: book.messages.map(message => ({ ...message, name: cleanText(message.name), content: strippedContent(message.content),
-      ...(message.chapter === undefined ? {} : { chapter: cleanText(message.chapter) }) })),
+  const clean = (text: string) => removeEmoji ? cleanText(text) : text;
+  const strippedContent = (content: string, end = content.length) => {
+    const references = imageReferenceRanges(content);
+    const segments: { type: 'asset' | 'text'; start: number; end: number }[] = [];
+    let cursor = 0;
+    for (const range of references) {
+      if (range.start > cursor) segments.push({ type: 'text', start: cursor, end: range.start });
+      segments.push({ type: 'asset', ...range }); cursor = range.end;
+    }
+    if (cursor < content.length) segments.push({ type: 'text', start: cursor, end: content.length });
+    const hidden = systemRanges(content, references);
+    return segments.map(segment => {
+      const limit = Math.min(end, segment.end);
+      if (segment.start >= limit) return '';
+      if (segment.type === 'asset') return content.slice(segment.start, limit);
+      let value = '', cursor = segment.start;
+      for (const range of hidden) {
+        if (range.end <= cursor || range.start >= limit) continue;
+        value += content.slice(cursor, Math.max(cursor, range.start)); cursor = Math.min(limit, range.end);
+      }
+      return clean(value + content.slice(cursor, limit));
+    }).join('');
+  };
+  return { ...book, title: clean(book.title), author: clean(book.author), description: clean(visibleProse(book.description)),
+    messages: book.messages.map(message => ({ ...message, name: clean(message.name), content: strippedContent(message.content),
+      ...(message.chapter === undefined ? {} : { chapter: clean(message.chapter) }) })),
     ...(book.bookmarks === undefined ? {} : { bookmarks: book.bookmarks.map(mark => ({ ...mark,
       char: strippedContent(book.messages[mark.message]?.content ?? '', mark.char).length,
-      ...(mark.label === undefined ? {} : { label: cleanText(mark.label) }) })) }) };
+      ...(mark.label === undefined ? {} : { label: clean(mark.label) }) })) }) };
 }
 
 /** Call ONLY on new import/text confirmation, never on Reader open, resize,
  * font change or backup restoration. Returns books; does not persist them.
  * Default emoji removal happens before measurement and bookmark remapping.
- * Passing false retains every message byte and source offset.
+ * Passing false retains emoji; system prose is still removed on confirmation.
  */
 export async function prepareBooks(books: Book[], options: { removeEmoji?: boolean } = {}): Promise<Book[]> {
   if (typeof document === 'undefined' || !document.body) throw new Error('가져오기 준비는 브라우저에서 사용해 주세요.');
@@ -52,7 +72,7 @@ export async function prepareBooks(books: Book[], options: { removeEmoji?: boole
       // Already prepared volumes keep their grouping if a caller submits them
       // again. Backup restores must bypass this API to preserve all content.
       if (source.volumePolicy === 'chapters-100-v1') { result.push(source); continue; }
-      const book = options.removeEmoji === false ? source : removeBookEmoji(source);
+      const book = preprocessBook(source, options.removeEmoji !== false);
       result.push(...splitBookByPages(book, paginate(book, measure)).map(volume => ({ ...volume, volumePolicy: 'chapters-100-v1' as const })));
       await new Promise<void>(resolve => setTimeout(resolve, 0));
     }

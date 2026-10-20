@@ -100,7 +100,8 @@ export function splitBookByPages(book: Book, pages: MeasuredPage[]): Book[] {
       ...(book.bookmarks === undefined ? {} : { bookmarks: book.bookmarks.flatMap(mark => {
         const span = spans.find(span => span.source === mark.message && mark.char >= span.start &&
           (mark.char < span.end || (mark.char === span.end && span.end === book.messages[span.source]!.content.length)));
-        return span ? [{ ...mark, message: span.local, char: mark.char - span.start }] : [];
+        const { progress: _progress, ...anchor } = mark;
+        return span ? [{ ...anchor, message: span.local, char: mark.char - span.start }] : [];
       }) }),
       volumePolicy: 'chapters-100-v1',
     };
@@ -123,7 +124,10 @@ export function mergeLegacyVolumes(books: Book[]): Book[] {
     const bookmarks: NonNullable<Book['bookmarks']> = [];
     const assets = new Map<string, NonNullable<Book['assets']>[number]>();
     for (const sibling of siblings) {
-      for (const mark of sibling.bookmarks ?? []) bookmarks.push({ ...mark, message: mark.message + messageOffset });
+      for (const mark of sibling.bookmarks ?? []) {
+        const { progress: _progress, ...anchor } = mark;
+        bookmarks.push({ ...anchor, message: mark.message + messageOffset });
+      }
       for (const asset of sibling.assets ?? []) if (!assets.has(asset.id)) assets.set(asset.id, { ...asset });
       messageOffset += sibling.messages.length;
     }

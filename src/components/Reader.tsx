@@ -6,12 +6,16 @@ import { flushSync } from 'react-dom';
 import { PageFlip } from '../vendor/page-flip/PageFlip';
 import { SizeType } from '../vendor/page-flip/Settings';
 import { FlipCorner } from '../vendor/page-flip/Flip/Flip';
-import { ArrowRight, BookOpen, Bookmark, Check, ChevronLeft, List, Maximize, Minus, Moon, Pencil, Plus, Search, Sun, Type, X } from 'lucide-react';
+import { ArrowRight, BookOpen, Bookmark, Check, ChevronLeft, List, Maximize, Minus, Pencil, Plus, Search, Type, X } from 'lucide-react';
 import type { Book } from '../lib/library';
 import { paginate, cleanText, speakerName } from '../lib/pagination';
 import type { Anchor, Fragment, PaperPage } from '../lib/pagination';
 import { readerPageCount, readReaderViewport } from '../lib/readerLayout';
 import BackBarcode from './BackBarcode';
+import ThemePicker from './ThemePicker';
+import {readTheme,saveTheme,THEME_EVENT} from '../lib/appearance';
+import {visibleProse,systemRanges} from '../lib/prose';
+import {imageReferenceRanges} from '../lib/assets';
 import './reader.css';
 
 export interface ReaderProps {
@@ -21,8 +25,8 @@ export interface ReaderProps {
   onNextVolume?: () => void;
   nextVolumeTitle?: string;
   onSaveBook?: (book:Book)=>Promise<void>;
-  shelfBookmark?: { bookId: string; message: number; char: number; label?: string; style?: BookmarkStyle; icon?: string; title: string };
-  onBookmarkChange?: (anchor: (Anchor & { label?: string }) | null, style?: BookmarkStyle) => Promise<void>;
+  shelfBookmark?: { bookId: string; message: number; char: number; label?: string; progress?:number; style?: BookmarkStyle; icon?: string; title: string };
+  onBookmarkChange?: (anchor: (Anchor & { label?: string; progress?:number }) | null, style?: BookmarkStyle) => Promise<void>;
   onBookmarkStyleChange?: (style: BookmarkStyle) => Promise<void>;
   bookmarkStyle?: BookmarkStyle;
   characterIcon?: string;
@@ -87,17 +91,17 @@ function Highlight({ text, query }: { text: string; query: string }) {
 }
 
 function RisuText({text,query}:{text:string;query:string}){
- const value=text;const parts=value.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|_[^_\n]+_|“[^”]+”|「[^」]+」)/g);
+ const value=visibleProse(text);const parts=value.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|_[^_\n]+_|“[^”]+”|「[^」]+」)/g);
  return <>{parts.map((part,i)=>part.startsWith('**')?<strong key={i}><Highlight text={part.slice(2,-2)} query={query}/></strong>:/^[*_]/.test(part)&&part.length>2?<em key={i}><Highlight text={part.slice(1,-1)} query={query}/></em>:/^[“「]/.test(part)?<span className="reader-dialogue" key={i}><Highlight text={part} query={query}/></span>:<Highlight key={i} text={part} query={query}/>)}</>;
 }
 type EditFragment=(fragment:Fragment,text:string)=>void;
 function EditablePassage({fragment,onEdit,draft}:{fragment:Fragment;onEdit:EditFragment;draft?:string}){
  const ref=useRef<HTMLParagraphElement>(null);
- useEffect(()=>{if(ref.current)ref.current.textContent=draft??fragment.text;},[]);
+ useEffect(()=>{if(ref.current)ref.current.textContent=draft??visibleProse(fragment.text);},[]);
  return <p ref={ref} className="reader-prose reader-live-passage" role="textbox" aria-label="페이지 본문 편집" contentEditable suppressContentEditableWarning data-no-flip onInput={e=>onEdit(fragment,e.currentTarget.innerText)} onPaste={e=>{e.preventDefault();document.execCommand('insertText',false,e.clipboardData.getData('text/plain'));}}/>;
 }
 function PageContent({page,query,editing,onEdit,drafts}:{page:PaperPage;query:string;editing:boolean;onEdit:EditFragment;drafts:Map<string,string>}){
- return <>{page.fragments.map(fragment=><section className="reader-fragment" data-message={fragment.message} data-char={fragment.char} key={`${fragment.message}:${fragment.char}`}>
+ return <>{page.fragments.filter(fragment=>!fragment.hidden).map(fragment=><section className="reader-fragment" data-message={fragment.message} data-char={fragment.char} key={`${fragment.message}:${fragment.char}`}>
  {fragment.char===0&&<div className="reader-message-name">{cleanText(fragment.name)}</div>}
  {editing?<EditablePassage fragment={fragment} onEdit={onEdit} draft={drafts.get(`${fragment.message}:${fragment.char}`)}/>:<p className="reader-prose"><RisuText text={fragment.text} query={query}/></p>}
  </section>)}</>;
@@ -163,6 +167,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
   const [query, setQuery] = useState('');
   const deferredQuery = useDeferredValue(query.trim());
   const [pageIndex, setPageIndex] = useState(0);
+  const [turning,setTurning]=useState(false);
   const [pages, setPages] = useState<PaperPage[]>([]);
   const [contentCount,setContentCount]=useState(0);
   const [spread, setSpread] = useState(1);
@@ -231,16 +236,21 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
     }
   }, [theme, fontSize]);
 
+  useEffect(()=>{const sync=(event:Event)=>{const value=(event as CustomEvent<Theme>).detail;setTheme(value==='paper'||value==='warm'||value==='dark'?value:readTheme());};window.addEventListener(THEME_EVENT,sync);return()=>window.removeEventListener(THEME_EVENT,sync);},[]);
+
   const hits = useMemo(() => {
     const results: SearchHit[] = [];
     if (!deferredQuery) return results;
     const pattern = new RegExp(escapeRegExp(deferredQuery), 'giu');
     for (let message = 0; message < book.messages.length; message++) {
       const entry = book.messages[message];
+      const images=imageReferenceRanges(entry.content);const hidden=[...systemRanges(entry.content,images),...images];
       for (const match of entry.content.matchAll(pattern)) {
         const char = match.index ?? 0;
+        if(hidden.some(range=>char<range.end&&char+match[0].length>range.start))continue;
+        const before=visibleProse(entry.content.slice(0,char)),after=visibleProse(entry.content.slice(char+match[0].length));
         results.push({ message, char, length: match[0].length, name: speakerName(entry),
-          excerpt: `${char > 35 ? '…' : ''}${entry.content.slice(Math.max(0, char - 35), char + match[0].length + 80)}${char + match[0].length + 80 < entry.content.length ? '…' : ''}` });
+          excerpt: `${before.length>35?'…':''}${before.slice(-35)}${match[0]}${after.slice(0,80)}${after.length>80?'…':''}` });
         if (results.length >= 200) return results;
       }
     }
@@ -325,6 +335,8 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
       host.style.setProperty('--reader-font-size', `${fontSize}px`);
       host.style.setProperty('--reader-content-top', `${contentTop}px`);
       host.style.setProperty('--reader-content-bottom', `${contentBottom}px`);
+      host.style.setProperty('--paper-width',`${width}px`);host.style.setProperty('--paper-height',`${height}px`);host.dataset.flipState='read';
+      stageRef.current?.style.setProperty('--paper-width',`${width}px`);stageRef.current?.style.setProperty('--paper-height',`${height}px`);
       mountRef.current.append(host);
       const nodes = nextPages.map((page, index) => {
         const element = document.createElement('div');
@@ -375,6 +387,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
         // Update only this reader after the curl settles; no persisted reading history.
         instance.on('flip', event => { if (!cancelled) report(Number(event.data)); });
         instance.on('changeState',event=>{
+          if(!cancelled){setTurning(event.data!=='read');if(host)host.dataset.flipState=String(event.data);}
           if(event.data==='read'&&queuedTurnRef.current){
             const direction=queuedTurnRef.current;queuedTurnRef.current=null;
             const revision=navigationRevisionRef.current;
@@ -394,7 +407,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
       setContentCount(bodyCount);
       setSpread(count);
       pagesReadyRef.current=true;
-      setLoading(false);
+      setLoading(false);setTurning(false);
     });
     return () => {
       cancelled = true;
@@ -538,7 +551,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
   useEffect(()=>{
     setSelectedBookmarkStyle(shelfBookmark ? shelfBookmark.style ?? 'normal' : bookmarkStyle ?? book.bookmarkStyle ?? 'normal');
   },[bookmarkStyle,book.bookmarkStyle,shelfBookmark?.style,!!shelfBookmark]);
-  async function changeBookmark(anchor:(Anchor & {label?:string})|null){
+  async function changeBookmark(anchor:(Anchor & {label?:string;progress?:number})|null){
     if(!onBookmarkChange||bookmarkBusyRef.current||editing)return;
     bookmarkBusyRef.current=true;setBookmarkBusy(true);setEditError('');
     try{await onBookmarkChange(anchor,selectedBookmarkStyle);}catch{setEditError('책갈피를 저장하지 못했어요.');}
@@ -548,7 +561,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
     if(bookmarkBusyRef.current)return;
     const previous=selectedBookmarkStyle;
     setSelectedBookmarkStyle(next);
-    const update=onBookmarkStyleChange?()=>onBookmarkStyleChange(next):shelfBookmark?.bookId===book.id&&onBookmarkChange?()=>onBookmarkChange({message:shelfBookmark.message,char:shelfBookmark.char,label:shelfBookmark.label},next):null;
+    const update=onBookmarkStyleChange?()=>onBookmarkStyleChange(next):shelfBookmark?.bookId===book.id&&onBookmarkChange?()=>onBookmarkChange({message:shelfBookmark.message,char:shelfBookmark.char,label:shelfBookmark.label,progress:shelfBookmark.progress},next):null;
     if(!update)return;
     bookmarkBusyRef.current=true;setBookmarkBusy(true);setEditError('');
     try{await update();}catch{setSelectedBookmarkStyle(previous);setEditError('책갈피 모양을 저장하지 못했어요.');}
@@ -557,7 +570,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
   function toggleBookmark(index:number){
     if(shelfBookmark?.bookId===book.id&&pageForAnchor(pagesRef.current,shelfBookmark)===index){void changeBookmark(null);return;}
     const page=pagesRef.current[index],fragment=page?.fragments[0];
-    if(fragment)void changeBookmark({message:fragment.message,char:fragment.char,label:cleanText(fragment.text).slice(0,60)||page.asset?.name||'책갈피'});
+    if(fragment)void changeBookmark({message:fragment.message,char:fragment.char,progress:Math.min(1,index/Math.max(1,contentCount-1)),label:visibleProse(fragment.text).slice(0,60)||page.asset?.name||'책갈피'});
   }
   const ribbonIcon=shelfBookmark?.icon??characterIcon??book.characterIcon;
   const ribbonStyle=shelfBookmark ? shelfBookmark.style ?? 'normal' : selectedBookmarkStyle;
@@ -570,13 +583,13 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
     for(const page of pagesRef.current)for(const fragment of page.fragments){const value=draftsRef.current.get(`${fragment.message}:${fragment.char}`);if(value===undefined)continue;const list=patches.get(fragment.message)??[];list.push({start:fragment.char,end:fragment.end,text:value});patches.set(fragment.message,list);}
     const messages=source.messages.map((message,index)=>{let content=message.content;for(const patch of (patches.get(index)??[]).sort((a,b)=>b.start-a.start))content=content.slice(0,patch.start)+patch.text+content.slice(patch.end);return content===message.content?message:{...message,content};});
     const existingMark=shelfBookmark?.bookId===source.id?shelfBookmark:undefined;
-    let adjustedMark:(Anchor & {label?:string})|undefined;
+    let adjustedMark:(Anchor & {label?:string;progress?:number})|undefined;
     if(existingMark){let char=existingMark.char;for(const patch of (patches.get(existingMark.message)??[]).sort((a,b)=>a.start-b.start)){if(existingMark.char>=patch.end)char+=patch.text.length-(patch.end-patch.start);else if(existingMark.char>=patch.start)char+=patch.start-existingMark.char;}if(char!==existingMark.char)adjustedMark={message:existingMark.message,char:Math.min(messages[existingMark.message].content.length,Math.max(0,char)),label:existingMark.label};}
     setSaving(true);setEditError('');try{await onSaveBook({...source,messages,...(adjustedMark?{bookmarks:[adjustedMark]}:{}),updatedAt:new Date().toISOString()});if(adjustedMark&&onBookmarkChange)await onBookmarkChange(adjustedMark,shelfBookmark?.style??selectedBookmarkStyle);draftsRef.current.clear();setEditing(false);setLeafRevision(value=>value+1);}catch{setEditError('저장하지 못했어요. 다시 시도하세요.');}finally{setSaving(false);}
   }
   function currentAnchor(){
     const all=pagesRef.current;let index=Math.min(selectedLeaf??pageIndex,all.length-1);
-    while(index>=0){const page=all[index];const fragment=page?.fragments[0];if(fragment)return {message:fragment.message,char:fragment.char,label:page.asset?.name??cleanText(fragment.text).slice(0,60)};index--;}
+    while(index>=0){const page=all[index];const fragment=page?.fragments[0];if(fragment)return {message:fragment.message,char:fragment.char,progress:Math.min(1,index/Math.max(1,contentCount-1)),label:page.asset?.name??visibleProse(fragment.text).slice(0,60)};index--;}
     return null;
   }
   requestCloseRef.current=()=>{
@@ -592,6 +605,8 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
   }
   const activeLeaf=selectedLeaf??pageIndex;
   const activeBookmarked=shelfBookmark?.bookId===book.id&&pageForAnchor(pages,shelfBookmark)===activeLeaf;
+  const markedPage=shelfBookmark?.bookId===book.id?pageForAnchor(pages,shelfBookmark):-1;
+  const peekBookmark=markedPage>=0&&(markedPage<pageIndex||markedPage>=pageIndex+spread);
   const bookmarkAction=activeBookmarked?'책갈피 제거':shelfBookmark?'현재 위치로 책갈피 옮기기':'현재 위치에 책갈피';
   const togglePanel = (next: Exclude<Panel, null>) => setPanel(value => value === next ? null : next);
   const visibleEnd = Math.min(pages.length, pageIndex + spread);
@@ -616,6 +631,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
     <main className="reader-main" aria-label={`${book.title} 읽기`}>
       <div className="reader-stage" ref={stageRef} aria-busy={loading} data-book-closed={pages[pageIndex]?.kind==='back-cover'}>
         <div className="reader-book-mount" ref={mountRef} onPointerDownCapture={event=>{const page=(event.target as HTMLElement).closest<HTMLElement>('[data-reader-page-index]');if(page&&!page.dataset.flipCopy)setSelectedLeaf(Number(page.dataset.readerPageIndex));}}/>
+        {!loading&&!turning&&peekBookmark&&shelfBookmark&&<div className="reader-bookmark-peek" aria-label="페이지 사이 책갈피"><BookmarkSlip style={ribbonStyle} icon={ribbonIcon} title={shelfBookmark.title} color={book.color} disabled={editing||bookmarkBusy} onRemove={()=>void changeBookmark(null)}/></div>}
         {loading && <div className="reader-loading" role="status"><BookOpen size={25} /><span>읽던 곳을 펼치고 있어요…</span></div>}
       </div>
       {error && <p className="reader-error" role="status">{error}</p>}
@@ -657,7 +673,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
           <div className="reader-setting-label"><span>글자 크기</span><small>{fontSize}픽셀</small></div>
           <div className="reader-font-control"><button aria-label="글자 작게" disabled={fontSize <= 14} onClick={() => setFontSize(size => Math.max(14, size - 1))}><Minus size={17} /><Type size={15} /></button><span className="reader-font-preview">가나다</span><button aria-label="글자 크게" disabled={fontSize >= 28} onClick={() => setFontSize(size => Math.min(28, size + 1))}><Type size={22} /><Plus size={17} /></button></div>
           <div className="reader-setting-label"><span>책장 색</span></div>
-          <div className="reader-theme-options">{(['paper', 'warm', 'dark'] as const).map(option => <button key={option} className={`reader-theme-option reader-swatch-${option}`} onClick={() => setTheme(option)} aria-pressed={theme === option}><span>{option === 'dark' ? <Moon size={19} /> : <Sun size={19} />}{theme === option && <Check size={15} />}</span><strong>{option === 'paper' ? '종이' : option === 'warm' ? '따뜻하게' : '어둡게'}</strong></button>)}</div>
+          <ThemePicker value={theme} onChange={value=>{setTheme(value);saveTheme(value);}}/>
         </>}
       </div>
     </>}

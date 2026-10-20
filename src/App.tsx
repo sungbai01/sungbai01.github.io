@@ -1,15 +1,18 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, useId, type CSSProperties, type ReactNode } from 'react';
-import { ArrowDownToLine, ArrowRight, BookOpen, Bookmark, Check, ChevronDown, Ellipsis, Library, LoaderCircle, Menu, Pencil, Images, Plus, Search, Settings2, Trash2, Upload, X } from 'lucide-react';
+import { ArrowDownToLine, ArrowRight, BookOpen, Bookmark, Check, ChevronDown, Ellipsis, Library, LoaderCircle, Menu, Pencil, Images, Plus, Search, Trash2, Upload, X } from 'lucide-react';
 import { loadBooks, saveBook, repackSeries, deleteBook, deleteBooks, importChatFile, BOOK_COLORS, type Book } from './lib/library';
 import { groupBooks } from './lib/volumes';
 import { prepareBooks } from './lib/prepareBooks';
 import { sampleBooks } from './lib/sample';
 import ShelfAssets from './components/ShelfAssets';
 import BookIntake,{type IntakeRequest} from './components/BookIntake';
+import ThemePicker from './components/ThemePicker';
+import BookRibbon from './components/BookRibbon';
+import {readTheme,saveTheme,THEME_EVENT,type Theme} from './lib/appearance';
 import { portraitPalette } from './lib/assets';
 
 type BookAsset = NonNullable<Book['assets']>[number];
-type BookmarkAnchor={message:number;char:number;label?:string};
+type BookmarkAnchor={message:number;char:number;label?:string;progress?:number};
 type ShelfBookmark=BookmarkAnchor&{bookId:string;title:string;style?:'normal'|'character';icon?:string};
 function bookShelf(book:Book):ShelfTarget{return {id:book.seriesId??'ungrouped',title:book.seriesTitle??'단권',ungrouped:!book.seriesId};}
 function displayBookTitle(book:Book){return book.title.replace(/\s*·\s*\d+권\s*$/, '').trim()||book.title;}
@@ -20,7 +23,6 @@ function canonicalBookmark(books:Book[]):ShelfBookmark|undefined{
   const anchor=selected?.bookmarks?.at(-1);
   return selected&&anchor?{...anchor,bookId:selected.id,title:selected.title,style:selected.bookmarkStyle??'normal',icon:portrait(selected)}:undefined;
 }
-function BookmarkBadge({mark}:{mark:ShelfBookmark}){return <>{mark.style==='character'&&mark.icon?<img className="bookmark-character" src={mark.icon} alt=""/>:<Bookmark size={15}/>}<span className="bookmark-strip-title">{mark.title.replace(/\s*·\s*\d+권\s*$/, '')}</span></>;}
 type ShelfTarget = {id:string;title:string;ungrouped:boolean};
 function shelfBooks(books:Book[],shelf:ShelfTarget){return books.filter(book=>shelf.ungrouped?!book.seriesId:(book.seriesId??book.id)===shelf.id).sort((a,b)=>(a.volumeNumber??1)-(b.volumeNumber??1));}
 function shelfAssets(books:Book[],shelf:ShelfTarget):BookAsset[]{return [...new Map(shelfBooks(books,shelf).flatMap(book=>book.assets??[]).map(asset=>[asset.id,asset])).values()];}
@@ -61,7 +63,7 @@ function reuseBookReferences(book:Book,previous:Book|undefined):Book{
   const next={...book};
   if(equalRows(book.messages,previous.messages,['role','name','content','chapter']))next.messages=previous.messages;
   if(equalRows(book.assets,previous.assets,['id','name','src','type']))next.assets=previous.assets;
-  if(equalRows(book.bookmarks,previous.bookmarks,['message','char','label']))next.bookmarks=previous.bookmarks;
+  if(equalRows(book.bookmarks,previous.bookmarks,['message','char','label','progress']))next.bookmarks=previous.bookmarks;
   const fields=new Set([...Object.keys(previous),...Object.keys(next)]);
   return [...fields].every(field=>next[field as keyof Book]===previous[field as keyof Book])?previous:next;
 }
@@ -99,6 +101,11 @@ function SortMenu({value,onChange}:{value:string;onChange:(value:string)=>void})
     {open&&<div id={id} role="listbox" aria-label="책 정렬" className="sort-options">{options.map(option=><button key={option.value} type="button" role="option" aria-selected={value===option.value} onClick={()=>{onChange(option.value);setOpen(false);trigger.current?.focus();}}><span>{option.label}</span>{value===option.value&&<Check size={14}/>}</button>)}</div>}
   </div>;
 }
+function ModelPicker({value,onChange}:{value:string;onChange:(value:string)=>void}){
+ const options=['','GPT','Claude','Gemini','Llama','Qwen','Mistral','DeepSeek'];const [open,setOpen]=useState(false);const [custom,setCustom]=useState(!!value&&!options.includes(value));const root=useRef<HTMLDivElement>(null);const trigger=useRef<HTMLButtonElement>(null);const id=useId();
+ useEffect(()=>{if(!open)return;const outside=(event:PointerEvent)=>{if(!root.current?.contains(event.target as Node))setOpen(false);};document.addEventListener('pointerdown',outside);return()=>document.removeEventListener('pointerdown',outside);},[open]);
+ return <div className="field model-picker" ref={root} onBlur={event=>{if(!event.currentTarget.contains(event.relatedTarget as Node))setOpen(false);}} onKeyDown={event=>{if(event.key==='Escape'){setOpen(false);trigger.current?.focus();}if(open&&['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();const items=Array.from(root.current!.querySelectorAll<HTMLButtonElement>('[role=option]'));const index=items.indexOf(document.activeElement as HTMLButtonElement);items[event.key==='Home'?0:event.key==='End'?items.length-1:(index+(event.key==='ArrowDown'?1:items.length-1))%items.length]?.focus();}}}><span id={`${id}-label`}>AI 모델</span><button ref={trigger} className="model-trigger" type="button" aria-labelledby={`${id}-label`} aria-haspopup="listbox" aria-controls={id} aria-expanded={open} onClick={()=>setOpen(previous=>!previous)} onKeyDown={event=>{if(!open&&['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();setOpen(true);}}}><span>{custom?'직접 입력':value||'선택 안 함'}</span><ChevronDown size={14}/></button>{open&&<div id={id} className="model-options" role="listbox" aria-label="AI 모델">{[...options,'직접 입력'].map(option=><button key={option} type="button" role="option" aria-selected={option==='직접 입력'?custom:!custom&&value===option} onClick={()=>{setCustom(option==='직접 입력');if(option!=='직접 입력')onChange(option);else if(options.includes(value))onChange('');setOpen(false);trigger.current?.focus();}}>{option||'선택 안 함'}</button>)}</div>}{custom&&<input aria-label="AI 모델 직접 입력" maxLength={160} value={value} placeholder="모델 이름" onChange={event=>onChange(event.target.value)}/>}</div>;
+}
 function LibraryDrawer({children,onClose}:{children:ReactNode;onClose:()=>void}){
   const ref=useRef<HTMLDialogElement>(null);
   useEffect(()=>{ref.current?.showModal();return()=>ref.current?.close();},[]);
@@ -119,8 +126,8 @@ function EditBook({book,onSave,onClose,scope='book'}:{book:Book;onSave:(book:Boo
   return <Modal title={scope==='shelf'?'책 꾸미기':`책 꾸미기 · ${String(book.volumeNumber??1).padStart(2,'0')}`} onClose={onClose} wide locked={busy}><form onSubmit={async e=>{e.preventDefault();setBusy(true);setError('');try{await onSave({...draft,title:draft.title.trim()},reset);onClose();}catch(e){setError(e instanceof Error?e.message:'저장하지 못했어요.');}finally{setBusy(false);}}}>
     <div className="edit-layout"><div className="cover-previews"><Cover book={draft}/></div><div className="space-y-4">
       <label className="field">책 제목<input required maxLength={100} value={draft.title} onChange={e=>setDraft({...draft,title:e.target.value})}/></label>
-      <label className="field">등장인물 · 작가<input maxLength={100} value={draft.author} onChange={e=>setDraft({...draft,author:e.target.value})}/></label>
-      <label className="field">책 소개<textarea rows={3} maxLength={600} value={draft.description} onChange={e=>setDraft({...draft,description:e.target.value})}/></label>
+      <label className="field">저자<input maxLength={100} value={draft.author} onChange={e=>setDraft({...draft,author:e.target.value})}/></label>
+      <ModelPicker value={draft.aiModel??''} onChange={aiModel=>setDraft({...draft,aiModel})}/>
       <div className="field">표지 색<div className="cover-swatches">{colors.map(color=><button key={color} type="button" className="swatch" aria-label={`${color} 표지`} aria-pressed={draft.color===color} style={{background:color}} onClick={()=>setDraft({...draft,color})}>{draft.color===color&&<Check size={15}/>}</button>)}<label className="swatch custom-color-swatch" title="사용자 지정 색" style={{background:draft.customColor??draft.color}}><input type="color" aria-label="사용자 지정 표지 색" value={draft.customColor??draft.color} onChange={e=>setDraft({...draft,color:e.target.value,customColor:e.target.value})}/>{draft.color===draft.customColor?<Check size={15}/>:<Plus size={13}/>}</label></div></div>
       <button type="button" className="secondary-btn" title="표지와 캐릭터 초상을 기본값으로 되돌리기" disabled={busy} onClick={defaults}>기본값으로</button>
     </div></div>
@@ -128,21 +135,25 @@ function EditBook({book,onSave,onClose,scope='book'}:{book:Book;onSave:(book:Boo
   </form></Modal>;
 }
 function styleBook(book:Book,draft:Book,reset:boolean):Book{
-  return {...book,author:draft.author,description:draft.description,color:draft.color,customColor:draft.customColor,
+  return {...book,author:draft.author,aiModel:draft.aiModel?.trim()||undefined,color:draft.color,customColor:draft.customColor,
     ...(reset?{cover:undefined,backCover:undefined,characterIcon:undefined,assets:book.assets?.some(asset=>asset.type==='icon')?book.assets.map(asset=>asset.type==='icon'?{...asset,type:'asset' as const}:asset):book.assets}:{})};
 }
 
 
 export default function App() {
   const [books,setBooks]=useState<Book[]>([]); const [loading,setLoading]=useState(true);const [error,setError]=useState(''); const [toast,setToast]=useState('');
-  const [route,setRoute]=useState(currentBookId);const [readerStart,setReaderStart]=useState<{bookId:string;anchor:BookmarkAnchor}|null>(null); const [query,setQuery]=useState(''); const [tab,setTab]=useState('all');const [sort,setSort]=useState('recent');const canEdit=tab==='all';
-  const [drawerOpen,setDrawerOpen]=useState(false);const [intakeMode,setIntakeMode]=useState<'file'|'text'>('file');const [importing,setImporting]=useState(false);const [busy,setBusy]=useState(false);const [info,setInfo]=useState(false);const [edit,setEdit]=useState<Book|null>(null);const [remove,setRemove]=useState<Book|null>(null);const [menu,setMenu]=useState<string|null>(null);const [view,setView]=useState<'covers'|'spines'>('covers');
+  const [route,setRoute]=useState(currentBookId);const [readerStart,setReaderStart]=useState<{bookId:string;anchor:BookmarkAnchor}|null>(null); const [query,setQuery]=useState('');const [sort,setSort]=useState('recent');const canEdit=true;
+  const [drawerOpen,setDrawerOpen]=useState(false);const [intakeMode,setIntakeMode]=useState<'file'|'text'>('file');const [importing,setImporting]=useState(false);const [busy,setBusy]=useState(false);const [theme,setTheme]=useState<Theme>(readTheme);const [backupOpen,setBackupOpen]=useState(false);const [edit,setEdit]=useState<Book|null>(null);const [remove,setRemove]=useState<Book|null>(null);const [menu,setMenu]=useState<string|null>(null);const [view,setView]=useState<'covers'|'spines'>('covers');
   const [clearConfirm,setClearConfirm]=useState<{title:string;ids:string[]}|null>(null);const [deleting,setDeleting]=useState(false);const [clearError,setClearError]=useState('');
   const [creating,setCreating]=useState<ShelfTarget|null>(null);const [renaming,setRenaming]=useState<ShelfTarget|null>(null);const [assetShelf,setAssetShelf]=useState<ShelfTarget|null>(null);
   const deletingRef=useRef(false);const editingShelf=useRef(false);
   const restore=useRef<HTMLInputElement>(null);const latestBooks=useRef(books); latestBooks.current=books;
   const splittingBooks=useRef(new Set<string>());
   const initialLoad=useRef<Promise<Book[]>|null>(null);
+  useEffect(()=>{const sync=(event:Event)=>{const value=(event as CustomEvent<Theme>).detail;setTheme(value==='paper'||value==='warm'||value==='dark'?value:readTheme());};window.addEventListener(THEME_EVENT,sync);window.addEventListener('storage',sync);return()=>{window.removeEventListener(THEME_EVENT,sync);window.removeEventListener('storage',sync);};},[]);
+  useEffect(()=>{document.documentElement.dataset.libraryTheme=theme;document.documentElement.classList.toggle('dark',theme==='dark');return()=>{delete document.documentElement.dataset.libraryTheme;document.documentElement.classList.remove('dark');};},[theme]);
+  function changeTheme(value:Theme){try{saveTheme(value);setTheme(value);}catch{setToast('테마를 저장하지 못했어요.');}}
+
   useEffect(()=>{
     let active=true;
     initialLoad.current??=(async()=>{
@@ -216,7 +227,7 @@ export default function App() {
     const shelf=bookShelf(book);
     await commitBooks(shelfBooks(latestBooks.current,shelf).map(item=>item.id),current=>{
       const siblings=shelfBooks(current,shelf);const mark=canonicalBookmark(siblings);
-      return siblings.map(item=>({...item,bookmarkStyle:style,bookmarks:mark&&item.id===mark.bookId?[{message:mark.message,char:mark.char,...(mark.label!==undefined?{label:mark.label}:{})}]:[]}));
+      return siblings.map(item=>({...item,bookmarkStyle:style,bookmarks:mark&&item.id===mark.bookId?[{message:mark.message,char:mark.char,...(mark.label!==undefined?{label:mark.label}:{}),...(mark.progress!==undefined?{progress:mark.progress}:{})}]:[]}));
     });
   }
   const decorateBook=async(draft:Book,reset:boolean)=>{
@@ -237,7 +248,7 @@ export default function App() {
     let incoming:Book[]=[];
     if(request.mode==='file'){
       const failures:string[]=[];
-      for(const file of request.files){try{incoming.push(...await importChatFile(file,{removeUserInputs:request.removeUserInputs}));}catch(cause){failures.push(`${file.name}: ${cause instanceof Error?cause.message:'파일을 읽지 못했어요.'}`);}}
+      for(const file of request.files){try{incoming.push(...(await importChatFile(file,{removeUserInputs:request.removeUserInputs})).map(book=>({...book,author:request.author.trim()})));}catch(cause){failures.push(`${file.name}: ${cause instanceof Error?cause.message:'파일을 읽지 못했어요.'}`);}}
       if(failures.length)throw new Error(failures.join('\n'));
     }else{
       const now=new Date().toISOString();
@@ -259,7 +270,7 @@ export default function App() {
       const appended=fresh.map((book,index)=>({...book,seriesId:target.id,seriesTitle:fullSiblings[0]!.seriesTitle??target.title,title:`${fullSiblings[0]!.seriesTitle??target.title} · ${fullSiblings.length+index+1}권`,volumeNumber:fullSiblings.length+index+1,volumeCount:count}));
       createdBook=appended[0];return [...fullSiblings.map(book=>({...book,volumeCount:count})),...appended];
     });
-    setTab('all');setQuery('');setToast(`${prepared.length}권의 책을 추가했어요.`);if(request.mode==='text'&&createdBook)openBook(createdBook);
+    setQuery('');setToast(`${prepared.length}권의 책을 추가했어요.`);if(request.mode==='text'&&createdBook)openBook(createdBook);
   }
   async function saveShelfAssets(shelf:ShelfTarget,assets:BookAsset[]){
     if(!canEdit)return;
@@ -296,8 +307,7 @@ export default function App() {
   const selected=books.find(b=>b.id===route);
   const selectedBookmark=selected?canonicalBookmark(shelfBooks(books,bookShelf(selected))):undefined;
   const markedBooks=books.filter(book=>canonicalBookmark(shelfBooks(books,bookShelf(book)))?.bookId===book.id).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
-  const markedIds=new Set(markedBooks.map(book=>book.id));
-  const shown=books.filter(book=>(tab!=='reading'||markedIds.has(book.id))&&`${book.title} ${book.author} ${book.description}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())).sort((a,b)=>sort==='title'?a.title.localeCompare(b.title,'ko'):sort==='oldest'?String(a.createdAt).localeCompare(String(b.createdAt)):String(b.updatedAt).localeCompare(String(a.updatedAt)));
+  const shown=books.filter(book=>`${book.title} ${book.author} ${book.description}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())).sort((a,b)=>sort==='title'?a.title.localeCompare(b.title,'ko'):sort==='oldest'?String(a.createdAt).localeCompare(String(b.createdAt)):String(b.updatedAt).localeCompare(String(a.updatedAt)));
   const groups=groupBooks(shown);
   const singletons:{id:string;title:string;books:Book[]}={id:'ungrouped',title:'단권',books:[]};
   const shelves=groups.reduce<{id:string;title:string;books:Book[]}[]>((rows,group)=>{
@@ -310,25 +320,26 @@ export default function App() {
   const onNextVolume=useCallback(()=>{if(nextVolume)openBook(nextVolume);},[nextVolume,openBook]);
   if(route&&!loading&&selected)return <><Suspense fallback={<div className="loading-screen"><LoaderCircle className="animate-spin"/> 책을 펼치고 있어요</div>}><Reader book={selected} onClose={closeBook} onSaveBook={canEdit?updateBook:undefined} shelfBookmark={selectedBookmark} bookmarkStyle={selectedBookmark?.style??selected.bookmarkStyle??shelfBooks(books,bookShelf(selected)).find(book=>book.bookmarkStyle)?.bookmarkStyle} characterIcon={portrait(selected)??shelfBooks(books,bookShelf(selected)).map(portrait).find(Boolean)} onBookmarkChange={(anchor,style)=>changeBookmark(selected,anchor,style)} onBookmarkStyleChange={style=>changeBookmarkStyle(selected,style)} initialBookmark={readerStart?.bookId===selected.id?readerStart.anchor:undefined} onNextVolume={nextVolume?onNextVolume:undefined} nextVolumeTitle={nextVolume?.title}/></Suspense>{toast&&<div className="toast" role="status">{toast}</div>}</>;
   return <div className="app-shell">
-    <header className="site-header" inert={deleting}><button className="drawer-trigger" aria-label="서재 메뉴 열기" title="내 서재" aria-expanded={drawerOpen} aria-controls="library-drawer" onClick={()=>setDrawerOpen(true)}><Menu size={20}/></button><a href="#/" className="brand" aria-label="갈피 서재"><span className="brand-mark"><BookOpen size={23} strokeWidth={1.4}/><span/></span><span>갈피<span className="brand-en">galpi</span></span></a><div className="header-right">{canEdit&&<button className="icon-btn" aria-label="저장 및 백업" title="저장 및 백업" onClick={()=>setInfo(true)}><Settings2 size={19}/></button>}</div></header>
+    <header className="site-header" inert={deleting}><button className="drawer-trigger" aria-label="서재 메뉴 열기" title="내 서재" aria-expanded={drawerOpen} aria-controls="library-drawer" onClick={()=>setDrawerOpen(true)}><Menu size={20}/></button><a href="#/" className="brand" aria-label="갈피 서재"><span className="brand-mark"><BookOpen size={23} strokeWidth={1.4}/><span/></span><span>갈피<span className="brand-en">galpi</span></span></a></header>
     <div className="workspace" inert={deleting}>
-      {drawerOpen&&<LibraryDrawer onClose={()=>setDrawerOpen(false)}><nav aria-label="서재 메뉴">{[{id:'all',label:'내 서재',icon:Library,count:groupBooks(books).length},{id:'reading',label:'이어읽기',icon:BookOpen,count:markedBooks.length}].map(item=><button key={item.id} title={item.label} className={'nav-item '+(tab===item.id?'active':'')} onClick={()=>{setDrawerOpen(false);setTab(item.id);setQuery('');setMenu(null);setEdit(null);setRemove(null);setCreating(null);setRenaming(null);setAssetShelf(null);setClearConfirm(null);setImporting(false);setInfo(false);}}><item.icon size={18} strokeWidth={1.6}/><span>{item.label}</span><small>{item.count.toString().padStart(2,'0')}</small></button>)}</nav></LibraryDrawer>}
+      {drawerOpen&&<LibraryDrawer onClose={()=>setDrawerOpen(false)}><nav aria-label="서재 메뉴"><button className="nav-item active" onClick={()=>{setDrawerOpen(false);setQuery('');}}><Library size={18}/><span>내 서재</span><small>{groupBooks(books).length}</small></button><button className="nav-item" aria-expanded={backupOpen} aria-controls="drawer-backup" onClick={()=>setBackupOpen(value=>!value)}><ArrowDownToLine size={18}/><span>백업·복원</span><ChevronDown size={14}/></button>{backupOpen&&<div id="drawer-backup" className="drawer-backup"><button className="secondary-btn" disabled={busy||loading} onClick={async()=>{try{download('갈피-책장-'+new Date().toISOString().slice(0,10)+'.json',{format:'galpi-backup',version:1,volumePolicy:'chapters-100-v1',books:await loadBooks()});setToast('백업 완료');}catch{setToast('백업하지 못했어요.');}}}><ArrowDownToLine size={15}/>백업</button><button className="secondary-btn" disabled={busy} onClick={()=>restore.current?.click()}><Upload size={15}/>복원</button></div>}</nav><section className="drawer-appearance" aria-label="화면 설정"><h2>화면</h2><ThemePicker value={theme} onChange={changeTheme}/></section>{error&&<p className="error-message" role="alert">{error}</p>}</LibraryDrawer>}
+
       <main className="main-content">
         <section className="library-intro"><h1>내 서재</h1>{canEdit&&<button className="primary-btn" title="로그 가져오기" onClick={()=>{setError('');setIntakeMode('file');setCreating(null);setImporting(true);}}><Upload size={17}/>로그 가져오기</button>}</section>
         {error&&<div className="error-banner" role="alert">{error}<button className="icon-btn" aria-label="오류 닫기" onClick={()=>setError('')}><X size={16}/></button></div>}
         {route&&!selected&&!loading&&<div className="error-banner">이 브라우저에 저장되지 않은 책이에요.<a href="#/">서재로 돌아가기</a></div>}
 
 
-        <section aria-label="책장" className="collection"><div className="collection-toolbar"><div className="collection-heading"><h2>{tab==='reading'?'이어읽기':'책장'}</h2><span>{groups.length}작품 · {shown.length}권</span></div><div className="collection-controls"><label className="search-box"><Search size={16}/><input aria-label="이야기 검색" placeholder="검색" value={query} onChange={e=>setQuery(e.target.value)}/>{query&&<button aria-label="검색 초기화" onClick={()=>setQuery('')}><X size={14}/></button>}</label><SortMenu value={sort} onChange={setSort}/><button type="button" className="view-switch view-segment-toggle" role="switch" aria-label="책등 보기" aria-checked={view==='spines'} title={view==='spines'?'표지 보기로 전환':'책등 보기로 전환'} onClick={()=>setView(value=>value==='covers'?'spines':'covers')}><span className="view-switch-thumb" aria-hidden="true"/><span className={view==='covers'?'selected':''} aria-hidden="true"><BookOpen size={16}/></span><span className={view==='spines'?'selected':''} aria-hidden="true"><Library size={16}/></span></button></div></div>
+        {markedBooks.length>0&&<section className="resume-section" aria-label="이어읽기"><h2>이어읽기</h2><div className="resume-list">{markedBooks.map(book=><button key={book.id} className="resume-link" title="책갈피에서 이어읽기" onClick={()=>openBook(book)}><Bookmark size={14}/><span>{book.title}</span><ArrowRight size={14}/></button>)}</div></section>}
+        <section aria-label="책장" className="collection"><div className="collection-toolbar"><div className="collection-heading"><h2>책장</h2><span>{groups.length}작품 · {shown.length}권</span></div><div className="collection-controls"><label className="search-box"><Search size={16}/><input aria-label="이야기 검색" placeholder="검색" value={query} onChange={e=>setQuery(e.target.value)}/>{query&&<button aria-label="검색 초기화" onClick={()=>setQuery('')}><X size={14}/></button>}</label><SortMenu value={sort} onChange={setSort}/><button type="button" className="view-switch view-segment-toggle" role="switch" aria-label="책등 보기" aria-checked={view==='spines'} title={view==='spines'?'표지 보기로 전환':'책등 보기로 전환'} onClick={()=>setView(value=>value==='covers'?'spines':'covers')}><span className="view-switch-thumb" aria-hidden="true"/><span className={view==='covers'?'selected':''} aria-hidden="true"><BookOpen size={16}/></span><span className={view==='spines'?'selected':''} aria-hidden="true"><Library size={16}/></span></button></div></div>
           {loading?<div className="loading-screen"><LoaderCircle size={22} className="animate-spin"/> 서재를 열고 있어요</div>:shown.length?<div className="shelf-groups">{shelves.map(shelf=>{const mark=canonicalBookmark(shelfBooks(books,{id:shelf.id,title:shelf.title,ungrouped:shelf===singletons}));return <section key={shelf===singletons?'singletons':`series:${shelf.id}`} aria-label={shelf.title} className="series-shelf" data-series-id={shelf.id}>
             <header className="series-heading"><h3>{shelf.title}</h3><span>{shelf.books.length}권</span>{canEdit&&<div className="shelf-actions"><button className="icon-btn" aria-label={`${shelf.title} 책장 꾸미기`} title="책장 꾸미기" disabled={busy} onClick={()=>setRenaming({id:shelf.id,title:shelf.title,ungrouped:shelf===singletons})}><Pencil size={16}/></button><button className="icon-btn" aria-label={`${shelf.title} 에셋 관리`} title="책장 에셋 관리" disabled={busy} onClick={()=>setAssetShelf({id:shelf.id,title:shelf.title,ungrouped:shelf===singletons})}><Images size={17}/></button><button className="icon-btn shelf-delete danger-text" aria-label={`${shelf.title} 책장 삭제`} title={`${shelf.title} 책장 삭제`} disabled={busy||loading||splittingBooks.current.size>0} onClick={()=>{const targets=books.filter(book=>shelf===singletons?!book.seriesId:(book.seriesId??book.id)===shelf.id);setClearError('');setClearConfirm({title:shelf.title,ids:targets.map(book=>book.id)});}}><Trash2 size={17}/></button></div>}</header>
             <div className={view==='covers'?'bookshelf-grid':'spines-shelf'}>{view==='spines'&&<span className="shelf-bookstop shelf-bookstop-start" aria-hidden="true"/>}{shelf.books.map((book,index)=><article key={book.id} className={`book-item ${view==='spines'?'spine-item':''} ${mark?.bookId===book.id?'book-has-bookmark':''}`} data-bookmarked={mark?.bookId===book.id||undefined} style={{'--cover':book.color,'--delay':`${Math.min(index,8)*60}ms`} as CSSProperties}>
               <button className="book-read" aria-label={`${book.title} 읽기`} title={`${book.title} 읽기`} onClick={()=>openBook(book)}>
-                <div className="book-stage"><div className="book-open">{view==='covers'?<Cover book={book}/>:<div className="book-spine"><span className="spine-title-zone"><strong className="spine-title">{displayBookTitle(book)}</strong></span><span className="spine-volume">{String(book.volumeNumber??1).padStart(2,'0')}</span></div>}</div></div>
+                <div className="book-stage"><div className="book-open">{mark?.bookId===book.id&&<BookRibbon book={book} mark={mark} view={view}/>}{view==='covers'?<Cover book={book}/>:<div className="book-spine"><span className="spine-title-zone"><strong className="spine-title">{displayBookTitle(book)}</strong></span><span className="spine-volume">{String(book.volumeNumber??1).padStart(2,'0')}</span></div>}</div></div>
                 <div className="book-caption"><div><span className="book-title">{book.title}</span><p>{book.author || '나의 이야기'}</p></div></div>
                 <div className="book-meta"><span>{book.messages.length.toLocaleString()}개의 대화</span><span>{mark?.bookId===book.id?'책갈피':''}</span></div>
               </button>
-              {mark?.bookId===book.id&&<span className="book-bookmark" data-bookmark-style={mark.style} role="img" aria-label={`${book.title} 책갈피`}><BookmarkBadge mark={mark}/></span>}
               {canEdit&&<div className={`book-menu-wrap ${menu===book.id?'menu-open':''}`}><button className="icon-btn" title="책 관리" aria-label={`${book.title} 관리`} aria-expanded={menu===book.id} onClick={e=>{e.stopPropagation();setMenu(menu===book.id?null:book.id);}}><Ellipsis size={19}/></button>{menu===book.id&&<div className="dropdown"><button onClick={()=>setEdit(book)}>꾸미기</button><button onClick={()=>download(`${book.title}.json`,[book])}>내보내기</button><button className="danger-text" onClick={()=>setRemove(book)}>삭제</button></div>}</div>}
             </article>)}{view==='spines'&&<span className="shelf-bookstop shelf-bookstop-end" aria-hidden="true"/>}{canEdit&&<button className={`add-book-card ${view==='spines'?'add-spine-card':''}`} aria-label={`${shelf.title} 새 책 쓰기`} title="직접 쓴 이야기 추가" disabled={busy} onClick={()=>{setIntakeMode('text');setCreating({id:shelf.id,title:shelf.title,ungrouped:shelf===singletons});}}><span className="add-book-outline"><Plus size={24} strokeWidth={1.2}/></span><span className="sr-only">새 책 쓰기</span></button>}</div>
           </section>;})}</div>:<div className="empty-state"><BookOpen size={38} strokeWidth={1}/><h3>{query?'검색 결과 없음':'책이 없어요'}</h3>{canEdit&&!query&&<div className="empty-actions"><button className="secondary-btn" onClick={()=>{setIntakeMode('text');setCreating({id:'ungrouped',title:'단권',ungrouped:true});}}><Plus size={17}/>새 책 쓰기</button><button className="secondary-btn" onClick={()=>{setIntakeMode('file');setCreating(null);setImporting(true);}}><Upload size={17}/>로그 가져오기</button></div>}</div>}
@@ -338,8 +349,7 @@ export default function App() {
       </main>
     </div>
     <input className="sr-only" ref={restore} type="file" accept=".json" onChange={e=>void restoreBackup(e.target.files?.[0])}/>
-    {canEdit&&(importing||creating)&&<BookIntake initialMode={intakeMode} title={creating&&!creating.ungrouped?creating.title:''} onConfirm={intakeBooks} onClose={()=>{setImporting(false);setCreating(null);}}/>}
-    {canEdit&&info&&<Modal title="보관함" onClose={()=>setInfo(false)}><p className="modal-description">이 브라우저에 저장돼요. 데이터 삭제 전 백업하세요.</p><div className="backup-actions"><button className="secondary-btn" title="서재 전체를 파일로 저장" disabled={busy||loading} onClick={()=>{download('갈피-책장-'+new Date().toISOString().slice(0,10)+'.json',{format:'galpi-backup',version:1,volumePolicy:'chapters-100-v1',books});setToast('백업 완료');}}><ArrowDownToLine size={17}/> 백업</button><button className="secondary-btn" title="다른 브라우저의 백업도 복원할 수 있습니다" disabled={busy} onClick={()=>restore.current?.click()}><Upload size={17}/> 복원</button></div></Modal>}
+    {canEdit&&(importing||creating)&&<BookIntake initialMode={intakeMode} title="" onConfirm={intakeBooks} onClose={()=>{setImporting(false);setCreating(null);}}/>}
     {canEdit&&renaming&&shelfBooks(books,renaming)[0]&&<EditBook scope="shelf" book={{...shelfBooks(books,renaming)[0]!,title:renaming.title}} onSave={(draft,reset)=>decorateShelf(renaming,draft,reset)} onClose={()=>setRenaming(null)}/>}
     {canEdit&&assetShelf&&<ShelfAssets assets={shelfAssets(books,assetShelf)} onSave={assets=>saveShelfAssets(assetShelf,assets)} onClose={()=>setAssetShelf(null)}/>}
     {canEdit&&edit&&<EditBook book={edit} onSave={decorateBook} onClose={()=>setEdit(null)}/>}

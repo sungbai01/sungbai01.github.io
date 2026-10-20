@@ -75,6 +75,18 @@ export type AssetSegment =
   | { type: 'text'; text: string; start: number; end: number }
   | { type: 'asset'; asset: BookAsset; start: number; end: number };
 
+// Shared by resolution, import protection and display hiding. Keep whole tags,
+// including quoted delimiters; broad bracket forms are intentional Risu input.
+function imagePattern(): RegExp {
+  return /<img(?:[^<>"']|"[^"]*"|'[^']*')*(?:>|$)|\{\{(?:img|image|raw)::([^{}\r\n]+)\}\}|!\[(?:\\.|[^\]\\])*\]\(\s*(<[^>\r\n]+>|\{\{(?:img|image|raw)::[^{}\r\n]+\}\}|(?:\\.|[^\s()])+)(?:\s+["'][^\r\n]*?["'])?\s*\)|\[img(?:[^\]"'\r\n]|"[^"]*"|'[^']*')*(?:\]|$)/gi;
+}
+
+/** Syntactic references, even without a registered image. Preserve these bytes
+ * during import so a later shelf-library addition can resolve them. */
+export function imageReferenceRanges(content: string): { start: number; end: number }[] {
+  return Array.from(content.matchAll(imagePattern()), match => ({ start: match.index!, end: match.index! + match[0].length }));
+}
+
 /** Attribute strings only: no image/document insertion and no asset requests. */
 export function imageReferenceNames(tag: string): string[] {
   const decode = (value: string) => value.replace(/&(?:amp|quot|apos|lt|gt|#\d+|#x[\da-f]+);/gi, entity => {
@@ -89,8 +101,10 @@ export function imageReferenceNames(tag: string): string[] {
     if (!attrs.has(key)) attrs.set(key, decode(match[2] ?? match[3] ?? match[4] ?? ''));
   }
   const src = attrs.get('src')?.trim() || '';
-  const token = src.match(/^\{\{(?:img|image|raw)::([^{}]+)\}\}$/i);
-  const candidates = [token?.[1], attrs.get('data-asset-name'), attrs.get('name'), attrs.get('alt'), attrs.get('title'), src];
+  const token = src.match(/^\{\{(?:img|image|raw)::([^{}]+)\}\}$|^\[img(?:::|\s+)([^\]\r\n]+)\]$/i);
+  const bracket = tag.match(/^\[img([\s\S]*?)(?:\]|$)$/i)?.[1];
+  const bare = bracket?.replace(/^\s*(?:::|:|=)?\s*/, '').replace(/^["']|["']$/g, '').trim();
+  const candidates = [token?.[1] ?? token?.[2], attrs.get('src'), attrs.get('data-asset-name'), attrs.get('name'), attrs.get('alt'), attrs.get('title'), attrs.get('img'), bare];
   if (src && !/^(?:data|javascript):/i.test(src)) {
     let path = src.split(/[?#]/)[0] || '';
     try { path = decodeURIComponent(path); } catch { /* Preserve undecodable paths. */ }
@@ -113,6 +127,9 @@ export function extractAssetSegments(content: string, assets: BookAsset[]): Asse
     else if (previous?.id !== asset.id) aliases.set(name, null);
   };
   for (const asset of byName.values()) {
+    const namePath = asset.name.replace(/\\/g, '/');
+    addAlias(namePath, asset);
+    addAlias(namePath.split('/').pop()!, asset);
     addAlias(asset.src, asset);
     if (/^https?:\/\//i.test(asset.src)) {
       const url = new URL(asset.src); addAlias(url.pathname, asset);
@@ -122,7 +139,7 @@ export function extractAssetSegments(content: string, assets: BookAsset[]): Asse
   const result: AssetSegment[] = [];
   // Markdown supports ordinary/angle-bracket destinations and optional titles;
   // URL destinations are not fetched or resolved by alt text.
-  const token = /<img\b(?:[^<>"']|"[^"]*"|'[^']*')*>|\{\{(?:img|image|raw)::([^{}\r\n]+)\}\}|!\[(?:\\.|[^\]\\])*\]\(\s*(<[^>\r\n]+>|\{\{(?:img|image|raw)::[^{}\r\n]+\}\}|(?:\\.|[^\s()])+)(?:\s+["'][^\r\n]*?["'])?\s*\)/gi;
+  const token = imagePattern();
   let cursor = 0;
   for (const match of content.matchAll(token)) {
     const start = match.index!;
@@ -130,10 +147,10 @@ export function extractAssetSegments(content: string, assets: BookAsset[]): Asse
     let slashes = 0;
     for (let i = start - 1; i >= 0 && content[i] === '\\'; i--) slashes++;
     if (slashes % 2) continue;
-    let name = (match[1] ?? match[2] ?? '').trim();
+    let name = (match[1] ?? match[2] ?? match[3] ?? '').trim();
     if (name.startsWith('<') && name.endsWith('>')) name = name.slice(1, -1);
     name = name.replace(/^\{\{(?:img|image|raw)::([^{}]+)\}\}$/i, '$1').replace(/\\([\\()[\] ])/g, '$1').trim();
-    const candidates = /^<img\b/i.test(match[0]) ? imageReferenceNames(match[0]) : [name];
+    const candidates = /^(?:<img|\[img)/i.test(match[0]) ? imageReferenceNames(match[0]) : [name];
     let asset: BookAsset | undefined;
     for (const candidate of candidates) {
       asset = byName.get(candidate) ?? aliases.get(candidate) ?? undefined;
