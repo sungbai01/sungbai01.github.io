@@ -328,7 +328,7 @@ export default function App() {
     if(!canEdit)return;
     const icon=assets.find(asset=>asset.type==='icon')??assets[0];
     const palette=icon?await portraitPalette(icon.src):undefined;
-    await commitBooks(shelfBooks(latestBooks.current,shelf).map(book=>book.id),current=>shelfBooks(current,shelf).map(book=>({...book,assets,characterIcon:icon?.src,...(palette?{color:palette.base}:{})})));
+    await commitBooks(shelfBooks(latestBooks.current,shelf).map(book=>book.id),current=>shelfBooks(current,shelf).map(book=>({...book,assets,characterIcon:icon?.src,...(palette?{color:palette}:{})})));
     setToast('에셋을 저장했어요.');
   }
   async function backupBooks(){

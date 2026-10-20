@@ -498,6 +498,9 @@ async function withStores<T>(stores: string[], mode: IDBTransactionMode, action:
 }
 
 function validateBook(book: Book): void {
+  if (record(book) && typeof book.color !== 'string') {
+    throw new LibraryError('책의 표지 색상 값이 없어 저장하지 못했어요.');
+  }
   if (!record(book) || typeof book.id !== 'string' || !book.id.trim() ||
     !['title', 'author', 'description', 'color'].every((key) => typeof (book as unknown as RecordValue)[key] === 'string') ||
     typeof book.createdAt !== 'string' || !Number.isFinite(Date.parse(book.createdAt)) ||

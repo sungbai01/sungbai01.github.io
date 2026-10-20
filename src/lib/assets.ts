@@ -32,14 +32,34 @@ export function safeAssetSource(value: unknown): string | undefined {
   return undefined;
 }
 
+export function uniqueAssetName(preferred: string, existing: Iterable<string>): string {
+  const name = preferred.trim();
+  const taken = new Set(existing);
+  if (!taken.has(name)) return name;
+  let number = 2;
+  while (taken.has(`${name} (${number})`)) number++;
+  return `${name} (${number})`;
+}
+
+/** Preserve first names and explicitly numbered names; only rename collisions. */
+export function numberAssetNames(assets: BookAsset[]): BookAsset[] {
+  const reserved = new Set(assets.map(asset => asset.name.trim()));
+  const used = new Set<string>();
+  return assets.map(asset => {
+    const original = asset.name.trim();
+    const name = used.has(original) ? uniqueAssetName(original, [...reserved, ...used]) : original;
+    used.add(name);
+    return name === asset.name ? asset : { ...asset, name };
+  });
+}
+
 /** Canonical shelf assets; invalid records are dropped, IDs stay stable.
- * Names are deliberately not case-folded: two distinct names must not silently
- * resolve to the same image. The dialog refuses duplicate names on save.
+ * Matching remains case-sensitive, as it is in Risu image references.
  */
 export function normalizeAssets(value: unknown): BookAsset[] {
   if (!Array.isArray(value)) return [];
   const ids = new Set<string>();
-  return value.flatMap((entry): BookAsset[] => {
+  return numberAssetNames(value.flatMap((entry): BookAsset[] => {
     if (!object(entry) || typeof entry.name !== 'string' || !entry.name.trim()) return [];
     const src = safeAssetSource(entry.src);
     if (!src) return [];
@@ -48,7 +68,7 @@ export function normalizeAssets(value: unknown): BookAsset[] {
     ids.add(assetId);
     return [{ id: assetId, name: entry.name.trim(), src,
       ...(entry.type === 'icon' || entry.type === 'asset' ? { type: entry.type } : {}) }];
-  });
+  }));
 }
 
 export type AssetSegment =

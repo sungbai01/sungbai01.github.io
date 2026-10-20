@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { ImagePlus, LoaderCircle, Trash2, X } from 'lucide-react';
 import type { BookAsset } from '../lib/library';
-import { importAssetFile, normalizeAssets, safeAssetSource } from '../lib/assets';
+import { importAssetFile, normalizeAssets, numberAssetNames, safeAssetSource, uniqueAssetName } from '../lib/assets';
 import './shelf-assets.css';
 
 export interface ShelfAssetsProps {
@@ -45,20 +45,18 @@ export default function ShelfAssets({ assets, onSave, onClose }: ShelfAssetsProp
       setDraft(previous => {
         const next = previous.map(asset => ({ ...asset }));
         const ids = new Set(next.map(asset => asset.id));
+        const portrait = incoming.find(asset => asset.type === 'icon' && asset.name === 'main') ?? incoming.find(asset => asset.type === 'icon');
+        let portraitId: string | undefined;
         for (const asset of incoming) {
-          // Reimporting an identical image is harmless; distinct images retain
-          // their original token name so the user can resolve conflicts explicitly.
-          const existing = next.find(entry => entry.name === asset.name && entry.src === asset.src);
-          if (existing) { if (asset.type === 'icon') existing.type = 'icon'; continue; }
           const assetId = ids.has(asset.id) ? crypto.randomUUID() : asset.id;
           ids.add(assetId); next.push({ ...asset, id: assetId });
+          if (asset === portrait) portraitId = assetId;
         }
-        // Importing another card selects its main portrait for App's first-icon
-        // lookup, while retaining other explicit icon flags from card metadata.
-        const portrait = incoming.find(asset => asset.type === 'icon' && asset.name === 'main') ?? incoming.find(asset => asset.type === 'icon');
-        const portraitIndex = portrait ? next.findIndex(asset => asset.name === portrait.name && asset.src === portrait.src) : -1;
-        if (portraitIndex > 0) next.unshift(...next.splice(portraitIndex, 1));
-        return next;
+        // Number before reordering, so existing image names never get displaced.
+        const numbered = numberAssetNames(next);
+        const portraitIndex = portraitId ? numbered.findIndex(asset => asset.id === portraitId) : -1;
+        if (portraitIndex > 0) numbered.unshift(...numbered.splice(portraitIndex, 1));
+        return numbered;
       });
       setError(problems.join('\n'));
       setNotice(warnings.length ? warnings.slice(0, 8).join('\n') + (warnings.length > 8 ? `\n외 ${warnings.length - 8}개 항목` : '') : '');
@@ -67,18 +65,17 @@ export default function ShelfAssets({ assets, onSave, onClose }: ShelfAssetsProp
 
   async function save() {
     if (locked.current) return;
-    const names = new Set<string>();
-    for (const asset of draft) {
+    const numbered = numberAssetNames(draft);
+    for (const asset of numbered) {
       const name = asset.name.trim();
       if (!name || /[{}\r\n]/.test(name)) { setError('이름을 입력해 주세요. 중괄호와 줄바꿈은 사용할 수 없습니다.'); return; }
-      if (names.has(name)) { setError(`“${name}” 이름이 겹칩니다. 이미지마다 다른 이름을 지정해 주세요.`); return; }
       if (!safeAssetSource(asset.src)) { setError(`“${name}” 이미지 주소가 올바르지 않습니다.`); return; }
-      names.add(name);
     }
     if (draft.length > 2000) { setError('책장마다 2,000개 이하의 이미지를 저장해 주세요.'); return; }
     locked.current = true; setBusy(true); setError('');
     try {
-      await onSave(normalizeAssets(draft));
+      setDraft(numbered);
+      await onSave(normalizeAssets(numbered));
       onClose();
     } catch (cause) { setError(cause instanceof Error ? cause.message : '저장하지 못했습니다. 다시 시도해 주세요.'); }
     finally { locked.current = false; setBusy(false); }
@@ -102,7 +99,7 @@ export default function ShelfAssets({ assets, onSave, onClose }: ShelfAssetsProp
         <div className="shelf-assets-preview">{previewFailures.has(asset.id) ? <span>미리보기 없음</span> : <img src={asset.src} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setPreviewFailures(previous => new Set(previous).add(asset.id))}/>}</div>
         <label className="shelf-assets-name"><span>이미지 이름</span><input aria-label={`${index + 1}번째 이미지 이름`} value={asset.name} disabled={busy} onChange={event => {
           const name = event.target.value; setDraft(previous => previous.map(entry => entry.id === asset.id ? { ...entry, name } : entry));
-        }}/><small>{`{{img::${asset.name}}}`}</small>
+        }} onBlur={()=>setDraft(previous=>previous.map(entry=>entry.id===asset.id?{...entry,name:uniqueAssetName(entry.name,previous.filter(other=>other.id!==entry.id).map(other=>other.name.trim()))}:entry))}/><small>{`{{img::${asset.name}}}`}</small>
         <span className="shelf-assets-portrait"><input type="radio" name={`${titleId}-portrait`} aria-label={`${asset.name || '이미지'} 표지 초상으로 사용`} checked={draft.find(entry => entry.type === 'icon')?.id === asset.id} disabled={busy} onChange={() => setDraft(previous => previous.map(entry => ({ ...entry, type: entry.id === asset.id ? 'icon' : 'asset' })))}/> 표지 초상</span></label>
         <button type="button" className="shelf-assets-icon shelf-assets-remove" aria-label={`${asset.name || '이미지'} 삭제`} disabled={busy} onClick={() => setDraft(previous => previous.filter(entry => entry.id !== asset.id))}><Trash2 size={18}/></button>
       </div>)}
