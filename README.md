@@ -34,6 +34,9 @@ GitHub Pages의 루트 주소에 배포하도록 설정되어 있습니다. `mai
 | [Apple Books](https://www.apple.com/apple-books/) | 표지를 중심으로 한 서재, 읽던 책 이어 읽기, 독서 화면의 글자 크기·테마 설정 |
 | [mymind — book support](https://mymind.com/new-amp-improved-book-support) | 입체적인 책 형태, 표지 색의 조화, 모바일에서도 유지되는 책 중심 구성 |
 | [StPageFlip](https://nodlik.github.io/StPageFlip/) | 종이의 곡면과 그림자가 있는 페이지 넘김, 포인터와 터치 조작 |
+| [Radix Colors](https://www.radix-ui.com/colors/docs/palette-composition/scales) | Sand 배경·본문, Jade 동작, Bronze 책갈피. 공식 색상 토큰을 직접 사용합니다. |
+
+읽던 위치는 별도 작은 저장소에 모아 저장하며, 책 본문과 표지를 페이지마다 다시 저장하지 않습니다. 넘김 엔진은 `src/vendor/page-flip`의 MIT 라이선스 소스를 사용합니다. 페이지 전체를 매 프레임 순회하던 처리와 종료되지 않는 애니메이션 루프를 수정했습니다.
 
 ## 사용자가 확인할 항목
 

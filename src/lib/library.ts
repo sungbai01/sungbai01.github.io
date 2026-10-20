@@ -7,6 +7,8 @@
  * All text stays inert. Consumers MUST render it as text (or Markdown with raw
  * HTML disabled), never innerHTML. No Risu scripts/macros/assets are executed.
  */
+import { jade, bronze, iris, gold } from '@radix-ui/colors';
+
 export interface Message {
   role: string;
   name: string;
@@ -35,10 +37,16 @@ export class LibraryError extends Error {
   }
 }
 
-export const BOOK_COLORS = ['#697963', '#a76b54', '#64778c', '#9b8053', '#806987'];
+export const BOOK_COLORS = [jade.jade12, bronze.bronze11, iris.iris12, gold.gold11];
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
 const DB_NAME = 'risu-bookshelf';
 const STORE = 'books';
+const PROGRESS_STORE = 'reading-progress';
+interface ReadingProgress {
+  id: string;
+  lastPage: number;
+  updatedAt: string;
+}
 type RecordValue = Record<string, unknown>;
 
 function record(value: unknown): value is RecordValue {
@@ -293,10 +301,11 @@ function openDatabase(): Promise<IDBDatabase> {
     if (typeof indexedDB === 'undefined') { reject(new LibraryError('이 환경에서는 IndexedDB 저장소를 사용할 수 없습니다.')); return; }
     let request: IDBOpenDBRequest;
     let settled = false;
-    try { request = indexedDB.open(DB_NAME, 1); }
+    try { request = indexedDB.open(DB_NAME, 2); }
     catch (error) { reject(storageError(error)); return; }
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains(STORE)) request.result.createObjectStore(STORE, { keyPath: 'id' });
+      if (!request.result.objectStoreNames.contains(PROGRESS_STORE)) request.result.createObjectStore(PROGRESS_STORE, { keyPath: 'id' });
     };
     request.onerror = () => { settled = true; reject(storageError(request.error)); };
     request.onblocked = () => {
@@ -313,18 +322,18 @@ function openDatabase(): Promise<IDBDatabase> {
 }
 
 /** Resolve writes only on transaction commit, including quota/abort failures. */
-async function withStore<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+async function withStores<T>(stores: string[], mode: IDBTransactionMode, action: (transaction: IDBTransaction) => IDBRequest<T>): Promise<T> {
   const db = await openDatabase();
   try {
     return await new Promise<T>((resolve, reject) => {
-      const transaction = db.transaction(STORE, mode);
+      const transaction = db.transaction(stores, mode);
       let result: T;
       let failure: unknown;
       transaction.oncomplete = () => resolve(result);
       transaction.onabort = () => reject(storageError(failure ?? transaction.error));
       transaction.onerror = () => { failure ??= transaction.error; };
       try {
-        const request = action(transaction.objectStore(STORE));
+        const request = action(transaction);
         request.onsuccess = () => { result = request.result; };
         request.onerror = () => { failure = request.error; };
       } catch (error) {
@@ -349,9 +358,34 @@ function validateBook(book: Book): void {
 }
 
 export async function loadBooks(): Promise<Book[]> {
-  const books = await withStore<Book[]>('readonly', (store) => store.getAll());
+  let progress: ReadingProgress[] = [];
+  const books = await withStores<Book[]>([STORE, PROGRESS_STORE], 'readonly', (transaction) => {
+    const request = transaction.objectStore(PROGRESS_STORE).getAll();
+    request.onsuccess = () => { progress = request.result; };
+    return transaction.objectStore(STORE).getAll();
+  });
   books.forEach(validateBook);
+  const byId = new Map(progress.filter((entry) => record(entry) && typeof entry.id === 'string' &&
+    Number.isSafeInteger(entry.lastPage) && entry.lastPage >= 0 &&
+    typeof entry.updatedAt === 'string' && Number.isFinite(Date.parse(entry.updatedAt))).map((entry) => [entry.id, entry]));
+  for (const book of books) {
+    const entry = byId.get(book.id);
+    if (entry) {
+      book.lastPage = entry.lastPage;
+      book.updatedAt = entry.updatedAt;
+    }
+  }
   return books.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
+}
+
+/** Persist only lightweight reader metadata; timestamps are caller-owned. */
+export async function saveReadingProgress(id: string, page: number, updatedAt: string): Promise<void> {
+  if (typeof id !== 'string' || !id.trim() || !Number.isSafeInteger(page) || page < 0 ||
+    typeof updatedAt !== 'string' || !Number.isFinite(Date.parse(updatedAt))) {
+    throw new LibraryError('저장할 읽기 진행 정보의 형식이 올바르지 않습니다.');
+  }
+  await withStores([PROGRESS_STORE], 'readwrite', (transaction) =>
+    transaction.objectStore(PROGRESS_STORE).put({ id, lastPage: page, updatedAt } satisfies ReadingProgress));
 }
 
 /** Upsert by id. Timestamps are caller-owned, allowing lossless backup restore. */
@@ -360,13 +394,21 @@ export async function saveBook(book: Book): Promise<void> {
   const { cover: _cover, ...rest } = book;
   const cover = safeCover(book.cover);
   const stored: Book = cover ? { ...rest, cover } : rest;
-  await withStore('readwrite', (store) => store.put(stored));
+  await withStores([STORE, PROGRESS_STORE], 'readwrite', (transaction) => {
+    const request = transaction.objectStore(STORE).put(stored);
+    transaction.objectStore(PROGRESS_STORE).delete(book.id);
+    return request;
+  });
 }
 
 /** Idempotent: deleting a missing id succeeds. */
 export async function deleteBook(id: string): Promise<void> {
   if (typeof id !== 'string' || !id.trim()) throw new LibraryError('삭제할 책의 ID가 필요합니다.');
-  await withStore('readwrite', (store) => store.delete(id));
+  await withStores([STORE, PROGRESS_STORE], 'readwrite', (transaction) => {
+    const request = transaction.objectStore(STORE).delete(id);
+    transaction.objectStore(PROGRESS_STORE).delete(id);
+    return request;
+  });
 }
 
 /** Feed the resulting .json File back into importChatFile to restore books. */

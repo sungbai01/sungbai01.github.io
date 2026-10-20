@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
 import { flushSync } from 'react-dom';
-import { PageFlip } from 'page-flip';
+import { PageFlip } from '../vendor/page-flip/PageFlip';
 import { ArrowLeft, ArrowRight, BookOpen, Check, ChevronLeft, List, Minus, Moon, Plus, Search, Sun, Type, X } from 'lucide-react';
 import type { Book } from '../lib/library';
 import './reader.css';
@@ -206,7 +206,8 @@ export function Reader({ book, onClose, onProgress }: ReaderProps) {
   closeRef.current = onClose;
   bookRef.current = book;
   // Stable content dependencies prevent a parent's progress update rebuilding the book.
-  const contentKey = JSON.stringify([book.title, book.author, book.messages]);
+  const contentKey = useMemo(() => ({ title: book.title, author: book.author, messages: book.messages }),
+    [book.title, book.author, book.messages]);
 
   useEffect(() => {
     try {
@@ -330,6 +331,7 @@ export function Reader({ book, onClose, onProgress }: ReaderProps) {
           mobileScrollSupport: true, swipeDistance: 30, useMouseEvents: true,
           clickEventForward: false, showPageCorners: true, disableFlipByClick: false,
         });
+        // Publish progress after the curl settles, not while it is drawing.
         instance.on('flip', event => { if (!cancelled) report(Number(event.data)); });
         instance.loadFromHTML(nodes);
         flipRef.current = instance;
@@ -423,7 +425,7 @@ export function Reader({ book, onClose, onProgress }: ReaderProps) {
   const percent = pages.length <= 1 ? (pages.length ? 100 : 0) : Math.round(pageIndex / (pages.length - 1) * 100);
   const style = { '--reader-font-size': `${fontSize}px` } as CSSProperties;
 
-  return <div className={`reader reader-theme-${theme}`} style={style} lang="ko">
+  return <div className={`reader reader-theme-${theme}${theme === 'dark' ? ' dark' : ''}`} style={style} lang="ko">
     <header className="reader-toolbar">
       <button className="reader-back" onClick={onClose} aria-label="책을 닫고 서재로 돌아가기" title="서재로 돌아가기"><ChevronLeft size={19} /><span>서재</span></button>
       <div className="reader-toolbar-title"><span>{book.title}</span><small>{book.author || readerCopy.unknownAuthor}</small></div>
@@ -435,7 +437,6 @@ export function Reader({ book, onClose, onProgress }: ReaderProps) {
     </header>
 
     <main className="reader-main" aria-label={`${book.title} 읽기`}>
-      <div className="reader-book-caption"><BookOpen size={13} /><span>잠깐의 여유, 이야기 속으로</span></div>
       <div className="reader-stage" ref={stageRef} aria-busy={loading}>
         <div className="reader-book-mount" ref={mountRef} />
         {loading && <div className="reader-loading" role="status"><BookOpen size={25} /><span>읽던 곳을 펼치고 있어요…</span></div>}
@@ -443,7 +444,6 @@ export function Reader({ book, onClose, onProgress }: ReaderProps) {
       {error && <p className="reader-error" role="status">{error}</p>}
       <div className="reader-turn-controls">
         <button className="reader-icon-button" aria-label="이전 쪽" title="이전 쪽 (←)" disabled={loading || pageIndex === 0 || !!error} onClick={() => turn('previous')}><ArrowLeft size={20} /></button>
-        <span className="reader-turn-hint">화면을 밀거나 책장 모서리를 넘겨 보세요</span>
         <button className="reader-icon-button" aria-label="다음 쪽" title="다음 쪽 (→)" disabled={loading || visibleEnd >= pages.length || !!error} onClick={() => turn('next')}><ArrowRight size={20} /></button>
       </div>
     </main>
@@ -451,7 +451,6 @@ export function Reader({ book, onClose, onProgress }: ReaderProps) {
     <footer className="reader-footer">
       <div className="reader-progress-label"><span>{pages.length ? `전체 ${pages.length}쪽 중 ${pageIndex + 1}${visibleEnd > pageIndex + 1 ? `–${visibleEnd}` : ''}쪽` : '책장을 준비하고 있어요'}</span><span>{percent}% 읽음</span></div>
       <input className="reader-progress" type="range" min={0} max={Math.max(0, pages.length - 1)} value={Math.min(pageIndex, Math.max(0, pages.length - 1))} disabled={loading || pages.length < 2} onChange={event => jump(Number(event.target.value))} aria-label="읽는 위치 이동" aria-valuetext={pages.length ? `전체 ${pages.length}쪽 중 ${pageIndex + 1}쪽` : '책장을 준비하고 있어요'} style={{ '--reader-progress': `${percent}%` } as CSSProperties} />
-      <span className="reader-footer-note">읽던 곳에 갈피를 꽂아 둘게요</span>
       <span className="reader-sr-only" aria-live="polite">{!loading && `전체 ${pages.length}쪽 중 ${pageIndex + 1}쪽`}</span>
     </footer>
 
@@ -477,12 +476,10 @@ export function Reader({ book, onClose, onProgress }: ReaderProps) {
           <div className="reader-search-results">{hits.map(hit => <button className="reader-search-result" key={`${hit.message}:${hit.char}`} onClick={() => goToAnchor(hit)}><span>{hit.name} <small>· {pageForAnchor(pages, hit) + 1}쪽</small></span><p><Highlight text={hit.excerpt} query={deferredQuery} /></p></button>)}</div>
         </>}
         {panel === 'appearance' && <>
-          <p className="reader-panel-description">좋은 이야기, 눈이 편안한 빛.</p>
           <div className="reader-setting-label"><span>글자 크기</span><small>{fontSize}픽셀</small></div>
           <div className="reader-font-control"><button aria-label="글자 작게" disabled={fontSize <= 14} onClick={() => setFontSize(size => Math.max(14, size - 1))}><Minus size={17} /><Type size={15} /></button><span className="reader-font-preview">가나다</span><button aria-label="글자 크게" disabled={fontSize >= 28} onClick={() => setFontSize(size => Math.min(28, size + 1))}><Type size={22} /><Plus size={17} /></button></div>
           <div className="reader-setting-label"><span>책장 색</span></div>
           <div className="reader-theme-options">{(['paper', 'warm', 'dark'] as const).map(option => <button key={option} className={`reader-theme-option reader-swatch-${option}`} onClick={() => setTheme(option)} aria-pressed={theme === option}><span>{option === 'dark' ? <Moon size={19} /> : <Sun size={19} />}{theme === option && <Check size={15} />}</span><strong>{option === 'paper' ? '종이' : option === 'warm' ? '따뜻하게' : '어둡게'}</strong></button>)}</div>
-          <p className="reader-appearance-tip">← → 키로 책장을 넘길 수 있어요. Esc 키를 누르면 패널을 닫고, 한 번 더 누르면 서재로 돌아가요.</p>
         </>}
       </div>
     </>}

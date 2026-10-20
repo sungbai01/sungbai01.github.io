@@ -1,4 +1,4 @@
-import type { Book } from './library';
+import { BOOK_COLORS, type Book } from './library';
 
 /** Original fictional demo chats. Never imported user conversations. */
 export const sampleBooks: Book[] = [
@@ -7,7 +7,7 @@ export const sampleBooks: Book[] = [
     title: '숲이 편지를 읽는 시간',
     author: '서이림',
     description: '샘플 · 숲속 우체국에서 만난 두 사람이 보내지 못한 마음을 나누는 창작 데모 대화입니다.',
-    color: '#596B55',
+    color: BOOK_COLORS[0],
     createdAt: '2026-10-01T09:00:00.000Z',
     updatedAt: '2026-10-04T09:00:00.000Z',
     lastPage: 0,
@@ -23,7 +23,7 @@ export const sampleBooks: Book[] = [
     title: '저녁을 굽는 작은 가게',
     author: '윤도하',
     description: '샘플 · 골목의 도예 공방에서 흙과 저녁의 온기를 나누는 창작 데모 대화입니다.',
-    color: '#AD715B',
+    color: BOOK_COLORS[1],
     createdAt: '2026-10-02T09:00:00.000Z',
     updatedAt: '2026-10-03T09:00:00.000Z',
     lastPage: 0,
@@ -39,7 +39,7 @@ export const sampleBooks: Book[] = [
     title: '밤 열한 시의 무인역',
     author: '한서우',
     description: '샘플 · 막차를 기다리는 승강장에서 낯선 두 사람이 길을 이야기하는 창작 데모 대화입니다.',
-    color: '#5C6386',
+    color: BOOK_COLORS[2],
     createdAt: '2026-10-03T09:00:00.000Z',
     updatedAt: '2026-10-02T09:00:00.000Z',
     lastPage: 0,
@@ -55,7 +55,7 @@ export const sampleBooks: Book[] = [
     title: '햇빛을 접어 둔 책갈피',
     author: '오하늬',
     description: '샘플 · 오래된 동네 책방에서 발견한 책갈피와 기억을 따라가는 창작 데모 대화입니다.',
-    color: '#A68A4D',
+    color: BOOK_COLORS[3],
     createdAt: '2026-10-01T09:00:00.000Z',
     updatedAt: '2026-10-01T09:00:00.000Z',
     lastPage: 0,
@@ -67,3 +67,4 @@ export const sampleBooks: Book[] = [
     ],
   },
 ];
+
