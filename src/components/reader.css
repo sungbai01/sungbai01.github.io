@@ -265,3 +265,7 @@
 
 .reader-chapter-heading{flex-direction:column;gap:18px;font-size:clamp(16px,2.4vw,24px);letter-spacing:.2em}
 .reader-chapter-heading:after{content:'';display:block;width:min(120px,42%);height:1px;background:var(--reader-line)}
+
+/* Illustrations share the text rectangle; preserve their intrinsic ratio. */
+.reader-asset-page{top:var(--reader-content-top,36px);right:var(--reader-page-padding,40px);bottom:var(--reader-content-bottom,56px);left:var(--reader-page-padding,40px);padding:0;overflow:hidden}
+.reader-asset-page img{width:auto;height:auto;max-width:100%;max-height:100%;object-fit:contain;flex:0 1 auto}

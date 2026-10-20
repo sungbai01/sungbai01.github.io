@@ -39,3 +39,5 @@
 .shelf-assets-toolbar .shelf-assets-add{flex:1;min-width:0}
 .shelf-assets-defaults{flex-shrink:0;border:1px solid var(--sand-6);border-radius:10px;background:var(--sand-3);color:var(--sand-11);padding:10px 12px;font-size:12px}
 .shelf-assets-defaults:hover{background:var(--sand-4)}
+
+.shelf-assets-actions>span{min-width:0;overflow-wrap:anywhere;line-height:1.6}

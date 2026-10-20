@@ -3,6 +3,7 @@ import { cleanText, paginate } from './pagination';
 import { splitBookByPages } from './volumes';
 import { imageReferenceRanges,extractAssetSegments } from './assets';
 import { systemRanges, visibleProse } from './prose';
+import { applyBookDisplayRules } from './displayRules';
 import '../components/reader.css';
 
 /** Fixed import layout; reader font/viewport changes never regroup volumes. */
@@ -37,6 +38,7 @@ function preprocessBook(book: Book, removeEmoji: boolean): Book {
   };
   return { ...book, title: clean(book.title), author: clean(book.author), description: clean(visibleProse(book.description)),
     messages: book.messages.map(message => ({ ...message, name: clean(message.name), content: strippedContent(message.content),
+      ...(message.originalMap ? { originalMap: message.originalMap.map(point => ({ source: point.source, output: strippedContent(message.content, point.output).length })) } : {}),
       ...(message.chapter === undefined ? {} : { chapter: clean(message.chapter) }) })),
     ...(book.bookmarks === undefined ? {} : { bookmarks: book.bookmarks.map(mark => ({ ...mark,
       char: strippedContent(book.messages[mark.message]?.content ?? '', mark.char).length,
@@ -74,8 +76,9 @@ export async function prepareBooks(books: Book[], options: { removeEmoji?: boole
     for (const source of books) {
       // Already prepared volumes keep their grouping if a caller submits them
       // again. Backup restores must bypass this API to preserve all content.
-      if (source.volumePolicy === 'chapters-100-v1') { result.push(source); continue; }
-      const book = preprocessBook(source, options.removeEmoji !== false);
+      const ruled = source.displayRules?.length ? await applyBookDisplayRules(source, source.displayRules) : source;
+      if (source.volumePolicy === 'chapters-100-v1') { result.push(ruled); continue; }
+      const book = preprocessBook(ruled, options.removeEmoji !== false);
       result.push(...splitBookByPages(book, paginate(book, measure, { pageHeight: IMPORT_PAGE_LAYOUT.height, contentTop: 36 })).map(volume => ({ ...volume, volumePolicy: 'chapters-100-v1' as const })));
       await new Promise<void>(resolve => setTimeout(resolve, 0));
     }

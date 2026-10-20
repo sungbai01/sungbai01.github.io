@@ -277,3 +277,17 @@ html[data-library-theme=dark]{color-scheme:dark;background:var(--sand-2)}
 .book-spine .spine-title-zone{position:relative;display:block;flex:1;width:100%;min-height:0;overflow:hidden}
 .spine-title-rotator{position:absolute;top:2px;left:calc(100% - 1px);transform:rotate(90deg);transform-origin:top left;display:flex;align-items:center;justify-content:flex-start;overflow:hidden}
 .book-spine .spine-title-zone .spine-title{position:static;left:auto;top:auto;transform:none;transform-origin:initial;display:-webkit-box;-webkit-box-orient:vertical;width:100%;min-width:0;max-width:100%;margin:0;padding:0;line-height:1.12;letter-spacing:.2px;writing-mode:horizontal-tb;text-align:left;white-space:normal;word-break:break-all;overflow-wrap:anywhere;overflow:hidden;text-overflow:ellipsis}
+
+/* A continuous display ledge keeps every spine and bookend on one baseline. */
+.spines-shelf{min-height:0;flex-wrap:nowrap;align-items:flex-end;gap:3px;padding:46px 25px 40px;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;scrollbar-color:var(--bronze-7) var(--sand-3);border:1px solid var(--sand-6);border-bottom:5px solid var(--bronze-7);background:linear-gradient(180deg,var(--sand-5),var(--sand-3) 24%,var(--sand-4));box-shadow:inset 0 14px 22px -17px var(--sand-11),inset 12px 0 18px -17px var(--sand-12),inset -12px 0 18px -17px var(--sand-12),0 9px 14px -12px var(--sand-12)}
+.spines-shelf:before{inset:12px 8px 24px;background:linear-gradient(0deg,var(--sand-7),transparent 32%)}
+.spines-shelf:after{bottom:24px;height:16px;left:0;right:0;border-top:2px solid var(--sand-3);border-bottom:3px solid var(--bronze-7);background:linear-gradient(var(--sand-5),var(--bronze-5) 32%,var(--bronze-7));box-shadow:0 9px 12px -8px var(--sand-12);z-index:2}
+.spines-shelf .spine-item{padding-bottom:0;flex-shrink:0}
+.spines-shelf .spine-item .book-stage{height:225px;padding:0}
+.spines-shelf .book-spine{height:225px}
+.spines-shelf .shelf-bookstop{margin-bottom:0;height:112px;box-shadow:2px 1px 3px color-mix(in srgb,var(--sand-12),transparent 50%)}
+.spines-shelf .shelf-bookstop-start{margin-left:-12px}
+.spines-shelf .add-spine-card{height:225px;padding:0;align-self:flex-end}
+.spines-shelf .add-spine-card .add-book-outline{height:225px}
+.spines-shelf .spine-item>.book-menu-wrap{top:230px;right:calc(50% - 12px);z-index:4}
+@media(max-width:560px){.spines-shelf{min-height:0;padding:44px 22px 40px;gap:3px}}

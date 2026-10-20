@@ -11,6 +11,7 @@
  * HTML disabled), never innerHTML. No Risu scripts/macros/assets are executed.
  */
 import {normalizeImageRules,type ImageRule} from './imageRules';
+import { normalizeDisplayRules, type DisplayRule } from './displayRules';
 import { jade, bronze, iris, gold } from '@radix-ui/colors';
 import { extractAssetSegments, normalizeAssets, safeAssetSource } from './assets';
 
@@ -21,6 +22,8 @@ export interface Message {
   role: string;
   name: string;
   content: string;
+  originalContent?: string;
+  originalMap?: { source: number; output: number }[];
   chapter?: string;
 }
 
@@ -44,6 +47,7 @@ export interface Book {
   bookmarkStyle?: 'normal' | 'character';
   assets?: BookAsset[];
   imageRules?: ImageRule[];
+  displayRules?: DisplayRule[];
   bookmarks?: BookBookmark[];
   seriesId?: string;
   seriesTitle?: string;
@@ -150,8 +154,10 @@ function plainText(content: string, assets: BookAsset[] = [],imageRules:ImageRul
   return /<\/?[a-z][^>]*>/i.test(content) ? elementText(inertDocument(content).body) : content;
 }
 
+export const displayPlainText = plainText;
+
 function normalizeMessage(value: unknown, index: number, character: string, user: string, names: Map<string, string>, assets: BookAsset[] = [],imageRules:ImageRule[]=[]): Message {
-  if (typeof value === 'string') return { role: 'narrator', name: '서술', content: plainText(value, assets,imageRules) };
+  if (typeof value === 'string') return { role: 'narrator', name: '서술', content: plainText(value, assets,imageRules), originalContent: value };
   if (!record(value)) throw new LibraryError(`${index + 1}번째 메시지 형식이 올바르지 않습니다.`);
   const content = textContent(value.content) ?? textContent(value.data) ?? textContent(value.mes) ?? textContent(value.text);
   if (content === undefined) throw new LibraryError(`${index + 1}번째 메시지에 읽을 수 있는 텍스트가 없습니다.`);
@@ -165,6 +171,8 @@ function normalizeMessage(value: unknown, index: number, character: string, user
     role,
     name: string(value.name, value.speaker, speaker, role === 'user' ? user : role === 'assistant' ? character : role === 'system' ? '시스템' : '서술'),
     content: plainText(content, assets,imageRules).replace(/\r\n?/g, '\n'),
+    originalContent: typeof value.originalContent === 'string' ? value.originalContent : content,
+    ...(Array.isArray(value.originalMap) ? { originalMap: value.originalMap as Message['originalMap'] } : {}),
     ...(typeof value.chapter === 'string' ? { chapter: value.chapter } : {}),
   };
 }
@@ -191,6 +199,8 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
     if (context.preserveIds && record(row) && typeof row.role === 'string' &&
         typeof row.name === 'string' && typeof row.content === 'string') {
       return { role: row.role, name: row.name, content: context.removeUserInputs ? plainText(row.content, assets,imageRules) : row.content,
+        ...(typeof row.originalContent === 'string' ? { originalContent: row.originalContent } : {}),
+        ...(Array.isArray(row.originalMap) ? { originalMap: row.originalMap as Message['originalMap'] } : {}),
         ...(typeof row.chapter === 'string' ? { chapter: row.chapter } : {}) };
     }
     return normalizeMessage(row, i, character, user, context.names, assets,imageRules);
@@ -227,6 +237,7 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
   if (value.bookmarkStyle === 'normal' || value.bookmarkStyle === 'character') book.bookmarkStyle = value.bookmarkStyle;
   if (Array.isArray(value.assets)) book.assets = assets;
   if (Array.isArray(value.imageRules)) book.imageRules=imageRules;
+  if (Array.isArray(value.displayRules)) book.displayRules=normalizeDisplayRules(value.displayRules);
   if (Array.isArray(value.bookmarks)) {
     const indices = new Map(retained.map(({ index }, destination) => [index, destination]));
     book.bookmarks = value.bookmarks.flatMap(entry => {
@@ -530,7 +541,12 @@ function validateBook(book: Book): void {
     typeof book.createdAt !== 'string' || !Number.isFinite(Date.parse(book.createdAt)) ||
     typeof book.updatedAt !== 'string' || !Number.isFinite(Date.parse(book.updatedAt)) || !Array.isArray(book.messages) ||
     !book.messages.every((message) => record(message) && ['role', 'name', 'content'].every((key) => typeof (message as unknown as RecordValue)[key] === 'string') &&
-      (message.chapter === undefined || typeof message.chapter === 'string')) ||
+      (message.chapter === undefined || typeof message.chapter === 'string') &&
+      (message.originalContent === undefined || typeof message.originalContent === 'string') &&
+      (message.originalMap === undefined || (Array.isArray(message.originalMap) && message.originalMap.every((point, index, points) =>
+        record(point) && Number.isSafeInteger(point.source) && point.source >= 0 && point.source <= (message.originalContent ?? message.content).length &&
+        Number.isSafeInteger(point.output) && point.output >= 0 && point.output <= message.content.length &&
+        (!index || (point.source >= points[index - 1].source && point.output >= points[index - 1].output)))))) ||
     (book.seriesId !== undefined && typeof book.seriesId !== 'string') ||
     (book.seriesTitle !== undefined && typeof book.seriesTitle !== 'string') ||
     (book.volumeNumber !== undefined && (!Number.isSafeInteger(book.volumeNumber) || book.volumeNumber < 1)) ||
@@ -543,6 +559,7 @@ function validateBook(book: Book): void {
       typeof asset.id === 'string' && !!asset.id.trim() && typeof asset.name === 'string' && !!asset.name.trim() && typeof asset.src === 'string' &&
       (asset.type === undefined || asset.type === 'icon' || asset.type === 'asset')))) ||
     (book.imageRules !== undefined && (!Array.isArray(book.imageRules)||normalizeImageRules(book.imageRules).length!==book.imageRules.length)) ||
+    (book.displayRules !== undefined && (!Array.isArray(book.displayRules)||normalizeDisplayRules(book.displayRules).length!==book.displayRules.length)) ||
     (book.bookmarks !== undefined && (!Array.isArray(book.bookmarks) || !book.bookmarks.every(mark => record(mark) &&
       Number.isSafeInteger(mark.message) && mark.message >= 0 && mark.message < book.messages.length &&
       Number.isSafeInteger(mark.char) && mark.char >= 0 && mark.char <= book.messages[mark.message]!.content.length &&
@@ -566,6 +583,7 @@ function sanitizedBook(book: Book): Book {
     ...(characterIcon ? { characterIcon } : {}),
     ...(customColor ? { customColor } : {}),
     ...(book.imageRules === undefined ? {} : {imageRules:normalizeImageRules(book.imageRules)}),
+    ...(book.displayRules === undefined ? {} : {displayRules:normalizeDisplayRules(book.displayRules)}),
     ...(book.assets === undefined ? {} : { assets: normalizeAssets(book.assets) }),
     ...(book.bookmarks === undefined ? {} : { bookmarks: book.bookmarks.map(mark => ({ ...mark })) }) };
 }

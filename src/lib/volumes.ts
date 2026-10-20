@@ -1,5 +1,6 @@
 import type { Book } from './library';
 import { startsChapter } from './pagination';
+import { originalOffset } from './displayRules';
 
 export const MAX_VOLUME_PAGES = 100;
 
@@ -88,6 +89,15 @@ export function splitBookByPages(book: Book, pages: MeasuredPage[]): Book[] {
       }
     }
     const volumeNumber = index + 1;
+    for (const span of spans) {
+      const source = book.messages[span.source]!;
+      if (source.originalContent === undefined) continue;
+      const start = originalOffset(source, span.start), end = span.end === source.content.length ? source.originalContent.length : originalOffset(source, span.end);
+      const target = messages[span.local]!;
+      target.originalContent = source.originalContent.slice(start, end);
+      target.originalMap = [{ source: 0, output: 0 }, ...(source.originalMap ?? []).filter(point => point.source > start && point.source < end && point.output >= span.start && point.output <= span.end)
+        .map(point => ({ source: point.source - start, output: point.output - span.start })), { source: end - start, output: span.end - span.start }];
+    }
     return {
       ...book,
       id: index === 0 ? book.id : `${book.id}--part-${volumeNumber}`,

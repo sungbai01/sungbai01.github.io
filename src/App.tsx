@@ -13,6 +13,7 @@ import SpineTitle from './components/SpineTitle';
 import {readTheme,saveTheme,THEME_EVENT,type Theme} from './lib/appearance';
 import { portraitPalette } from './lib/assets';
 import type {ImageRule} from './lib/imageRules';
+import {applyBookDisplayRules,type DisplayRule} from './lib/displayRules';
 
 type BookAsset = NonNullable<Book['assets']>[number];
 type BookmarkAnchor={message:number;char:number;label?:string;progress?:number};
@@ -33,6 +34,15 @@ function shelfAssets(books:Book[],shelf:ShelfTarget):BookAsset[]{return [...new 
 function shelfImageRules(books:Book[],shelf:ShelfTarget):ImageRule[]{
   const seen=new Set<string>();
   return shelfBooks(books,shelf).flatMap(book=>book.imageRules??[]).filter(rule=>{const key=JSON.stringify(rule);if(seen.has(key))return false;seen.add(key);return true;});
+}
+
+function shelfDisplayRules(books:Book[],shelf:ShelfTarget):DisplayRule[]{
+  const counts=new Map<string,number>(),rules:DisplayRule[]=[];
+  for(const book of shelfBooks(books,shelf)){
+    const local=new Map<string,number>();
+    for(const rule of book.displayRules??[]){const key=JSON.stringify(rule),count=(local.get(key)??0)+1;local.set(key,count);if(count>(counts.get(key)??0)){rules.push(rule);counts.set(key,count);}}
+  }
+  return rules;
 }
 
 function collapseShelfBookmarks(siblings:Book[]):Book[]{
@@ -69,10 +79,12 @@ function equalRows<T>(left:T[]|undefined,right:T[]|undefined,fields:readonly (ke
 function reuseBookReferences(book:Book,previous:Book|undefined):Book{
   if(!previous||book===previous)return book;
   const next={...book};
-  if(equalRows(book.messages,previous.messages,['role','name','content','chapter']))next.messages=previous.messages;
+  const messages=book.messages.map((message,index)=>JSON.stringify(message.originalMap)===JSON.stringify(previous.messages[index]?.originalMap)?{...message,originalMap:previous.messages[index]?.originalMap}:message);
+  if(equalRows(messages,previous.messages,['role','name','content','chapter','originalContent','originalMap']))next.messages=previous.messages;
   if(equalRows(book.assets,previous.assets,['id','name','src','type']))next.assets=previous.assets;
   if(equalRows(book.bookmarks,previous.bookmarks,['message','char','label','progress']))next.bookmarks=previous.bookmarks;
   if(book.imageRules===previous.imageRules||JSON.stringify(book.imageRules)===JSON.stringify(previous.imageRules))next.imageRules=previous.imageRules;
+  if(book.displayRules===previous.displayRules||JSON.stringify(book.displayRules)===JSON.stringify(previous.displayRules))next.displayRules=previous.displayRules;
   const fields=new Set([...Object.keys(previous),...Object.keys(next)]);
   return [...fields].every(field=>next[field as keyof Book]===previous[field as keyof Book])?previous:next;
 }
@@ -149,7 +161,7 @@ export default function App() {
   const [drawerOpen,setDrawerOpen]=useState(false);const [intakeMode,setIntakeMode]=useState<'file'|'text'>('file');const [importing,setImporting]=useState(false);const [busy,setBusy]=useState(false);const [theme,setTheme]=useState<Theme>(readTheme);const [backupOpen,setBackupOpen]=useState(false);const [edit,setEdit]=useState<Book|null>(null);const [remove,setRemove]=useState<Book|null>(null);const [menu,setMenu]=useState<string|null>(null);const [view,setView]=useState<'covers'|'spines'>('covers');
   const [clearConfirm,setClearConfirm]=useState<{title:string;ids:string[]}|null>(null);const [deleting,setDeleting]=useState(false);const [clearError,setClearError]=useState('');
   const [creating,setCreating]=useState<ShelfTarget|null>(null);const [renaming,setRenaming]=useState<ShelfTarget|null>(null);const [assetShelf,setAssetShelf]=useState<ShelfTarget|null>(null);
-  const deletingRef=useRef(false);const editingShelf=useRef(false);
+  const deletingRef=useRef(false);const editingShelf=useRef(false);const preparingAssets=useRef(false);
   const restore=useRef<HTMLInputElement>(null);const latestBooks=useRef(books); latestBooks.current=books;
   const splittingBooks=useRef(new Set<string>());
   const initialLoad=useRef<Promise<Book[]>|null>(null);
@@ -185,7 +197,7 @@ export default function App() {
   },[]);
   const closeBook=useCallback(()=>{setReaderStart(null);location.hash='/';},[]);
   async function commitBooks(ids:string[],make:(current:Book[])=>Book[]){
-    if(deletingRef.current||editingShelf.current||splittingBooks.current.size>0)throw new Error('책을 저장 중이에요. 잠시 후 다시 시도해 주세요.');
+    if(deletingRef.current||editingShelf.current||preparingAssets.current||splittingBooks.current.size>0)throw new Error('책을 저장 중이에요. 잠시 후 다시 시도해 주세요.');
     editingShelf.current=true;for(const id of ids)splittingBooks.current.add(id);setBusy(true);
     try{
   
@@ -258,7 +270,7 @@ export default function App() {
       incoming=[{id:crypto.randomUUID(),title:request.title,author:request.name,description:request.text.slice(0,160),color:colors[0]!,createdAt:now,updatedAt:now,messages:[{role:'assistant',name:request.name,content:request.text}]}];
     }
     const target=creating;const siblings=target?shelfBooks(latestBooks.current,target):[];
-    if(target&&siblings.length)incoming=incoming.map(book=>({...book,assets:shelfAssets(latestBooks.current,target),imageRules:shelfImageRules(latestBooks.current,target),characterIcon:portrait(siblings[0]!),color:siblings[0]!.color,customColor:siblings[0]!.customColor}));
+    if(target&&siblings.length)incoming=incoming.map(book=>({...book,assets:shelfAssets(latestBooks.current,target),imageRules:shelfImageRules(latestBooks.current,target),displayRules:shelfDisplayRules(latestBooks.current,target),characterIcon:portrait(siblings[0]!),color:siblings[0]!.color,customColor:siblings[0]!.customColor}));
     // Parse every staged file first. Preparation happens once, before any write.
     const prepared=await prepareBooks(incoming,{removeEmoji:request.removeEmoji});
     if(!prepared.length)throw new Error('추가할 본문이 없어요.');
@@ -275,12 +287,27 @@ export default function App() {
     });
     setQuery('');setToast(`${prepared.length}권의 책을 추가했어요.`);if(request.mode==='text'&&createdBook)openBook(createdBook);
   }
-  async function saveShelfAssets(shelf:ShelfTarget,assets:BookAsset[],imageRules:ImageRule[]=shelfImageRules(latestBooks.current,shelf)){
-    if(!canEdit)return;
-    const icon=assets.find(asset=>asset.type==='icon')??assets[0];
-    const palette=icon?await portraitPalette(icon.src):undefined;
-    await commitBooks(shelfBooks(latestBooks.current,shelf).map(book=>book.id),current=>shelfBooks(current,shelf).map(book=>({...book,assets,imageRules,characterIcon:icon?.src,...(palette?{color:palette,customColor:palette}:assets.length?{}:{cover:undefined,backCover:undefined,color:colors[0]!,customColor:undefined})})));
-    setToast('에셋을 저장했어요.');
+  async function saveShelfAssets(shelf:ShelfTarget,assets:BookAsset[],imageRules:ImageRule[]=shelfImageRules(latestBooks.current,shelf),displayRules:DisplayRule[]=shelfDisplayRules(latestBooks.current,shelf)){
+    if(!canEdit||busy||preparingAssets.current||editingShelf.current||deletingRef.current)throw new Error('저장이 끝난 뒤 다시 시도해 주세요.');
+    preparingAssets.current=true;setBusy(true);
+    try{
+      const snapshot=shelfBooks(await loadBooks(),shelf);if(!snapshot.length)throw new Error('책장을 찾지 못했어요.');
+      const expected=new Map(snapshot.map(book=>[book.id,book]));
+      const icon=assets.find(asset=>asset.type==='icon')??assets[0];const palette=icon?await portraitPalette(icon.src):undefined;
+      const processed=new Map<string,Book>();
+      for(const book of snapshot){
+        const styled={...book,assets,imageRules,displayRules,characterIcon:icon?.src,...(palette?{color:palette,customColor:palette}:assets.length?{}:{cover:undefined,backCover:undefined,color:colors[0]!,customColor:undefined})};
+        processed.set(book.id,await applyBookDisplayRules(styled,displayRules));
+      }
+      // Release only our processing guard immediately before acquiring commitBooks' guard.
+      preparingAssets.current=false;
+      await commitBooks(snapshot.map(book=>book.id),current=>{
+        const siblings=shelfBooks(current,shelf);
+        if(siblings.length!==snapshot.length||siblings.some(book=>!expected.has(book.id)||reuseBookReferences(book,expected.get(book.id))!==expected.get(book.id)))throw new Error('처리 중 책이 변경됐어요. 다시 저장해 주세요.');
+        return siblings.map(book=>processed.get(book.id)!);
+      });
+      setToast('에셋과 규칙을 저장했어요.');
+    }finally{preparingAssets.current=false;setBusy(false);}
   }
   async function backupBooks(){
     if(!clearConfirm)return;
@@ -291,7 +318,7 @@ export default function App() {
     setToast('백업 완료');
   }
   async function clearBooks(){
-    if(!canEdit||!clearConfirm||deletingRef.current||busy||loading)return;
+    if(!canEdit||!clearConfirm||deletingRef.current||preparingAssets.current||busy||loading)return;
     if(splittingBooks.current.size){setClearError('책을 저장 중이에요. 잠시 후 다시 시도해 주세요.');return;}
     deletingRef.current=true;setDeleting(true);setBusy(true);setClearError('');
     try{
@@ -306,7 +333,7 @@ export default function App() {
     }catch{setClearError('삭제하지 못했어요. 다시 시도해 주세요.');}
     finally{deletingRef.current=false;setDeleting(false);setBusy(false);}
   }
-  async function restoreBackup(file?:File){if(!canEdit||!file||busy)return;setBusy(true);setError('');try{const data=JSON.parse(await file.text());if(data.format!=='galpi-backup'||!Array.isArray(data.books))throw new Error('갈피에서 내보낸 책장 백업 파일을 선택해 주세요.');const normalized=await importChatFile(new File([JSON.stringify(data.books)],'backup.json',{type:'application/json'}),{removeUserInputs:false});const merged=await storeBooks(normalized,await loadBooks());latestBooks.current=merged;setBooks(merged);setToast(`${normalized.length}권을 복원했어요.`);}catch(e){setError(e instanceof Error?e.message:'백업을 복원하지 못했어요.');}finally{setBusy(false);if(restore.current)restore.current.value='';}}
+  async function restoreBackup(file?:File){if(!canEdit||!file||busy||preparingAssets.current)return;setBusy(true);setError('');try{const data=JSON.parse(await file.text());if(data.format!=='galpi-backup'||!Array.isArray(data.books))throw new Error('갈피에서 내보낸 책장 백업 파일을 선택해 주세요.');const normalized=await importChatFile(new File([JSON.stringify(data.books)],'backup.json',{type:'application/json'}),{removeUserInputs:false});const merged=await storeBooks(normalized,await loadBooks());latestBooks.current=merged;setBooks(merged);setToast(`${normalized.length}권을 복원했어요.`);}catch(e){setError(e instanceof Error?e.message:'백업을 복원하지 못했어요.');}finally{setBusy(false);if(restore.current)restore.current.value='';}}
   const selected=books.find(b=>b.id===route);
   const selectedBookmark=selected?canonicalBookmark(shelfBooks(books,bookShelf(selected))):undefined;
   const markedBooks=books.filter(book=>canonicalBookmark(shelfBooks(books,bookShelf(book)))?.bookId===book.id).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
@@ -354,7 +381,7 @@ export default function App() {
     <input className="sr-only" ref={restore} type="file" accept=".json" onChange={e=>void restoreBackup(e.target.files?.[0])}/>
     {canEdit&&(importing||creating)&&<BookIntake initialMode={intakeMode} title="" onConfirm={intakeBooks} onClose={()=>{setImporting(false);setCreating(null);}}/>}
     {canEdit&&renaming&&shelfBooks(books,renaming)[0]&&<EditBook scope="shelf" book={{...shelfBooks(books,renaming)[0]!,title:renaming.title}} onSave={(draft,reset)=>decorateShelf(renaming,draft,reset)} onClose={()=>setRenaming(null)}/>}
-    {canEdit&&assetShelf&&<ShelfAssets assets={shelfAssets(books,assetShelf)} imageRules={shelfImageRules(books,assetShelf)} onSave={(assets,rules)=>saveShelfAssets(assetShelf,assets,rules)} onClose={()=>setAssetShelf(null)}/>}
+    {canEdit&&assetShelf&&<ShelfAssets assets={shelfAssets(books,assetShelf)} imageRules={shelfImageRules(books,assetShelf)} displayRules={shelfDisplayRules(books,assetShelf)} onSave={(assets,rules,displayRules)=>saveShelfAssets(assetShelf,assets,rules,displayRules)} onClose={()=>setAssetShelf(null)}/>}
     {canEdit&&edit&&<EditBook book={edit} onSave={decorateBook} onClose={()=>setEdit(null)}/>}
     {canEdit&&clearConfirm&&<Modal title="책장 삭제" locked={busy} onClose={()=>setClearConfirm(null)}>
       <div className="delete-shelf-confirm" aria-busy={deleting}>
@@ -366,7 +393,7 @@ export default function App() {
         <div className="modal-actions"><button className="secondary-btn" autoFocus disabled={busy} onClick={()=>setClearConfirm(null)}>취소</button><button className="danger-btn" disabled={busy} onClick={()=>void clearBooks()}>{deleting?<LoaderCircle size={16} className="animate-spin"/>:<Trash2 size={16}/>} {deleting?'삭제 중…':'책장 삭제'}</button></div>
       </div>
     </Modal>}
-    {canEdit&&remove&&<Modal title="책 삭제" onClose={()=>setRemove(null)}><p className="modal-description">‘{remove.title}’을 삭제할까요?</p><div className="modal-actions"><button className="secondary-btn" title="삭제 전 이 책을 백업" onClick={()=>download(remove.title+'.json',[remove])}><ArrowDownToLine size={16}/> 내보내기</button><button className="danger-btn" title="대화와 책갈피를 삭제합니다" disabled={busy} onClick={async()=>{if(!canEdit||deletingRef.current||editingShelf.current||splittingBooks.current.size)return;deletingRef.current=true;setBusy(true);try{await deleteBook(remove.id);const next=latestBooks.current.filter(b=>b.id!==remove.id);latestBooks.current=next;setBooks(next);setRemove(null);setToast('삭제 완료');}catch{setToast('삭제 실패');}finally{deletingRef.current=false;setBusy(false);}}}>삭제</button></div></Modal>}
+    {canEdit&&remove&&<Modal title="책 삭제" onClose={()=>setRemove(null)}><p className="modal-description">‘{remove.title}’을 삭제할까요?</p><div className="modal-actions"><button className="secondary-btn" title="삭제 전 이 책을 백업" onClick={()=>download(remove.title+'.json',[remove])}><ArrowDownToLine size={16}/> 내보내기</button><button className="danger-btn" title="대화와 책갈피를 삭제합니다" disabled={busy} onClick={async()=>{if(!canEdit||deletingRef.current||editingShelf.current||preparingAssets.current||splittingBooks.current.size)return;deletingRef.current=true;setBusy(true);try{await deleteBook(remove.id);const next=latestBooks.current.filter(b=>b.id!==remove.id);latestBooks.current=next;setBooks(next);setRemove(null);setToast('삭제 완료');}catch{setToast('삭제 실패');}finally{deletingRef.current=false;setBusy(false);}}}>삭제</button></div></Modal>}
     {toast&&<div className="toast" role="status"><Check size={16}/>{toast}</div>}
   </div>;
 }
