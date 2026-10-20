@@ -219,6 +219,8 @@
 .reader-bookmark-slip img{width:100%;height:auto;aspect-ratio:1;object-fit:cover;object-position:top;pointer-events:none;border-radius:1px}
 .reader-bookmark-slip strong{font:600 12px/1.65 'Gowun Batang',serif;text-align:center;max-width:100%;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
 .reader .reader-bookmark-character{color:white;text-shadow:0 1px 2px #0008}
+.reader .reader-bookmark-image>.reader-bookmark-image-fill{position:absolute;inset:0;width:100%;height:100%;aspect-ratio:auto;object-fit:cover;object-position:top;border-radius:inherit;z-index:0}
+.reader-bookmark-image>.reader-bookmark-punch,.reader-bookmark-image>.reader-bookmark-string{z-index:1}
 .reader[data-bookmark-current='true'][data-page-layout='spread'] .reader-stage:has(.reader-page-right:hover) .reader-bookmark-slip:not(:hover){opacity:.18}
 .reader[data-bookmark-current='true'][data-page-layout='single'] .reader-page:hover .reader-bookmark-slip:not(:hover){opacity:.18}
 .reader .reader-bookmark-slip:hover,.reader .reader-bookmark-slip:focus-visible{opacity:1}

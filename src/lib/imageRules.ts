@@ -1,6 +1,21 @@
 export type ImageRule = { pattern: string; flags?: string; assetTemplates: string[] };
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 
+/** Read literal image identifiers only; surrounding HTML/CBS is discarded. */
+export function imageOutputTemplates(output: string): string[] {
+  const names = Array.from(output.matchAll(/\{\{(?:raw|img|image)::([^{}\r\n]+)\}\}/gi), match => match[1]!);
+  for (const tag of output.matchAll(/<img\b(?:[^<>"']|"[^"]*"|'[^']*')*>/gi)) {
+    const src = tag[0].match(/\bsrc\s*=\s*(?:"([^"\r\n]*)"|'([^'\r\n]*)'|([^\s>]+))/i);
+    const name = src?.[1] ?? src?.[2] ?? src?.[3];
+    if (name) names.push(name);
+  }
+  return [...new Set(names.map(name => name.trim()).filter(name => {
+    const literal = name.replace(/\$<[A-Za-z][A-Za-z0-9_]*>/g, 'capture');
+    // Context/whole-match substitutions could smuggle markup into an identifier.
+    return !!literal && !/[{}<>\r\n\u0000]/.test(literal) && !/\$[&`']/.test(literal);
+  }))];
+}
+
 /** Restrict native regex to captures and literal-delimited character runs.
  * No alternatives, lookarounds, backreferences, quantified groups, wildcard
  * repetition or overlapping variable runs. Match only one <=2048-char token.
@@ -75,7 +90,6 @@ export function normalizeImageRules(value: unknown): ImageRule[] {
 /** Only visit known card/module script containers; never evaluate out/CBS. */
 export function extractImageRules(value: unknown, warnings?: string[]): ImageRule[] {
   const found: unknown[] = [], visited = new Set<object>();
-  let skippedComplex = false;
   const visit = (node: unknown, depth: number) => {
     if (depth > 10 || !node || typeof node !== 'object' || visited.has(node)) return;
     visited.add(node);
@@ -83,24 +97,19 @@ export function extractImageRules(value: unknown, warnings?: string[]): ImageRul
     if (!record(node)) return;
     if (typeof node.pattern === 'string' && Array.isArray(node.assetTemplates)) found.push(node);
     if (typeof node.in === 'string' && typeof node.out === 'string' && (!node.type || node.type === 'editdisplay')) {
-      const assetTemplates = Array.from(node.out.matchAll(/\{\{(?:raw|img|image)::([^{}\r\n]+)\}\}/gi), match => match[1]!);
+      const assetTemplates = imageOutputTemplates(node.out);
       // Read literal attribute text only. Do not parse/insert the output HTML
       // or evaluate any CBS expression surrounding an image reference.
-      for (const tag of node.out.matchAll(/<img\b(?:[^<>"']|"[^"]*"|'[^']*')*>/gi)) {
-        const src = tag[0].match(/\bsrc\s*=\s*(?:"([^"\r\n]*)"|'([^'\r\n]*)'|([^\s>]+))/i);
-        const template = src?.[1] ?? src?.[2] ?? src?.[3];
-        if (template && !/[{}<>\r\n]/.test(template)) assetTemplates.push(template);
-      }
       // ableFlag toggles CUSTOM FLAGS, not rule activation.
-      const customFlags = node.ableFlag === true ? (typeof node.flags === 'string' ? node.flags : typeof node.flag === 'string' ? node.flag : '') : '';
+      const customFlags = node.ableFlag === true ? (typeof node.flag === 'string' ? node.flag : typeof node.flags === 'string' ? node.flags : '') : '';
       const flags = customFlags.replace(/[gy]/g, '');
-      if (assetTemplates.length && !safePattern(node.in, flags)) skippedComplex = true;
       found.push({ pattern: node.in, flags, assetTemplates });
     }
     for (const key of ['data', 'extensions', 'risuai', 'module', 'modules', 'regex', 'customscript', 'customScripts', 'scripts', 'imageRules']) if (key in node) visit(node[key], depth + 1);
   };
   visit(value, 0);
-  if (skippedComplex) warnings?.push('지원하지 않는 복잡한 이미지 정규식 규칙을 건너뛰었습니다. 단순 캡처와 구분자 패턴만 지원합니다.');
+  // Complex patterns use the isolated image-only worker path (displayRules).
+  void warnings;
   return normalizeImageRules(found);
 }
 

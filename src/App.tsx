@@ -17,15 +17,16 @@ import {applyBookDisplayRules,type DisplayRule} from './lib/displayRules';
 
 type BookAsset = NonNullable<Book['assets']>[number];
 type BookmarkAnchor={message:number;char:number;label?:string;progress?:number};
-type ShelfBookmark=BookmarkAnchor&{bookId:string;title:string;style?:'normal'|'character';icon?:string};
+type ShelfBookmark=BookmarkAnchor&{bookId:string;title:string;style?:Book['bookmarkStyle'];icon?:string;image?:string};
 function bookShelf(book:Book):ShelfTarget{return {id:book.seriesId??'ungrouped',title:book.seriesTitle??'단권',ungrouped:!book.seriesId};}
 function displayBookTitle(book:Book){return book.title.replace(/\s*·\s*\d+권\s*$/, '').trim()||book.title;}
 function portrait(book:Book){return book.characterIcon??book.assets?.find(asset=>asset.type==='icon')?.src;}
+function bookmarkImage(book:Book){return book.assets?.find(asset=>asset.id===book.bookmarkAssetId)?.src;}
 function canonicalBookmark(books:Book[]):ShelfBookmark|undefined{
   let selected:Book|undefined;
   for(const book of books)if(book.bookmarks?.length&&(!selected||book.updatedAt>selected.updatedAt||(book.updatedAt===selected.updatedAt&&book.id>selected.id)))selected=book;
   const anchor=selected?.bookmarks?.at(-1);
-  return selected&&anchor?{...anchor,bookId:selected.id,title:selected.title,style:selected.bookmarkStyle??'normal',icon:portrait(selected)}:undefined;
+  return selected&&anchor?{...anchor,bookId:selected.id,title:selected.title,style:selected.bookmarkStyle??'normal',icon:portrait(selected),image:bookmarkImage(selected)}:undefined;
 }
 type ShelfTarget = {id:string;title:string;ungrouped:boolean};
 function shelfBooks(books:Book[],shelf:ShelfTarget){return books.filter(book=>shelf.ungrouped?!book.seriesId:(book.seriesId??book.id)===shelf.id).sort((a,b)=>(a.volumeNumber??1)-(b.volumeNumber??1));}
@@ -230,7 +231,7 @@ export default function App() {
       return [{...stored,...patch}];
     });
   };
-  async function changeBookmark(book:Book,anchor:BookmarkAnchor|null,style?:'normal'|'character'){
+  async function changeBookmark(book:Book,anchor:BookmarkAnchor|null,style?:Book['bookmarkStyle']){
     const shelf=bookShelf(book);
     await commitBookmarkFields(current=>{
       const siblings=shelfBooks(current,shelf);if(!siblings.some(item=>item.id===book.id))throw new Error('책을 찾지 못했어요.');
@@ -238,7 +239,7 @@ export default function App() {
       return siblings.map(item=>({...item,bookmarks:anchor&&item.id===book.id?[anchor]:[],bookmarkStyle:chosenStyle,...(anchor&&item.id===book.id?{updatedAt:new Date().toISOString()}:{})}));
     });
   }
-  async function changeBookmarkStyle(book:Book,style:'normal'|'character'){
+  async function changeBookmarkStyle(book:Book,style:NonNullable<Book['bookmarkStyle']>){
     const shelf=bookShelf(book);
     await commitBookmarkFields(current=>{
       const siblings=shelfBooks(current,shelf);const mark=canonicalBookmark(siblings);
@@ -287,9 +288,9 @@ export default function App() {
       incoming=[{id:crypto.randomUUID(),title:request.title,author:request.name,description:request.text.slice(0,160),color:colors[0]!,createdAt:now,updatedAt:now,messages:[{role:'assistant',name:request.name,content:request.text}]}];
     }
     const target=creating;const siblings=target?shelfBooks(latestBooks.current,target):[];
-    if(target&&siblings.length)incoming=incoming.map(book=>({...book,assets:shelfAssets(latestBooks.current,target),imageRules:shelfImageRules(latestBooks.current,target),displayRules:shelfDisplayRules(latestBooks.current,target),characterIcon:portrait(siblings[0]!),color:siblings[0]!.color,customColor:siblings[0]!.customColor}));
+    if(target&&siblings.length)incoming=incoming.map(book=>({...book,assets:shelfAssets(latestBooks.current,target),imageRules:shelfImageRules(latestBooks.current,target),displayRules:shelfDisplayRules(latestBooks.current,target),characterIcon:portrait(siblings[0]!),bookmarkAssetId:siblings[0]!.bookmarkAssetId,bookmarkStyle:siblings[0]!.bookmarkStyle,color:siblings[0]!.color,customColor:siblings[0]!.customColor}));
     // Parse every staged file first. Preparation happens once, before any write.
-    const prepared=await prepareBooks(incoming,{removeEmoji:request.removeEmoji});
+    const prepared=await prepareBooks(incoming,{removeEmoji:request.removeEmoji,removeSquareBrackets:request.removeSquareBrackets,removeAngleBrackets:request.removeAngleBrackets});
     if(!prepared.length)throw new Error('추가할 본문이 없어요.');
     let createdBook:Book|undefined;
     await commitBooks(siblings.map(book=>book.id),current=>{
@@ -304,7 +305,7 @@ export default function App() {
     });
     setQuery('');setToast(`${prepared.length}권의 책을 추가했어요.`);if(request.mode==='text'&&createdBook)openBook(createdBook);
   }
-  async function saveShelfAssets(shelf:ShelfTarget,assets:BookAsset[],imageRules:ImageRule[]=shelfImageRules(latestBooks.current,shelf),displayRules:DisplayRule[]=shelfDisplayRules(latestBooks.current,shelf)){
+  async function saveShelfAssets(shelf:ShelfTarget,assets:BookAsset[],imageRules:ImageRule[]=shelfImageRules(latestBooks.current,shelf),displayRules:DisplayRule[]=shelfDisplayRules(latestBooks.current,shelf),bookmarkAssetId?:string){
     if(!canEdit||busy||preparingAssets.current||editingShelf.current||deletingRef.current)throw new Error('저장이 끝난 뒤 다시 시도해 주세요.');
     preparingAssets.current=true;setBusy(true);
     try{
@@ -313,7 +314,8 @@ export default function App() {
       const icon=assets.find(asset=>asset.type==='icon')??assets[0];const palette=icon?await portraitPalette(icon.src):undefined;
       const processed=new Map<string,Book>();
       for(const book of snapshot){
-        const styled={...book,assets,imageRules,displayRules,characterIcon:icon?.src,...(palette?{color:palette,customColor:palette}:assets.length?{}:{cover:undefined,backCover:undefined,color:colors[0]!,customColor:undefined})};
+        const imageId=assets.some(asset=>asset.id===bookmarkAssetId)?bookmarkAssetId:undefined;
+        const styled={...book,assets,imageRules,displayRules,bookmarkAssetId:imageId,bookmarkStyle:imageId&&imageId!==book.bookmarkAssetId?'image' as const:!imageId&&book.bookmarkStyle==='image'?'normal' as const:book.bookmarkStyle,characterIcon:icon?.src,...(palette?{color:palette,customColor:palette}:assets.length?{}:{cover:undefined,backCover:undefined,color:colors[0]!,customColor:undefined})};
         processed.set(book.id,await applyBookDisplayRules(styled,displayRules));
       }
       // Release only our processing guard immediately before acquiring commitBooks' guard.
@@ -365,7 +367,7 @@ export default function App() {
   },[]);
   const nextVolume=selected?.seriesId?groupBooks(books).find(group=>group.id===selected.seriesId)?.books.find(book=>(book.volumeNumber??1)>(selected.volumeNumber??1)):undefined;
   const onNextVolume=useCallback(()=>{if(nextVolume)openBook(nextVolume);},[nextVolume,openBook]);
-  if(route&&!loading&&selected)return <><Suspense fallback={<div className="loading-screen"><LoaderCircle className="animate-spin"/> 책을 펼치고 있어요</div>}><Reader book={selected} onClose={closeBook} onSaveBook={canEdit?updateBook:undefined} shelfBookmark={selectedBookmark} bookmarkStyle={selectedBookmark?.style??selected.bookmarkStyle??shelfBooks(books,bookShelf(selected)).find(book=>book.bookmarkStyle)?.bookmarkStyle} characterIcon={portrait(selected)??shelfBooks(books,bookShelf(selected)).map(portrait).find(Boolean)} onBookmarkChange={(anchor,style)=>changeBookmark(selected,anchor,style)} onBookmarkStyleChange={style=>changeBookmarkStyle(selected,style)} initialBookmark={readerStart?.bookId===selected.id?readerStart.anchor:undefined} onNextVolume={nextVolume?onNextVolume:undefined} nextVolumeTitle={nextVolume?.title}/></Suspense>{toast&&<div className="toast" role="status">{toast}</div>}</>;
+  if(route&&!loading&&selected)return <><Suspense fallback={<div className="loading-screen"><LoaderCircle className="animate-spin"/> 책을 펼치고 있어요</div>}><Reader book={selected} onClose={closeBook} onSaveBook={canEdit?updateBook:undefined} shelfBookmark={selectedBookmark} bookmarkStyle={selectedBookmark?.style??selected.bookmarkStyle??shelfBooks(books,bookShelf(selected)).find(book=>book.bookmarkStyle)?.bookmarkStyle} bookmarkImage={bookmarkImage(selected)} characterIcon={portrait(selected)??shelfBooks(books,bookShelf(selected)).map(portrait).find(Boolean)} onBookmarkChange={(anchor,style)=>changeBookmark(selected,anchor,style)} onBookmarkStyleChange={style=>changeBookmarkStyle(selected,style)} initialBookmark={readerStart?.bookId===selected.id?readerStart.anchor:undefined} onNextVolume={nextVolume?onNextVolume:undefined} nextVolumeTitle={nextVolume?.title}/></Suspense>{toast&&<div className="toast" role="status">{toast}</div>}</>;
   return <div className="app-shell">
     <header className="site-header" inert={deleting}><button className="drawer-trigger" aria-label="서재 메뉴 열기" title="내 서재" aria-expanded={drawerOpen} aria-controls="library-drawer" onClick={()=>setDrawerOpen(true)}><Menu size={20}/></button><a href="#/" className="brand" aria-label="갈피 서재"><span className="brand-mark"><BookOpen size={23} strokeWidth={1.4}/><span/></span><span>갈피<span className="brand-en">galpi</span></span></a></header>
     <div className="workspace" inert={deleting}>
@@ -398,7 +400,7 @@ export default function App() {
     <input className="sr-only" ref={restore} type="file" accept=".json" onChange={e=>void restoreBackup(e.target.files?.[0])}/>
     {canEdit&&(importing||creating)&&<BookIntake initialMode={intakeMode} title="" onConfirm={intakeBooks} onClose={()=>{setImporting(false);setCreating(null);}}/>}
     {canEdit&&renaming&&shelfBooks(books,renaming)[0]&&<EditBook scope="shelf" book={{...shelfBooks(books,renaming)[0]!,title:renaming.title}} onSave={(draft,reset)=>decorateShelf(renaming,draft,reset)} onClose={()=>setRenaming(null)}/>}
-    {canEdit&&assetShelf&&<ShelfAssets assets={shelfAssets(books,assetShelf)} imageRules={shelfImageRules(books,assetShelf)} displayRules={shelfDisplayRules(books,assetShelf)} onSave={(assets,rules,displayRules)=>saveShelfAssets(assetShelf,assets,rules,displayRules)} onClose={()=>setAssetShelf(null)}/>}
+    {canEdit&&assetShelf&&<ShelfAssets assets={shelfAssets(books,assetShelf)} imageRules={shelfImageRules(books,assetShelf)} displayRules={shelfDisplayRules(books,assetShelf)} bookmarkAssetId={shelfBooks(books,assetShelf).find(book=>book.bookmarkAssetId)?.bookmarkAssetId} onSave={(assets,rules,displayRules,bookmarkAssetId)=>saveShelfAssets(assetShelf,assets,rules,displayRules,bookmarkAssetId)} onClose={()=>setAssetShelf(null)}/>}
     {canEdit&&edit&&<EditBook book={edit} onSave={decorateBook} onClose={()=>setEdit(null)}/>}
     {canEdit&&clearConfirm&&<Modal title="책장 삭제" locked={busy} onClose={()=>setClearConfirm(null)}>
       <div className="delete-shelf-confirm" aria-busy={deleting}>

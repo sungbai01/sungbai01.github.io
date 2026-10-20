@@ -9,10 +9,12 @@ import '../components/reader.css';
 /** Fixed import layout; reader font/viewport changes never regroup volumes. */
 export const IMPORT_PAGE_LAYOUT = { width: 400, height: 650, padding: 32, contentWidth: 336, contentHeight: 432, fontSize: 18 } as const;
 
-function preprocessBook(book: Book, removeEmoji: boolean): Book {
+export type PrepareBooksOptions = { removeEmoji?: boolean; removeSquareBrackets?: boolean; removeAngleBrackets?: boolean };
+
+function preprocessBook(book: Book, options: PrepareBooksOptions): Book {
   // Known image references are identifiers, not prose. Keep their original
   // spelling (including emoji in an asset name) so image resolution survives.
-  const clean = (text: string) => removeEmoji ? cleanText(text) : text;
+  const clean = (text: string) => options.removeEmoji !== false ? cleanText(text) : text;
   const strippedContent = (content: string, end = content.length) => {
     const references = imageReferenceRanges(content);
     const resolved=new Map(extractAssetSegments(content,book.assets??[],book.imageRules??[]).filter(segment=>segment.type==='asset').map(segment=>[segment.start,segment]));
@@ -24,6 +26,29 @@ function preprocessBook(book: Book, removeEmoji: boolean): Book {
     }
     if (cursor < content.length) segments.push({ type: 'text', start: cursor, end: content.length });
     const hidden = systemRanges(content, references);
+    // Scan the complete source before slicing prefixes for bookmark/maps.
+    // Even unresolved image identifiers survive so cards can be added later.
+    let protectedIndex = 0, squareDepth = 0, squareStart = 0;
+    for (let index = 0; index < content.length; index++) {
+      while (references[protectedIndex] && references[protectedIndex]!.end <= index) protectedIndex++;
+      const reference = references[protectedIndex];
+      if (reference && index === reference.start) { index = reference.end - 1; protectedIndex++; continue; }
+      if (options.removeSquareBrackets !== false) {
+        if (content[index] === '[') { if (!squareDepth) squareStart = index; squareDepth++; }
+        else if (content[index] === ']' && squareDepth && --squareDepth === 0) hidden.push({ start: squareStart, end: index + 1 });
+      }
+      if (options.removeAngleBrackets !== false && content[index] === '<') {
+        let quote = '', end = index + 1;
+        for (; end < content.length; end++) {
+          const char = content[end]!;
+          if (quote) { if (char === quote) quote = ''; }
+          else if (char === '"' || char === "'") quote = char;
+          else if (char === '>') break;
+        }
+        if (end < content.length) { hidden.push({ start: index, end: end + 1 }); index = end; }
+      }
+    }
+    hidden.sort((left, right) => left.start - right.start || right.end - left.end);
     return segments.map(segment => {
       const limit = Math.min(end, segment.end);
       if (segment.start >= limit) return '';
@@ -37,8 +62,10 @@ function preprocessBook(book: Book, removeEmoji: boolean): Book {
     }).join('');
   };
   return { ...book, title: clean(book.title), author: clean(book.author), description: clean(visibleProse(book.description)),
-    messages: book.messages.map(message => ({ ...message, name: clean(message.name), content: strippedContent(message.content),
-      ...(message.originalMap ? { originalMap: message.originalMap.map(point => ({ source: point.source, output: strippedContent(message.content, point.output).length })) } : {}),
+    messages: book.messages.map(message => ({ ...message, name: clean(message.name), originalContent: message.originalContent ?? message.content,
+      content: strippedContent(message.content),
+      originalMap: (message.originalMap ?? [{ source: 0, output: 0 }, { source: (message.originalContent ?? message.content).length, output: message.content.length }])
+        .map(point => ({ source: point.source, output: strippedContent(message.content, point.output).length })),
       ...(message.chapter === undefined ? {} : { chapter: clean(message.chapter) }) })),
     ...(book.bookmarks === undefined ? {} : { bookmarks: book.bookmarks.map(mark => ({ ...mark,
       char: strippedContent(book.messages[mark.message]?.content ?? '', mark.char).length,
@@ -47,10 +74,12 @@ function preprocessBook(book: Book, removeEmoji: boolean): Book {
 
 /** Call ONLY on new import/text confirmation, never on Reader open, resize,
  * font change or backup restoration. Returns books; does not persist them.
- * Default emoji removal happens before measurement and bookmark remapping.
- * Passing false retains emoji; system prose is still removed on confirmation.
+ * Emoji, square-block and angle-tag removal default on, before measurement
+ * and bookmark remapping. False retains that category. Image identifiers,
+ * including unresolved references, are always protected; curly system prose
+ * is still removed. Normal text between HTML tags is retained.
  */
-export async function prepareBooks(books: Book[], options: { removeEmoji?: boolean } = {}): Promise<Book[]> {
+export async function prepareBooks(books: Book[], options: PrepareBooksOptions = {}): Promise<Book[]> {
   if (typeof document === 'undefined' || !document.body) throw new Error('가져오기 준비는 브라우저에서 사용해 주세요.');
   const host = document.createElement('div');
   host.className = 'reader reader-theme-paper';
@@ -81,7 +110,7 @@ export async function prepareBooks(books: Book[], options: { removeEmoji?: boole
       // again. Backup restores must bypass this API to preserve all content.
       const ruled = source.displayRules?.length ? await applyBookDisplayRules(source, source.displayRules) : source;
       if (source.volumePolicy === 'chapters-100-v1' || source.volumePolicy === CURRENT_VOLUME_POLICY) { result.push(ruled); continue; }
-      const book = preprocessBook(ruled, options.removeEmoji !== false);
+      const book = preprocessBook(ruled, options);
       result.push(...splitBookByPages(book, paginate(book, measure, { pageHeight: IMPORT_PAGE_LAYOUT.height, contentTop: insets.top })).map(volume => ({ ...volume, volumePolicy: CURRENT_VOLUME_POLICY })));
       await new Promise<void>(resolve => setTimeout(resolve, 0));
     }

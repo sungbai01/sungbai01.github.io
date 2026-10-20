@@ -44,7 +44,8 @@ export interface Book {
   cover?: string;
   backCover?: string;
   characterIcon?: string;
-  bookmarkStyle?: 'normal' | 'character';
+  bookmarkStyle?: 'normal' | 'character' | 'image';
+  bookmarkAssetId?: string;
   assets?: BookAsset[];
   imageRules?: ImageRule[];
   displayRules?: DisplayRule[];
@@ -234,7 +235,8 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
   if (backCover) book.backCover = backCover;
   const characterIcon = safeAssetSource(value.characterIcon);
   if (characterIcon) book.characterIcon = characterIcon;
-  if (value.bookmarkStyle === 'normal' || value.bookmarkStyle === 'character') book.bookmarkStyle = value.bookmarkStyle;
+  if (value.bookmarkStyle === 'normal' || value.bookmarkStyle === 'character' || value.bookmarkStyle === 'image') book.bookmarkStyle = value.bookmarkStyle;
+  if (typeof value.bookmarkAssetId === 'string') book.bookmarkAssetId = value.bookmarkAssetId;
   if (Array.isArray(value.assets)) book.assets = assets;
   if (Array.isArray(value.imageRules)) book.imageRules=imageRules;
   if (Array.isArray(value.displayRules)) book.displayRules = !value.displayRules.length && imageRules.length && !messages.some(message => message.originalContent !== undefined)
@@ -555,13 +557,14 @@ function validateBook(book: Book): void {
     (book.volumeCount !== undefined && (!Number.isSafeInteger(book.volumeCount) || book.volumeCount < 1)) ||
     (book.backCover !== undefined && typeof book.backCover !== 'string') ||
     (book.characterIcon !== undefined && typeof book.characterIcon !== 'string') ||
-    (book.bookmarkStyle !== undefined && book.bookmarkStyle !== 'normal' && book.bookmarkStyle !== 'character') ||
+    (book.bookmarkStyle !== undefined && book.bookmarkStyle !== 'normal' && book.bookmarkStyle !== 'character' && book.bookmarkStyle !== 'image') ||
+    (book.bookmarkAssetId !== undefined && typeof book.bookmarkAssetId !== 'string') ||
     (book.aiModel !== undefined && typeof book.aiModel !== 'string') ||
     (book.assets !== undefined && (!Array.isArray(book.assets) || !book.assets.every(asset => record(asset) &&
       typeof asset.id === 'string' && !!asset.id.trim() && typeof asset.name === 'string' && !!asset.name.trim() && typeof asset.src === 'string' &&
       (asset.type === undefined || asset.type === 'icon' || asset.type === 'asset')))) ||
     (book.imageRules !== undefined && (!Array.isArray(book.imageRules)||normalizeImageRules(book.imageRules).length!==book.imageRules.length)) ||
-    (book.displayRules !== undefined && (!Array.isArray(book.displayRules)||normalizeDisplayRules(book.displayRules).length!==book.displayRules.length)) ||
+    (book.displayRules !== undefined && !Array.isArray(book.displayRules)) ||
     (book.bookmarks !== undefined && (!Array.isArray(book.bookmarks) || !book.bookmarks.every(mark => record(mark) &&
       Number.isSafeInteger(mark.message) && mark.message >= 0 && mark.message < book.messages.length &&
       Number.isSafeInteger(mark.char) && mark.char >= 0 && mark.char <= book.messages[mark.message]!.content.length &&
@@ -625,7 +628,7 @@ export async function updateBookmarks(updates: BookmarkUpdate[]): Promise<void> 
   const patches = updates.map(update => {
     if (!record(update) || typeof update.id !== 'string' || !update.id.trim() || seen.has(update.id)) throw new LibraryError('책갈피 변경에 유효하고 중복되지 않은 책 ID가 필요합니다.');
     seen.add(update.id);
-    if (has(update, 'bookmarkStyle') && update.bookmarkStyle !== undefined && update.bookmarkStyle !== 'normal' && update.bookmarkStyle !== 'character') throw new LibraryError('책갈피 모양이 올바르지 않습니다.');
+    if (has(update, 'bookmarkStyle') && update.bookmarkStyle !== undefined && update.bookmarkStyle !== 'normal' && update.bookmarkStyle !== 'character' && update.bookmarkStyle !== 'image') throw new LibraryError('책갈피 모양이 올바르지 않습니다.');
     if (has(update, 'updatedAt') && update.updatedAt !== undefined && (typeof update.updatedAt !== 'string' || !Number.isFinite(Date.parse(update.updatedAt)))) throw new LibraryError('책갈피 변경 시각이 올바르지 않습니다.');
     if (update.bookmarks !== undefined && (!Array.isArray(update.bookmarks) || !update.bookmarks.every(mark => record(mark) &&
       Number.isSafeInteger(mark.message) && mark.message >= 0 && Number.isSafeInteger(mark.char) && mark.char >= 0 &&

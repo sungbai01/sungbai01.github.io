@@ -25,14 +25,15 @@ export interface ReaderProps {
   onNextVolume?: () => void;
   nextVolumeTitle?: string;
   onSaveBook?: (book:Book)=>Promise<void>;
-  shelfBookmark?: { bookId: string; message: number; char: number; label?: string; progress?:number; style?: BookmarkStyle; icon?: string; title: string };
+  shelfBookmark?: { bookId: string; message: number; char: number; label?: string; progress?:number; style?: BookmarkStyle; icon?: string; image?: string; title: string };
   onBookmarkChange?: (anchor: (Anchor & { label?: string; progress?:number }) | null, style?: BookmarkStyle) => Promise<void>;
   onBookmarkStyleChange?: (style: BookmarkStyle) => Promise<void>;
   bookmarkStyle?: BookmarkStyle;
   characterIcon?: string;
+  bookmarkImage?: string;
 }
 
-type BookmarkStyle = 'normal' | 'character';
+type BookmarkStyle = 'normal' | 'character' | 'image';
 type Panel = 'contents' | 'search' | 'appearance' | null;
 type Theme = 'paper' | 'warm' | 'dark';
 type SearchHit = Anchor & { length: number; excerpt: string; name: string };
@@ -121,10 +122,10 @@ function PageContent({page,query,editing,onEdit,drafts}:{page:PaperPage;query:st
  {editing?<EditablePassage fragment={fragment} onEdit={onEdit} draft={drafts.get(`${fragment.message}:${fragment.char}`)}/>:<p className={`reader-prose${fragment.chapter!==undefined?' reader-chapter-opening':''}`}><RisuText text={fragment.chapter!==undefined?visibleProse(fragment.text).trimStart():fragment.text} query={query}/></p>}
  </section>)}</>;
 }
-type BookmarkSlipProps={style:BookmarkStyle;icon?:string;title:string;color:string;side?:'before'|'after'};
-function BookmarkSlip({style,icon,title,color,side='after'}:BookmarkSlipProps){
+type BookmarkSlipProps={style:BookmarkStyle;icon?:string;image?:string;title:string;color:string;side?:'before'|'after'};
+function BookmarkSlip({style,icon,image,title,color,side='after'}:BookmarkSlipProps){
  return <span data-no-flip data-bookmark-side={side} className={`reader-bookmark-slip reader-bookmark-${style}`} role="img" aria-label="책갈피" style={{'--bookmark-color':color} as CSSProperties}>
- <span className="reader-bookmark-punch"/><span className="reader-bookmark-string"/>{style==='character'&&<>{icon&&<img src={icon} alt="" draggable={false}/>}<strong>{cleanText(title).replace(/\s*·\s*\d+권\s*$/,'')}</strong></>}
+ {style==='image'&&image&&<img className="reader-bookmark-image-fill" src={image} alt="" draggable={false}/>}<span className="reader-bookmark-punch"/><span className="reader-bookmark-string"/>{style==='character'&&<>{icon&&<img src={icon} alt="" draggable={false}/>}<strong>{cleanText(title).replace(/\s*·\s*\d+권\s*$/,'')}</strong></>}
  </span>;
 }
 function PageLeaf({page,book,query,index,onNext,onClose,mobile,editing,onEdit,drafts,bookmark}:{page:PaperPage;book:Book;query:string;index:number;onNext?:()=>void;onClose:()=>void;mobile:boolean;editing:boolean;onEdit:EditFragment;drafts:Map<string,string>;bookmark?:BookmarkSlipProps}) {
@@ -146,7 +147,7 @@ function NextVolumeDialog({title,onConfirm,onClose}:{title?:string;onConfirm:()=
   return <dialog ref={dialog} className="reader-next-dialog" aria-label="다음 권 읽기" onCancel={e=>{e.preventDefault();onClose();}}><h2>다음 권을 읽을까요?</h2><p>{title}</p><div><button autoFocus onClick={onClose}>취소</button><button onClick={onConfirm}>읽기<ArrowRight size={17}/></button></div></dialog>;
 }
 
-export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolumeTitle, onSaveBook, shelfBookmark, onBookmarkChange, onBookmarkStyleChange, bookmarkStyle, characterIcon }: ReaderProps) {
+export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolumeTitle, onSaveBook, shelfBookmark, onBookmarkChange, onBookmarkStyleChange, bookmarkStyle, characterIcon, bookmarkImage }: ReaderProps) {
   const [editing,setEditing]=useState(false);
   const [saving,setSaving]=useState(false);
   const [editError,setEditError]=useState('');
@@ -451,7 +452,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
       if (!page) return;
       root.render(renderLeafRef.current(page,index,spread===1));
     });
-  }, [deferredQuery,pages,editing,leafRevision,shelfBookmark,bookmarkBusy,book.bookmarks,book.color,selectedLeaf,pageIndex]);
+  }, [deferredQuery,pages,editing,leafRevision,shelfBookmark,bookmarkImage,characterIcon,bookmarkBusy,book.bookmarks,book.color,selectedLeaf,pageIndex]);
 
   const jump = (page: number) => {
     if(blockedRef.current || !pagesReadyRef.current || !pagesRef.current.length)return;
@@ -575,7 +576,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
     finally{bookmarkBusyRef.current=false;setBookmarkBusy(false);}
   }
   async function chooseBookmarkStyle(next:BookmarkStyle){
-    if(bookmarkBusyRef.current)return;
+    if(bookmarkBusyRef.current||(next==='image'&&!ribbonImage))return;
     const previous=selectedBookmarkStyle;
     setSelectedBookmarkStyle(next);
     const update=onBookmarkStyleChange?()=>onBookmarkStyleChange(next):shelfBookmark?.bookId===book.id&&onBookmarkChange?()=>onBookmarkChange({message:shelfBookmark.message,char:shelfBookmark.char,label:shelfBookmark.label,progress:shelfBookmark.progress},next):null;
@@ -590,8 +591,9 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
     const anchor=bookmarkAnchor(pagesRef.current,index,contentCount);if(anchor)void changeBookmark(anchor);
   }
   const ribbonIcon=shelfBookmark?.icon??characterIcon??book.characterIcon;
+  const ribbonImage=shelfBookmark?.image??bookmarkImage;
   const ribbonStyle=shelfBookmark ? shelfBookmark.style ?? 'normal' : selectedBookmarkStyle;
-  renderLeafRef.current=(page,index,mobile)=><PageLeaf page={page} book={bookRef.current} query={queryRef.current} index={index} mobile={mobile} editing={editing} onEdit={onEdit} drafts={draftsRef.current} onNext={nextVolumeRef.current?()=>requestNextRef.current():undefined} onClose={()=>requestCloseRef.current()} bookmark={shelfBookmark?.bookId===bookRef.current.id&&bookmarkPage(pagesRef.current,shelfBookmark)===index?{style:ribbonStyle,icon:ribbonIcon,title:shelfBookmark.title,color:bookRef.current.color,side:index<(selectedLeaf??pageIndex)?'before':'after'}:undefined}/>;
+  renderLeafRef.current=(page,index,mobile)=><PageLeaf page={page} book={bookRef.current} query={queryRef.current} index={index} mobile={mobile} editing={editing} onEdit={onEdit} drafts={draftsRef.current} onNext={nextVolumeRef.current?()=>requestNextRef.current():undefined} onClose={()=>requestCloseRef.current()} bookmark={shelfBookmark?.bookId===bookRef.current.id&&bookmarkPage(pagesRef.current,shelfBookmark)===index?{style:ribbonStyle,icon:ribbonIcon,image:ribbonImage,title:shelfBookmark.title,color:bookRef.current.color,side:index<(selectedLeaf??pageIndex)?'before':'after'}:undefined}/>;
   useEffect(()=>{if(!onSaveBook&&editing){draftsRef.current.clear();setEditing(false);setLeafRevision(value=>value+1);}},[onSaveBook,editing]);
   function cancelEditing(){draftsRef.current.clear();setEditing(false);setEditError('');setLeafRevision(value=>value+1);}
   async function saveEditing(){
@@ -644,7 +646,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
     <main className="reader-main" aria-label={`${book.title} 읽기`}>
       <div className="reader-stage" ref={stageRef} aria-busy={loading} data-book-closed={pages[pageIndex]?.kind==='back-cover'}>
         <div className="reader-book-mount" ref={mountRef} onPointerDownCapture={event=>{const page=(event.target as HTMLElement).closest<HTMLElement>('[data-reader-page-index]');if(page&&!page.dataset.flipCopy)setSelectedLeaf(Number(page.dataset.readerPageIndex));}}/>
-        {!loading&&peekBookmark&&shelfBookmark&&<div className={`reader-bookmark-peek reader-bookmark-peek-${markedPage<pageIndex?'before':'after'}`} aria-label="페이지 사이 책갈피"><BookmarkSlip style={ribbonStyle} icon={ribbonIcon} title={shelfBookmark.title} color={book.color}/></div>}
+        {!loading&&peekBookmark&&shelfBookmark&&<div className={`reader-bookmark-peek reader-bookmark-peek-${markedPage<pageIndex?'before':'after'}`} aria-label="페이지 사이 책갈피"><BookmarkSlip style={ribbonStyle} icon={ribbonIcon} image={ribbonImage} title={shelfBookmark.title} color={book.color}/></div>}
         {loading && <div className="reader-loading" role="status"><BookOpen size={25} /><span>읽던 곳을 펼치고 있어요…</span></div>}
       </div>
       {error && <p className="reader-error" role="status">{error}</p>}
@@ -682,7 +684,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
         </>}
         {panel === 'appearance' && <>
           <div className="reader-setting-label"><span>책갈피</span></div>
-          <div className="reader-bookmark-options">{(['normal','character'] as const).map(option=><button key={option} type="button" aria-pressed={selectedBookmarkStyle===option} disabled={bookmarkBusy||!!shelfBookmark&&!onBookmarkStyleChange&&(shelfBookmark.bookId!==book.id||!onBookmarkChange)} onClick={()=>void chooseBookmarkStyle(option)}>{option==='normal'?<Bookmark size={22}/>:ribbonIcon?<img src={ribbonIcon} alt=""/>:<BookOpen size={22}/>}<span>{option==='normal'?'기본':'캐릭터'}</span>{selectedBookmarkStyle===option&&<Check size={14}/>}</button>)}</div>
+          <div className="reader-bookmark-options">{(['normal','character','image'] as const).map(option=><button key={option} type="button" title={option==='image'&&!ribbonImage?'책장 이미지에서 선택하세요':undefined} aria-pressed={selectedBookmarkStyle===option} disabled={option==='image'&&!ribbonImage||bookmarkBusy||!!shelfBookmark&&!onBookmarkStyleChange&&(shelfBookmark.bookId!==book.id||!onBookmarkChange)} onClick={()=>void chooseBookmarkStyle(option)}>{option==='normal'?<Bookmark size={22}/>:option==='image'?(ribbonImage?<img src={ribbonImage} alt=""/>:<BookOpen size={22}/>):ribbonIcon?<img src={ribbonIcon} alt=""/>:<BookOpen size={22}/>}<span>{option==='normal'?'기본':option==='character'?'캐릭터':'이미지'}</span>{selectedBookmarkStyle===option&&<Check size={14}/>}</button>)}</div>
           <div className="reader-setting-label"><span>글자 크기</span><small>{fontSize}픽셀</small></div>
           <div className="reader-font-control"><button aria-label="글자 작게" disabled={fontSize <= 14} onClick={() => setFontSize(size => Math.max(14, size - 1))}><Minus size={17} /><Type size={15} /></button><span className="reader-font-preview">가나다</span><button aria-label="글자 크게" disabled={fontSize >= 28} onClick={() => setFontSize(size => Math.min(28, size + 1))}><Type size={22} /><Plus size={17} /></button></div>
           <div className="reader-setting-label"><span>책장 색</span></div>
@@ -697,3 +699,4 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
 }
 
 export default Reader;
+

@@ -10,12 +10,13 @@ export interface ShelfAssetsProps {
   assets: BookAsset[];
   imageRules?:ImageRule[];
   displayRules?:DisplayRule[];
+  bookmarkAssetId?:string;
   /** App persists this entire library onto every book belonging to this shelf. */
-  onSave: (assets: BookAsset[],imageRules:ImageRule[],displayRules:DisplayRule[]) => Promise<void>;
+  onSave: (assets: BookAsset[],imageRules:ImageRule[],displayRules:DisplayRule[],bookmarkAssetId?:string) => Promise<void>;
   onClose: () => void;
 }
 
-export default function ShelfAssets({ assets,imageRules=[],displayRules=[], onSave, onClose }: ShelfAssetsProps) {
+export default function ShelfAssets({ assets,imageRules=[],displayRules=[],bookmarkAssetId, onSave, onClose }: ShelfAssetsProps) {
   const dialog = useRef<HTMLDialogElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const locked = useRef(false);
@@ -23,6 +24,7 @@ export default function ShelfAssets({ assets,imageRules=[],displayRules=[], onSa
   const [draft, setDraft] = useState<BookAsset[]>(() => normalizeAssets(assets));
   const [rules,setRules]=useState<ImageRule[]>(()=>normalizeImageRules(imageRules));
   const [displayDraft,setDisplayDraft]=useState<DisplayRule[]>(()=>normalizeDisplayRules(displayRules));
+  const [bookmarkImageId,setBookmarkImageId]=useState(bookmarkAssetId);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -84,7 +86,7 @@ export default function ShelfAssets({ assets,imageRules=[],displayRules=[], onSa
     locked.current = true; setBusy(true); setError('');
     try {
       setDraft(numbered);
-      await onSave(normalizeAssets(numbered),normalizeImageRules(rules),normalizeDisplayRules(displayDraft));
+      await onSave(normalizeAssets(numbered),normalizeImageRules(rules),normalizeDisplayRules(displayDraft),numbered.some(asset=>asset.id===bookmarkImageId)?bookmarkImageId:undefined);
       onClose();
     } catch (cause) { setError(cause instanceof Error ? cause.message : '저장하지 못했습니다. 다시 시도해 주세요.'); }
     finally { locked.current = false; setBusy(false); }
@@ -98,7 +100,7 @@ export default function ShelfAssets({ assets,imageRules=[],displayRules=[], onSa
     } }}>
     <header className="shelf-assets-heading"><h2 id={titleId}>책장 이미지</h2><button type="button" className="shelf-assets-icon" aria-label="닫기" disabled={busy} onClick={onClose}><X size={20}/></button></header>
     <p className="shelf-assets-description">이 책장의 이야기에 사용할 이미지를 모아 두세요.</p>
-    <div className="shelf-assets-toolbar"><button type="button" className="shelf-assets-add" disabled={busy} onClick={() => input.current?.click()}><ImagePlus size={19}/> 캐릭터 카드</button><button type="button" className="shelf-assets-defaults" disabled={busy} title="이 책장의 이미지와 초상을 비우기" onClick={()=>{setDraft([]);setRules([]);setDisplayDraft([]);setError('');setNotice('');setPreviewFailures(new Set());}}>기본값으로</button></div>
+    <div className="shelf-assets-toolbar"><button type="button" className="shelf-assets-add" disabled={busy} onClick={() => input.current?.click()}><ImagePlus size={19}/> 캐릭터 카드</button><button type="button" className="shelf-assets-defaults" disabled={busy} title="이 책장의 이미지와 초상을 비우기" onClick={()=>{setDraft([]);setRules([]);setDisplayDraft([]);setBookmarkImageId(undefined);setError('');setNotice('');setPreviewFailures(new Set());}}>기본값으로</button></div>
     <input ref={input} type="file" className="shelf-assets-input" multiple accept=".png,.jpg,.jpeg,.webp,.gif,.avif,.json,.charx,.risum,.zip,image/png,image/jpeg,image/webp,image/gif,image/avif,application/json,application/zip,application/charx"
       aria-label="이미지 또는 캐릭터 카드 파일" disabled={busy} onChange={event => { const files = Array.from(event.target.files ?? []); event.target.value = ''; void addFiles(files); }}/>
     <p className="shelf-assets-hint">이미지, PNG·JSON·CHARX 카드, 카드 ZIP</p>
@@ -109,12 +111,12 @@ export default function ShelfAssets({ assets,imageRules=[],displayRules=[], onSa
         <label className="shelf-assets-name"><span>이미지 이름</span><input aria-label={`${index + 1}번째 이미지 이름`} value={asset.name} disabled={busy} onChange={event => {
           const name = event.target.value; setDraft(previous => previous.map(entry => entry.id === asset.id ? { ...entry, name } : entry));
         }} onBlur={()=>setDraft(previous=>previous.map(entry=>entry.id===asset.id?{...entry,name:uniqueAssetName(entry.name,previous.filter(other=>other.id!==entry.id).map(other=>other.name.trim()))}:entry))}/><small>{`{{img::${asset.name}}}`}</small>
-        <span className="shelf-assets-portrait"><input type="radio" name={`${titleId}-portrait`} aria-label={`${asset.name || '이미지'} 표지 초상으로 사용`} checked={draft.find(entry => entry.type === 'icon')?.id === asset.id} disabled={busy} onChange={() => setDraft(previous => previous.map(entry => ({ ...entry, type: entry.id === asset.id ? 'icon' : 'asset' })))}/> 표지 초상</span></label>
-        <button type="button" className="shelf-assets-icon shelf-assets-remove" aria-label={`${asset.name || '이미지'} 삭제`} disabled={busy} onClick={() => setDraft(previous => previous.filter(entry => entry.id !== asset.id))}><Trash2 size={18}/></button>
+        <span className="shelf-assets-portrait"><input type="radio" name={`${titleId}-portrait`} aria-label={`${asset.name || '이미지'} 표지 초상으로 사용`} checked={draft.find(entry => entry.type === 'icon')?.id === asset.id} disabled={busy} onChange={() => setDraft(previous => previous.map(entry => ({ ...entry, type: entry.id === asset.id ? 'icon' : 'asset' })))}/> 표지 초상</span><span className="shelf-assets-portrait"><input type="checkbox" aria-label={`${asset.name || '이미지'} 책갈피로 사용`} checked={bookmarkImageId===asset.id} disabled={busy} onChange={()=>setBookmarkImageId(previous=>previous===asset.id?undefined:asset.id)}/> 책갈피 이미지</span></label>
+        <button type="button" className="shelf-assets-icon shelf-assets-remove" aria-label={`${asset.name || '이미지'} 삭제`} disabled={busy} onClick={() => {setDraft(previous => previous.filter(entry => entry.id !== asset.id));if(bookmarkImageId===asset.id)setBookmarkImageId(undefined);}}><Trash2 size={18}/></button>
       </div>)}
     </div>
     {notice && <p role="status" className="shelf-assets-notice">{notice}</p>}
     {error && <p role="alert" className="shelf-assets-error">{error}</p>}
-    <footer className="shelf-assets-actions"><span>{draft.length.toLocaleString()}개 이미지{rules.length>0&&` · 이미지 규칙 ${rules.length}개`}{displayDraft.length>0&&` · 정규식 규칙 ${displayDraft.length}개`}</span><button type="button" disabled={busy} onClick={onClose}>취소</button><button type="button" className="shelf-assets-save" disabled={busy} onClick={() => void save()}>{busy && <LoaderCircle size={16}/>} 저장</button></footer>
+    <footer className="shelf-assets-actions"><span>{draft.length.toLocaleString()}개 이미지{rules.length>0&&` · 이미지 규칙 ${rules.length}개`}{displayDraft.length>0&&` · 이미지 치환 ${displayDraft.length}개`}</span><button type="button" disabled={busy} onClick={onClose}>취소</button><button type="button" className="shelf-assets-save" disabled={busy} onClick={() => void save()}>{busy && <LoaderCircle size={16}/>} 저장</button></footer>
   </dialog>;
 }

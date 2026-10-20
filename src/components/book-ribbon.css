@@ -6,6 +6,8 @@
 .shelf-ribbon-cord:after{content:'';position:absolute;bottom:-1px;left:-2px;width:5px;height:4px;border:1px solid #c5ac83;border-radius:50%}
 .shelf-ribbon img{width:100%;aspect-ratio:1;object-fit:cover;object-position:top}
 .shelf-ribbon-title{font:7px/1.4 var(--font-serif);max-height:5.6em;overflow:hidden}
+.shelf-ribbon-image>.shelf-ribbon-image-fill{position:absolute;inset:0;width:100%;height:100%;aspect-ratio:auto;object-fit:cover;object-position:top;border-radius:inherit;z-index:0}
+.shelf-ribbon-image>.shelf-ribbon-hole,.shelf-ribbon-image>.shelf-ribbon-cord{z-index:1}
 .shelf-ribbon-spines{left:clamp(3px,var(--ribbon-position),calc(100% - 5px));width:3px;aspect-ratio:auto;padding:0;box-shadow:1px 0 1px #0003}
 .shelf-ribbon-spines .shelf-ribbon-hole,.shelf-ribbon-spines img,.shelf-ribbon-spines .shelf-ribbon-title{display:none}
 .shelf-ribbon-spines .shelf-ribbon-cord{width:2px;left:0;height:20px;top:-10px}
