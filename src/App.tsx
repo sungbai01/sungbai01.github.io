@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, useId, type CSSProperties, type ReactNode } from 'react';
 import { ArrowDownToLine, ArrowRight, BookOpen, Bookmark, Check, ChevronDown, Ellipsis, FileUp, Library, LoaderCircle, Plus, Search, Settings2, Trash2, Upload, X } from 'lucide-react';
-import { loadBooks, saveBook, saveReadingProgress, replaceBookWithVolumes, repackSeries, deleteBook, deleteAllBooks, importChatFile, BOOK_COLORS, type Book } from './lib/library';
+import { loadBooks, saveBook, saveReadingProgress, replaceBookWithVolumes, repackSeries, deleteBook, deleteBooks, importChatFile, BOOK_COLORS, type Book } from './lib/library';
 import { groupBooks, MAX_VOLUME_PAGES, splitBookForStorage, mergeLegacyVolumes } from './lib/volumes';
 import { sampleBooks } from './lib/sample';
 
@@ -111,7 +111,8 @@ export default function App() {
   const [books,setBooks]=useState<Book[]>([]); const [loading,setLoading]=useState(true);const [error,setError]=useState(''); const [toast,setToast]=useState('');
   const [route,setRoute]=useState(currentBookId); const [query,setQuery]=useState(''); const [tab,setTab]=useState('all');const [sort,setSort]=useState('recent'); const [stars,setStars]=useState(readStars);
   const [importing,setImporting]=useState(false);const [busy,setBusy]=useState(false);const [dragging,setDragging]=useState(false);const [info,setInfo]=useState(false);const [edit,setEdit]=useState<Book|null>(null);const [remove,setRemove]=useState<Book|null>(null);const [menu,setMenu]=useState<string|null>(null);const [view,setView]=useState<'covers'|'spines'>('covers');
-  const [clearConfirm,setClearConfirm]=useState(false);const [deleting,setDeleting]=useState(false);const [clearError,setClearError]=useState('');
+  const [clearConfirm,setClearConfirm]=useState<{title:string;ids:string[]}|null>(null);const [deleting,setDeleting]=useState(false);const [clearError,setClearError]=useState('');
+  const [removeUserInputs,setRemoveUserInputs]=useState(true);
   const deletingRef=useRef(false);
   const input=useRef<HTMLInputElement>(null);const restore=useRef<HTMLInputElement>(null);const latestBooks=useRef(books); latestBooks.current=books;
   const pendingProgress=useRef(new Map<string,{id:string;page:number;updatedAt:string}>());
@@ -171,25 +172,30 @@ export default function App() {
     }finally{splittingBooks.current.delete(book.id);setBusy(false);}
   };
   async function backupBooks(){
+    if(!clearConfirm)return;
     flushProgress();await progressWrites.current;
-    const persisted=await loadBooks();
-    download('갈피-책장-'+new Date().toISOString().slice(0,10)+'.json',{format:'galpi-backup',version:1,volumePolicy:'chapters-100-v1',books:persisted});
+    const targetIds=new Set(clearConfirm.ids);
+    const persisted=(await loadBooks()).filter(book=>targetIds.has(book.id));
+    download(clearConfirm.title+'-'+new Date().toISOString().slice(0,10)+'.json',{format:'galpi-backup',version:1,volumePolicy:'chapters-100-v1',books:persisted});
     setToast('백업 완료');
   }
   async function clearBooks(){
-    if(deletingRef.current||busy||loading)return;
+    if(!clearConfirm||deletingRef.current||busy||loading)return;
     if(splittingBooks.current.size){setClearError('책을 저장 중이에요. 잠시 후 다시 시도해 주세요.');return;}
     deletingRef.current=true;setDeleting(true);setBusy(true);setClearError('');
     try{
       // Drain queued writes before the atomic books/progress transaction.
       flushProgress();await progressWrites.current;
-      localStorage.setItem(key,'yes');
-      await deleteAllBooks();
-      pendingProgress.current.clear();latestBooks.current=[];setBooks([]);
-      setStars([]);
-      let starsCleared=true;try{localStorage.removeItem('galpi:stars');}catch{starsCleared=false;}
-      setRoute(null);location.hash='/';setQuery('');setTab('all');setMenu(null);setEdit(null);setRemove(null);setInfo(false);setClearConfirm(false);
-      setToast(starsCleared?'모든 책을 삭제했어요.':'책은 삭제했지만 책갈피 설정을 정리하지 못했어요.');
+      const targetIds=new Set(clearConfirm.ids);
+      await deleteBooks([...targetIds]);
+      for(const id of targetIds)pendingProgress.current.delete(id);
+      const remaining=latestBooks.current.filter(book=>!targetIds.has(book.id));
+      latestBooks.current=remaining;setBooks(remaining);
+      const remainingStars=stars.filter(id=>!targetIds.has(id));setStars(remainingStars);
+      let starsCleared=true;try{localStorage.setItem('galpi:stars',JSON.stringify(remainingStars));}catch{starsCleared=false;}
+      if(targetIds.has(currentBookId()??'')){setRoute(null);location.hash='/';}
+      setMenu(null);if(edit&&targetIds.has(edit.id))setEdit(null);if(remove&&targetIds.has(remove.id))setRemove(null);setClearConfirm(null);
+      setToast(starsCleared?'책장을 삭제했어요.':'책장은 삭제했지만 책갈피 설정을 정리하지 못했어요.');
     }catch{setClearError('삭제하지 못했어요. 다시 시도해 주세요.');}
     finally{deletingRef.current=false;setDeleting(false);setBusy(false);}
   }
@@ -234,10 +240,10 @@ export default function App() {
   const toggleStar=(id:string)=>{const next=stars.includes(id)?stars.filter(v=>v!==id):[...stars,id];try{localStorage.setItem('galpi:stars',JSON.stringify(next));setStars(next);}catch{setToast('책갈피를 저장하지 못했어요.');}};
   async function importFiles(files:FileList|File[]) {
     if(!files.length||busy)return;setBusy(true);setError('');let added=0;const errors:string[]=[];
-    for(const file of Array.from(files)){try{const imported=await importChatFile(file);flushProgress();await progressWrites.current;const next=await storeBooks(imported,await loadBooks(),true);latestBooks.current=next;setBooks(next);added+=imported.length;}catch(e){errors.push(`${file.name}: ${e instanceof Error?e.message:'파일을 읽지 못했어요.'}`);}}
+    for(const file of Array.from(files)){try{const imported=await importChatFile(file,{removeUserInputs});flushProgress();await progressWrites.current;const next=await storeBooks(imported,await loadBooks(),true);latestBooks.current=next;setBooks(next);added+=imported.length;}catch(e){errors.push(`${file.name}: ${e instanceof Error?e.message:'파일을 읽지 못했어요.'}`);}}
     setBusy(false);if(errors.length)setError(errors.join('\n'));if(added){setToast(`${added}권의 이야기를 책장에 꽂았어요.`);setTab('all');if(!errors.length)setImporting(false);}
   }
-  async function restoreBackup(file?:File){if(!file||busy)return;setBusy(true);setError('');try{const data=JSON.parse(await file.text());if(data.format!=='galpi-backup'||!Array.isArray(data.books))throw new Error('갈피에서 내보낸 책장 백업 파일을 선택해 주세요.');const normalized=await importChatFile(new File([JSON.stringify(data.books)],'backup.json',{type:'application/json'}));flushProgress();await progressWrites.current;const merged=await storeBooks(normalized,await loadBooks(),true,data.volumePolicy!=='chapters-100-v1');latestBooks.current=merged;setBooks(merged);setToast(`${normalized.length}권을 복원했어요.`);}catch(e){setError(e instanceof Error?e.message:'백업을 복원하지 못했어요.');}finally{setBusy(false);if(restore.current)restore.current.value='';}}
+  async function restoreBackup(file?:File){if(!file||busy)return;setBusy(true);setError('');try{const data=JSON.parse(await file.text());if(data.format!=='galpi-backup'||!Array.isArray(data.books))throw new Error('갈피에서 내보낸 책장 백업 파일을 선택해 주세요.');const normalized=await importChatFile(new File([JSON.stringify(data.books)],'backup.json',{type:'application/json'}),{removeUserInputs:false});flushProgress();await progressWrites.current;const merged=await storeBooks(normalized,await loadBooks(),true,data.volumePolicy!=='chapters-100-v1');latestBooks.current=merged;setBooks(merged);setToast(`${normalized.length}권을 복원했어요.`);}catch(e){setError(e instanceof Error?e.message:'백업을 복원하지 못했어요.');}finally{setBusy(false);if(restore.current)restore.current.value='';}}
   const selected=books.find(b=>b.id===route);
   const reading=books.filter(b=>(b.lastPage??0)>0).sort((a,b)=>String(b.updatedAt).localeCompare(String(a.updatedAt)))[0];
   const shown=books.filter(b=>(tab!=='reading'||(b.lastPage??0)>0)&&(tab!=='saved'||stars.includes(b.id))&&`${b.title} ${b.author} ${b.description}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())).sort((a,b)=>sort==='title'?a.title.localeCompare(b.title,'ko'):sort==='oldest'?String(a.createdAt).localeCompare(String(b.createdAt)):String(b.updatedAt).localeCompare(String(a.updatedAt)));
@@ -254,7 +260,7 @@ export default function App() {
   const onNextVolume=useCallback(()=>{if(nextVolumeId)location.hash=`/book/${encodeURIComponent(nextVolumeId)}`;},[nextVolumeId]);
   if(route&&!loading&&selected)return <><Suspense fallback={<div className="loading-screen"><LoaderCircle className="animate-spin"/> 책을 펼치고 있어요</div>}><Reader book={selected} onClose={closeBook} onProgress={onProgress} onSaveBook={updateBook} onSplit={onSplit} onNextVolume={nextVolume?onNextVolume:undefined} nextVolumeTitle={nextVolume?.title}/></Suspense>{toast&&<div className="toast" role="status">{toast}</div>}</>;
   return <div className="app-shell">
-    <header className="site-header" inert={deleting}><a href="#/" className="brand" aria-label="갈피 서재"><span className="brand-mark"><BookOpen size={23} strokeWidth={1.4}/><span/></span><span>갈피<span className="brand-en">galpi</span></span></a><div className="header-right"><button className="icon-btn danger-text" aria-label="모든 책 삭제" title="모든 책 삭제" disabled={busy||loading||!books.length||splittingBooks.current.size>0} onClick={()=>{setClearError('');setClearConfirm(true);}}><Trash2 size={19}/></button><button className="icon-btn" aria-label="저장 및 백업" title="저장 및 백업" onClick={()=>setInfo(true)}><Settings2 size={19}/></button></div></header>
+    <header className="site-header" inert={deleting}><a href="#/" className="brand" aria-label="갈피 서재"><span className="brand-mark"><BookOpen size={23} strokeWidth={1.4}/><span/></span><span>갈피<span className="brand-en">galpi</span></span></a><div className="header-right"><button className="icon-btn" aria-label="저장 및 백업" title="저장 및 백업" onClick={()=>setInfo(true)}><Settings2 size={19}/></button></div></header>
     <div className="workspace" inert={deleting}>
       <aside className="sidebar"><nav aria-label="서재 메뉴">{[{id:'all',label:'모든 책',icon:Library,count:groupBooks(books).length},{id:'reading',label:'읽던 책',icon:BookOpen,count:books.filter(b=>(b.lastPage??0)>0).length},{id:'saved',label:'책갈피',icon:Bookmark,count:stars.filter(s=>books.some(b=>b.id===s)).length}].map(item=><button key={item.id} title={item.label} className={'nav-item '+(tab===item.id?'active':'')} onClick={()=>{setTab(item.id);setQuery('');}}><item.icon size={18} strokeWidth={1.6}/><span>{item.label}</span><small>{item.count.toString().padStart(2,'0')}</small></button>)}</nav>
       </aside>
@@ -265,8 +271,8 @@ export default function App() {
         {reading&&<button className="resume-card" aria-label={reading.title+' 이어 읽기'} title="이어 읽기" onClick={()=>openBook(reading)}><span className="resume-cover"><Cover book={reading} small/></span><span className="resume-copy"><strong>{reading.title}</strong><span>{reading.author} · {(reading.lastPage??0)+1}쪽</span></span><ArrowRight size={21} aria-hidden="true"/></button>}
         <section aria-label="책장" className="collection"><div className="collection-toolbar"><div className="collection-heading"><h2>{tab==='all'?'모든 책':tab==='reading'?'읽던 책':'책갈피'}</h2><span>{groups.length}작품 · {shown.length}권</span></div><div className="collection-controls"><label className="search-box"><Search size={16}/><input aria-label="이야기 검색" placeholder="검색" value={query} onChange={e=>setQuery(e.target.value)}/>{query&&<button aria-label="검색 초기화" onClick={()=>setQuery('')}><X size={14}/></button>}</label><label className="sort-select"><select aria-label="책 정렬" value={sort} onChange={e=>setSort(e.target.value)}><option value="recent">최근 펼친 순</option><option value="oldest">오래된 순</option><option value="title">제목순</option></select><ChevronDown size={13}/></label><div className="view-switch" aria-label="책장 보기"><button className={view==='covers'?'active':''} title="표지 보기" aria-label="표지 보기" aria-pressed={view==='covers'} onClick={()=>setView('covers')}><BookOpen size={16}/></button><button className={view==='spines'?'active':''} title="책등 보기" aria-label="책등 보기" aria-pressed={view==='spines'} onClick={()=>setView('spines')}><Library size={16}/></button></div></div></div>
           {loading?<div className="loading-screen"><LoaderCircle size={22} className="animate-spin"/> 서재를 열고 있어요</div>:shown.length?<div className="shelf-groups">{shelves.map(shelf=><section key={shelf===singletons?'singletons':`series:${shelf.id}`} aria-label={shelf.title} className="series-shelf" data-series-id={shelf.id}>
-            <header className="series-heading"><h3>{shelf.title}</h3><span>{shelf.books.length}권</span></header>
-            <div className={view==='covers'?'bookshelf-grid':'spines-shelf'}>{shelf.books.map((book,index)=><article key={book.id} className={`book-item ${view==='spines'?'spine-item':''}`} style={{'--cover':book.color,'--spine-height':`${[225,214,234,220,230,209][index%6]}px`,'--spine-width':`${[48,42,54,46,50,44][index%6]}px`,'--delay':`${Math.min(index,8)*60}ms`} as CSSProperties}>
+            <header className="series-heading"><h3>{shelf.title}</h3><span>{shelf.books.length}권</span><button className="icon-btn shelf-delete danger-text" aria-label={`${shelf.title} 책장 삭제`} title={`${shelf.title} 책장 삭제`} disabled={busy||loading||splittingBooks.current.size>0} onClick={()=>{const targets=books.filter(book=>shelf===singletons?!book.seriesId:(book.seriesId??book.id)===shelf.id);setClearError('');setClearConfirm({title:shelf.title,ids:targets.map(book=>book.id)});}}><Trash2 size={17}/></button></header>
+            <div className={view==='covers'?'bookshelf-grid':'spines-shelf'}>{shelf.books.map((book,index)=><article key={book.id} className={`book-item ${view==='spines'?'spine-item':''}`} style={{'--cover':book.color,'--delay':`${Math.min(index,8)*60}ms`} as CSSProperties}>
               <button className="book-read" aria-label={`${book.title} 읽기`} title={`${book.title} 읽기`} onClick={()=>openBook(book)}>
                 <div className="book-stage"><div className="book-open">{view==='covers'?<Cover book={book}/>:<div className="book-spine"><span className="spine-band" aria-hidden="true"/><strong>{book.title}</strong><span>{book.author}</span><i aria-hidden="true">✳</i><span className="spine-band" aria-hidden="true"/></div>}</div></div>
                 <div className="book-caption"><div><span className="book-title">{book.title}</span><p>{book.author || '나의 이야기'}</p></div></div>
@@ -281,19 +287,19 @@ export default function App() {
 
       </main>
     </div>
-    <input className="sr-only" ref={input} type="file" multiple accept=".json,.jsonl,.ndjson,.txt,.md,.markdown,.chat" onChange={e=>{if(e.target.files)void importFiles(e.target.files);e.target.value='';}}/>
+    <input className="sr-only" ref={input} type="file" multiple accept=".json,.jsonl,.ndjson,.txt,.html,.htm,.md,.markdown,.chat" onChange={e=>{if(e.target.files)void importFiles(e.target.files);e.target.value='';}}/>
     <input className="sr-only" ref={restore} type="file" accept=".json" onChange={e=>void restoreBackup(e.target.files?.[0])}/>
-    {importing&&<Modal title="로그 가져오기" onClose={()=>{if(!busy)setImporting(false);}}><button disabled={busy} title="RisuAI에서 내보낸 로그를 선택하거나 놓으세요. 여러 파일을 함께 가져올 수 있습니다." className={'import-dropzone '+(dragging?'dragging':'')} onDragOver={e=>{e.preventDefault();setDragging(true);}} onDragLeave={()=>setDragging(false)} onDrop={e=>{e.preventDefault();setDragging(false);void importFiles(e.dataTransfer.files);}} onClick={()=>input.current?.click()}>{busy?<LoaderCircle className="animate-spin" size={33}/>:<FileUp size={33} strokeWidth={1.3}/>}<strong>{busy?'가져오는 중…':'파일 선택'}</strong><span>JSON · JSONL · TXT · MD</span></button>{error&&<p className="error-message whitespace-pre-line" role="alert">{error}</p>}</Modal>}
+    {importing&&<Modal title="로그 가져오기" onClose={()=>{if(!busy)setImporting(false);}}><button disabled={busy} title="RisuAI에서 내보낸 로그를 선택하거나 놓으세요. 여러 파일을 함께 가져올 수 있습니다." className={'import-dropzone '+(dragging?'dragging':'')} onDragOver={e=>{e.preventDefault();setDragging(true);}} onDragLeave={()=>setDragging(false)} onDrop={e=>{e.preventDefault();setDragging(false);void importFiles(e.dataTransfer.files);}} onClick={()=>input.current?.click()}>{busy?<LoaderCircle className="animate-spin" size={33}/>:<FileUp size={33} strokeWidth={1.3}/>}<strong>{busy?'가져오는 중…':'파일 선택'}</strong><span>JSON · TXT · HTML · HTML embedded</span></button><div className="import-option" title="사용자 메시지를 제외하고 캐릭터 메시지만 저장합니다."><span id="remove-inputs-label">인풋 제거</span><button type="button" className="import-switch" role="switch" aria-labelledby="remove-inputs-label" aria-describedby="remove-inputs-help" aria-checked={removeUserInputs} disabled={busy} onClick={()=>setRemoveUserInputs(value=>!value)}><span/></button><span id="remove-inputs-help" className="sr-only">사용자 메시지를 제외하고 캐릭터 메시지만 저장합니다.</span></div>{error&&<p className="error-message whitespace-pre-line" role="alert">{error}</p>}</Modal>}
     {info&&<Modal title="보관함" onClose={()=>setInfo(false)}><p className="modal-description">이 브라우저에 저장돼요. 데이터 삭제 전 백업하세요.</p><div className="backup-actions"><button className="secondary-btn" title="서재 전체를 파일로 저장" disabled={busy||loading} onClick={()=>{download('갈피-책장-'+new Date().toISOString().slice(0,10)+'.json',{format:'galpi-backup',version:1,volumePolicy:'chapters-100-v1',books});setToast('백업 완료');}}><ArrowDownToLine size={17}/> 백업</button><button className="secondary-btn" title="다른 브라우저의 백업도 복원할 수 있습니다" disabled={busy} onClick={()=>restore.current?.click()}><Upload size={17}/> 복원</button></div></Modal>}
     {edit&&<EditBook book={edit} onSave={updateBook} onClose={()=>setEdit(null)}/>}
-    {clearConfirm&&<Modal title="모든 책 삭제" locked={busy} onClose={()=>setClearConfirm(false)}>
-      <div className="clear-library-confirm" aria-busy={deleting}>
-        <span className="clear-library-icon" aria-hidden="true"><Trash2 size={26} strokeWidth={1.5}/></span>
-        <p className="clear-library-count">총 <strong>{books.length.toLocaleString()}권</strong>을 삭제할까요?</p>
-        <p className="modal-description">모든 대화와 읽던 위치, 책갈피가 사라져요.<br/><strong>삭제 후에는 되돌릴 수 없어요.</strong></p>
+    {clearConfirm&&<Modal title="책장 삭제" locked={busy} onClose={()=>setClearConfirm(null)}>
+      <div className="delete-shelf-confirm" aria-busy={deleting}>
+        <span className="delete-shelf-icon" aria-hidden="true"><Trash2 size={26} strokeWidth={1.5}/></span>
+        <p className="delete-shelf-count">‘{clearConfirm.title}’ 책장의<br/>총 <strong>{clearConfirm.ids.length.toLocaleString()}권</strong>을 삭제할까요?</p>
+        <p className="modal-description">이 책장에 담긴 책의 대화와 읽던 위치, 책갈피가 사라져요.<br/><strong>삭제 후에는 되돌릴 수 없어요.</strong></p>
         <button className="secondary-btn clear-backup" disabled={busy} onClick={async()=>{setBusy(true);try{await backupBooks();}catch{setClearError('백업하지 못했어요. 다시 시도해 주세요.');}finally{setBusy(false);}}}><ArrowDownToLine size={16}/> 먼저 백업하기 <span>선택</span></button>
         {clearError&&<p className="error-message" role="alert">{clearError}</p>}
-        <div className="modal-actions"><button className="secondary-btn" autoFocus disabled={busy} onClick={()=>setClearConfirm(false)}>취소</button><button className="danger-btn" disabled={busy} onClick={()=>void clearBooks()}>{deleting?<LoaderCircle size={16} className="animate-spin"/>:<Trash2 size={16}/>} {deleting?'삭제 중…':'모든 책 삭제'}</button></div>
+        <div className="modal-actions"><button className="secondary-btn" autoFocus disabled={busy} onClick={()=>setClearConfirm(null)}>취소</button><button className="danger-btn" disabled={busy} onClick={()=>void clearBooks()}>{deleting?<LoaderCircle size={16} className="animate-spin"/>:<Trash2 size={16}/>} {deleting?'삭제 중…':'책장 삭제'}</button></div>
       </div>
     </Modal>}
     {remove&&<Modal title="책 삭제" onClose={()=>setRemove(null)}><p className="modal-description">‘{remove.title}’을 삭제할까요?</p><div className="modal-actions"><button className="secondary-btn" title="삭제 전 이 책을 백업" onClick={()=>download(remove.title+'.json',[remove])}><ArrowDownToLine size={16}/> 내보내기</button><button className="danger-btn" title="대화와 읽던 위치를 삭제합니다" disabled={busy} onClick={async()=>{setBusy(true);try{await deleteBook(remove.id);setBooks(prev=>prev.filter(b=>b.id!==remove.id));setRemove(null);setToast('삭제 완료');}catch{setToast('삭제 실패');}finally{setBusy(false);}}}>삭제</button></div></Modal>}

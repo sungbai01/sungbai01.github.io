@@ -4,6 +4,9 @@
  * Risu exports {type:'risuChat'|'risuAllChats',ver:1|2,data:Chat|Chat[]}.
  * Chat.message contains {role:'user'|'char',data:string,saying?:characterId}.
  * TXT export uses --Speaker on its own line, followed by the message body.
+ * HTML File uses .container > .chat and a hidden .idat containing escaped Chat
+ * JSON. HTML Embed is a clipboard table (Character/Message), not an iframe.
+ * Verified characters.ts blob b349d110630c6408c32c5cea76f8083fcce07b7c.
  * All text stays inert. Consumers MUST render it as text (or Markdown with raw
  * HTML disabled), never innerHTML. No Risu scripts/macros/assets are executed.
  */
@@ -98,8 +101,31 @@ function textContent(value: unknown): string | undefined {
   return undefined;
 }
 
+/** Detached native parsing only. Disable resource-bearing tags before parsing:
+ * even detached HTML documents may load images/frames in some browsers.
+ * Nothing from this document is ever adopted into the application's DOM.
+ */
+function inertDocument(html: string): Document {
+  if (typeof DOMParser === 'undefined') throw new LibraryError('HTML 가져오기는 DOMParser를 지원하는 브라우저에서 사용해 주세요.');
+  // Match whole tags including quoted '>' characters (notably srcdoc). Removing
+  // tags instead of renaming void elements avoids swallowing following prose.
+  const disabled = html.replace(/<\/?(?:img|iframe|frame|frameset|link|base|object|embed|video|audio|source|track|image|use|input)\b(?:[^<>"']|"[^"]*"|'[^']*')*>/gi, '');
+  return new DOMParser().parseFromString('<meta http-equiv="Content-Security-Policy" content="default-src \'none\';">' + disabled, 'text/html');
+}
+
+function elementText(element: Element): string {
+  element.querySelectorAll('script,style,noscript,template,svg,math,[hidden],.idat').forEach(node => node.remove());
+  element.querySelectorAll('br').forEach(node => node.replaceWith('\n'));
+  element.querySelectorAll('p,div,section,article,li,blockquote,pre,h1,h2,h3,h4,h5,h6,tr').forEach(node => node.append('\n'));
+  return (element.textContent || '').replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function plainText(content: string): string {
+  return /<\/?[a-z][^>]*>/i.test(content) ? elementText(inertDocument(content).body) : content;
+}
+
 function normalizeMessage(value: unknown, index: number, character: string, user: string, names: Map<string, string>): Message {
-  if (typeof value === 'string') return { role: 'narrator', name: '서술', content: value };
+  if (typeof value === 'string') return { role: 'narrator', name: '서술', content: plainText(value) };
   if (!record(value)) throw new LibraryError(`${index + 1}번째 메시지 형식이 올바르지 않습니다.`);
   const content = textContent(value.content) ?? textContent(value.data) ?? textContent(value.mes) ?? textContent(value.text);
   if (content === undefined) throw new LibraryError(`${index + 1}번째 메시지에 읽을 수 있는 텍스트가 없습니다.`);
@@ -112,7 +138,7 @@ function normalizeMessage(value: unknown, index: number, character: string, user
   return {
     role,
     name: string(value.name, value.speaker, speaker, role === 'user' ? user : role === 'assistant' ? character : role === 'system' ? '시스템' : '서술'),
-    content: content.replace(/\r\n?/g, '\n'),
+    content: plainText(content).replace(/\r\n?/g, '\n'),
     ...(typeof value.chapter === 'string' ? { chapter: value.chapter } : {}),
   };
 }
@@ -125,6 +151,7 @@ interface ImportContext {
   names: Map<string, string>;
   now: string;
   preserveIds: boolean;
+  removeUserInputs: boolean;
 }
 
 function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, index: number): Book {
@@ -135,18 +162,23 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
     // normalize roles, trim speaker names, or change source line endings.
     if (context.preserveIds && record(row) && typeof row.role === 'string' &&
         typeof row.name === 'string' && typeof row.content === 'string') {
-      return { role: row.role, name: row.name, content: row.content,
+      return { role: row.role, name: row.name, content: context.removeUserInputs ? plainText(row.content) : row.content,
         ...(typeof row.chapter === 'string' ? { chapter: row.chapter } : {}) };
     }
     return normalizeMessage(row, i, character, user, context.names);
-  });
-  if (!messages.some((message) => message.content.trim())) throw new LibraryError('대화 내용이 비어 있습니다.');
+  }).filter(message => !context.removeUserInputs || ['assistant', 'char', 'character', 'bot', 'ai', 'model'].includes(message.role.toLowerCase()));
+  if (!messages.some((message) => message.content.trim())) throw new LibraryError(context.removeUserInputs
+    ? '사용자·시스템 메시지를 제외한 뒤 읽을 수 있는 캐릭터 대화가 없습니다.' : '대화 내용이 비어 있습니다.');
   const createdAt = timestamp(value.createdAt ?? value.created_at ?? value.creation_date, context.now);
+  // A Chat.note is private prompt/context, not public book metadata. In
+  // character-only mode derive the preview solely from retained messages;
+  // title and author use their dedicated fields and never fall back to note.
   const book: Book = {
     id: context.preserveIds ? string(value.id) || newId() : newId(),
     title: string(value.title, value.name, context.title, '제목 없는 대화'),
     author: string(value.author, value.creator, context.author, character !== '캐릭터' ? character : '가져온 대화'),
-    description: context.preserveIds && typeof value.description === 'string' ? value.description : string(value.description, value.note) || messages.find((message) => message.content.trim())!.content.replace(/\s+/g, ' ').slice(0, 160),
+    description: context.removeUserInputs ? messages.find(message => message.content.trim())!.content.replace(/\s+/g, ' ').slice(0, 160)
+      : context.preserveIds && typeof value.description === 'string' ? value.description : plainText(string(value.description, value.note)) || messages.find((message) => message.content.trim())!.content.replace(/\s+/g, ' ').slice(0, 160),
     color: typeof value.color === 'string' && /^#[\da-f]{6}$/i.test(value.color) ? value.color : BOOK_COLORS[index % BOOK_COLORS.length]!,
     createdAt,
     updatedAt: timestamp(value.updatedAt ?? value.updated_at, createdAt),
@@ -251,6 +283,15 @@ function parseText(text: string, context: ImportContext, markdown: boolean): Boo
   let fence = '';
   let title = context.title;
   const risuText = /^--[^\n]+$/m.test(text);
+  // TXT contains names, not roles, and groups need not alternate. The official
+  // filename provides a conservative character allowlist for a single character.
+  // Sanitization removes punctuation; require an exact marker match to avoid
+  // silently mistaking a custom persona or another group member for the user.
+  const filenameCharacter = context.title.match(/^(.+)_\d{4}-\d{2}-\d{2}T\d{6}(?:\d{3})?Z_chat$/)?.[1];
+  if (risuText && context.removeUserInputs && (!filenameCharacter ||
+      !text.split('\n').some(line => line === `--${filenameCharacter}`))) {
+    throw new LibraryError('TXT에는 사용자 역할 정보가 없습니다. 원래 캐릭터명_날짜_chat 파일명을 유지하거나 역할 정보가 있는 JSON/HTML 파일로 가져와 주세요.');
+  }
   const flush = () => { if (current) { current.content = current.content.trim(); rows.push(current); current = undefined; } };
   for (const line of text.split('\n')) {
     const codeFence = line.match(/^\s*(`{3,}|~{3,})/);
@@ -272,7 +313,8 @@ function parseText(text: string, context: ImportContext, markdown: boolean): Boo
       if (marker) {
         flush();
         const name = marker[1]!.replace(/[:：]\s*$/, '').trim();
-        const role = /^(user|human|나|사용자)$/i.test(name) ? 'user' : /^system$/i.test(name) ? 'system' : 'assistant';
+        const role = risuText ? name === filenameCharacter ? 'assistant' : 'unknown'
+          : /^(user|human|나|사용자)$/i.test(name) ? 'user' : /^system$/i.test(name) ? 'system' : 'assistant';
         current = { role, name, content: marker[2] ? `${marker[2]}\n` : '' };
         continue;
       }
@@ -285,13 +327,52 @@ function parseText(text: string, context: ImportContext, markdown: boolean): Boo
   return [makeBook({ title }, rows, context, 0)];
 }
 
+function parseHtml(text: string, context: ImportContext): Book[] {
+  const doc = inertDocument(text);
+  const blocks = Array.from(doc.querySelectorAll('.container > .chat'));
+  const character = blocks[0]?.querySelector('h2')?.textContent?.trim() || '';
+  const idat = doc.querySelector('.idat');
+  if (idat) {
+    let chat: unknown;
+    try { chat = JSON.parse(idat.textContent || ''); }
+    catch { throw new LibraryError('HTML의 RisuAI .idat 대화 JSON이 손상되었습니다.'); }
+    if (!record(chat) || !Array.isArray(chat.message)) throw new LibraryError('HTML의 RisuAI 메시지 목록이 올바르지 않습니다.');
+    // Visible blocks add the greeting (not stored in Chat.message) and speaker
+    // names missing from the raw Chat. Roles always come from .idat, never names.
+    const aligned = blocks.length === chat.message.length + 1;
+    const rows: unknown[] = [];
+    const greeting = aligned ? blocks[0]?.querySelector(':scope > div') : undefined;
+    if (greeting) rows.push({ role: 'char', name: character, content: elementText(greeting) });
+    chat.message.forEach((row, i) => {
+      const name = aligned ? blocks[i + 1]?.querySelector('h2')?.textContent?.trim() : undefined;
+      rows.push(record(row) ? { ...row, ...(name ? { name } : {}) } : row);
+    });
+    return [makeBook(chat, rows, { ...context, character }, 0)];
+  }
+  // The actual HTML Embed template is an ordinary two-column clipboard table.
+  const table = Array.from(doc.querySelectorAll('table')).find(table => {
+    const headers = table.querySelectorAll('tr:first-child > th');
+    return headers.length === 2 && headers[0]?.textContent?.trim() === 'Character' && headers[1]?.textContent?.trim() === 'Message';
+  });
+  if (!table) throw new LibraryError('RisuAI HTML의 .idat 또는 Character/Message 표를 찾을 수 없습니다.');
+  const entries = Array.from(table.rows).slice(1).map(row => {
+    if (row.cells.length !== 2) throw new LibraryError('RisuAI HTML 표의 메시지 행이 올바르지 않습니다.');
+    return { name: elementText(row.cells[0]!), content: elementText(row.cells[1]!) };
+  });
+  const embedCharacter = entries[0]?.name;
+  // No user IDs/roles are exported here. Only the greeting's named character
+  // can be attributed safely. Other names remain unknown when filtering is off.
+  const rows = entries.map(entry => ({ ...entry, role: embedCharacter && entry.name === embedCharacter ? 'assistant' : 'unknown' }));
+  return [makeBook({}, rows, { ...context, character: embedCharacter || '' }, 0)];
+}
+
 /** Parse only: does not persist, fetch remote assets, or execute embedded HTML. */
-export async function importChatFile(file: File): Promise<Book[]> {
+export async function importChatFile(file: File, options: { removeUserInputs?: boolean } = {}): Promise<Book[]> {
   if (!file || typeof file.text !== 'function') throw new LibraryError('가져올 파일을 선택해 주세요.');
   if (file.size > MAX_FILE_BYTES) throw new LibraryError('50MB 이하의 대화 파일을 선택해 주세요.');
   const extension = file.name.split('.').pop()?.toLowerCase() || '';
-  if (!['json', 'jsonl', 'ndjson', 'txt', 'md', 'markdown', 'chat'].includes(extension)) {
-    throw new LibraryError('JSON, JSONL, TXT 또는 Markdown 파일을 선택해 주세요. HTML·바이너리 백업은 지원하지 않습니다.');
+  if (!['json', 'jsonl', 'ndjson', 'txt', 'md', 'markdown', 'chat', 'html', 'htm'].includes(extension)) {
+    throw new LibraryError('JSON, JSONL, TXT, HTML 또는 Markdown 파일을 선택해 주세요.');
   }
   let text: string;
   try { text = (await file.text()).replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim(); }
@@ -301,7 +382,9 @@ export async function importChatFile(file: File): Promise<Book[]> {
   const context: ImportContext = {
     title: file.name.replace(/\.[^.]+$/, '') || '가져온 대화',
     character: '', user: '나', author: '', names: new Map(), now: new Date().toISOString(), preserveIds: false,
+    removeUserInputs: options.removeUserInputs === true,
   };
+  if (extension === 'html' || extension === 'htm' || (extension === 'txt' && /^\s*(?:<!doctype html|<html|<table)\b/i.test(text))) return parseHtml(text, context);
   if (extension === 'jsonl' || extension === 'ndjson') return parseJsonl(text, context);
   if (extension === 'json' || extension === 'chat') {
     let value: unknown;
@@ -468,6 +551,22 @@ export async function repackSeries(originalId: string, volumes: Book[], obsolete
     }
     for (const id of new Set(obsoleteIds)) {
       if (!ids.has(id)) { books.delete(id); progress.delete(id); }
+    }
+    return request;
+  });
+}
+
+/** Idempotent: deleting a missing id succeeds. */
+export async function deleteBooks(ids: string[]): Promise<void> {
+  if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string' || !id.trim())) {
+    throw new LibraryError('삭제할 책의 ID 목록이 올바르지 않습니다.');
+  }
+  if (!ids.length) return;
+  await withStores([STORE, PROGRESS_STORE], 'readwrite', transaction => {
+    let request!: IDBRequest<undefined>;
+    for (const id of new Set(ids)) {
+      request = transaction.objectStore(STORE).delete(id);
+      transaction.objectStore(PROGRESS_STORE).delete(id);
     }
     return request;
   });

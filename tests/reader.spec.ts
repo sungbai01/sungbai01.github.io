@@ -28,16 +28,16 @@ test('large logs split without text loss; shelves group volumes and consolidate 
  expect(await page.getByRole('button',{name:'저장 및 백업',exact:true}).count()).toBe(1);
  await page.goto('/#/book/'+volumes[0].id);await page.reload();
  await expect(page.locator('.reader-stage')).toHaveAttribute('aria-busy','false',{timeout:120000});
- expect(await page.locator('.reader-page:not([data-flip-copy])').count()).toBeLessThanOrEqual(100);
+ expect(await page.locator('.reader-page[data-page-kind=paper]:not([data-flip-copy])').count()).toBeLessThanOrEqual(100);
  expect(await page.locator('.reader-page:not([data-flip-copy]) .reader-paper-shell').count()).toBeLessThanOrEqual(9);
  const before=await page.locator('.reader-progress').inputValue();
  await page.getByRole('button',{name:'다음 쪽',exact:true}).click();
  await expect(page.locator('.reader-progress')).not.toHaveValue(before);
  await page.locator('.reader-progress').press('End');
  await expect(page.getByRole('button',{name:'다음 권',exact:true})).toBeEnabled();
- const oldURL=page.url();await page.getByRole('button',{name:'다음 권',exact:true}).click();await expect(page).not.toHaveURL(oldURL);
+ const oldURL=page.url();await page.getByRole('button',{name:'다음 권',exact:true}).click();await expect(page).toHaveURL(oldURL);await page.getByRole('dialog',{name:'다음 권 읽기'}).getByRole('button',{name:'읽기',exact:true}).click();await expect(page).not.toHaveURL(oldURL);
  await expect(page.locator('.reader-stage')).toHaveAttribute('aria-busy','false');
- expect(await page.locator('.reader-page:not([data-flip-copy])').count()).toBeLessThanOrEqual(100);
+ expect(await page.locator('.reader-page[data-page-kind=paper]:not([data-flip-copy])').count()).toBeLessThanOrEqual(100);
  expect(errors).toEqual([]);
 });
 test('reader keeps bounded DOM during turns and font changes; captures internal frame metrics',async({page})=>{
@@ -49,14 +49,14 @@ test('reader keeps bounded DOM during turns and font changes; captures internal 
  await page.evaluate(()=>{(window as any).__frames=[];(window as any).__record=true;let last=performance.now();function frame(t:number){if(!(window as any).__record)return;(window as any).__frames.push(t-last);last=t;requestAnimationFrame(frame);}requestAnimationFrame(frame);});
  const flips=[];
  for(let i=0;i<6;i++){const before=await page.locator('.reader-progress').inputValue();const t=Date.now();await page.getByRole('button',{name:'다음 쪽',exact:true}).click();await expect(page.locator('.reader-progress')).not.toHaveValue(before);flips.push(Date.now()-t);expect(await page.locator('.reader-page:not([data-flip-copy]) .reader-paper-shell').count()).toBeLessThanOrEqual(9);}
- const metrics=await page.evaluate(()=>{(window as any).__record=false;const frames=(window as any).__frames.sort((a:number,b:number)=>a-b);return {pages:document.querySelectorAll('.reader-page:not([data-flip-copy])').length,mounted:document.querySelectorAll('.reader-page:not([data-flip-copy]) .reader-paper-shell').length,nodes:document.querySelectorAll('*').length,p95:frames[Math.floor(frames.length*.95)],max:Math.max(...frames),longFrames:frames.filter((t:number)=>t>50).length};});
+ const metrics=await page.evaluate(()=>{(window as any).__record=false;const frames=(window as any).__frames.sort((a:number,b:number)=>a-b);return {pages:document.querySelectorAll('.reader-page[data-page-kind=paper]:not([data-flip-copy])').length,mounted:document.querySelectorAll('.reader-page:not([data-flip-copy]) .reader-paper-shell').length,nodes:document.querySelectorAll('*').length,p95:frames[Math.floor(frames.length*.95)],max:Math.max(...frames),longFrames:frames.filter((t:number)=>t>50).length};});
  fs.mkdirSync('test-results',{recursive:true});fs.writeFileSync('test-results/reader-performance.json',JSON.stringify({...metrics,flips},null,2));
  expect(metrics.pages).toBeLessThanOrEqual(100);expect(metrics.mounted).toBeLessThanOrEqual(9);expect(metrics.nodes).toBeLessThan(1000);
  await page.getByRole('button',{name:'독서 화면 설정',exact:true}).click();
  for(let i=0;i<10;i++)await page.getByRole('button',{name:'글자 크게',exact:true}).click();
  await page.getByRole('button',{name:'패널 닫기',exact:true}).click();
  await expect(page.locator('.reader-stage')).toHaveAttribute('aria-busy','false');
- expect(await page.locator('.reader-page:not([data-flip-copy])').count()).toBeLessThanOrEqual(100);
+ expect(await page.locator('.reader-page[data-page-kind=paper]:not([data-flip-copy])').count()).toBeLessThanOrEqual(100);
  expect(errors).toEqual([]);
 });
 test('dialogs are centered and import has a single entry point on desktop and mobile',async({page})=>{

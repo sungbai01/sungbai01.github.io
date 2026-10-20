@@ -25,7 +25,7 @@ export interface ReaderProps {
 
 type Anchor = { message: number; char: number };
 type Fragment = Anchor & { end: number; name: string; text: string };
-type PaperPage = { fragments: Fragment[]; intro: boolean };
+type PaperPage = { fragments: Fragment[]; intro: boolean; kind?: 'paper'|'padding'|'back-cover'|'end' };
 type Panel = 'contents' | 'search' | 'appearance' | null;
 type Theme = 'paper' | 'warm' | 'dark';
 type SearchHit = Anchor & { length: number; excerpt: string; name: string };
@@ -100,6 +100,20 @@ function PageContent({ page, book, query }: { page: PaperPage; book: Book; query
     </section>)}
     {!book.messages.length && <p className="reader-prose reader-empty-copy">아직 담긴 이야기가 없어요.</p>}
   </>;
+}
+
+function PageLeaf({page,book,query,index,onNext,onClose,mobile}:{page:PaperPage;book:Book;query:string;index:number;onNext?:()=>void;onClose:()=>void;mobile:boolean}) {
+  const action=<button className="reader-end-action" data-no-flip onClick={onNext??onClose}>{onNext?'다음 권 읽기':'서재로'}<ArrowRight size={18}/></button>;
+  if(page.kind==='back-cover') return <div className="reader-back-cover" style={{'--book-cover':book.color} as CSSProperties}><div className="reader-cover-frame"><BookOpen size={24}/><h2>{book.seriesTitle??book.title}</h2><p>{book.author}</p><span className="reader-cover-rule"/><small>{book.volumeNumber?`${book.volumeNumber}권`: '갈피'}</small>{mobile&&action}</div></div>;
+  if(page.kind==='end')return <div className="reader-end-half">{action}</div>;
+  if(page.kind==='padding')return <div className="reader-paper-shell"/>;
+  return <div className="reader-paper-shell"><div className="reader-running-head">{book.title}</div><div className="reader-page-content"><PageContent page={page} book={book} query={query}/></div><div className="reader-page-number">{index+1}</div></div>;
+}
+
+function NextVolumeDialog({title,onConfirm,onClose}:{title?:string;onConfirm:()=>void;onClose:()=>void}){
+  const dialog=useRef<HTMLDialogElement>(null);
+  useEffect(()=>{dialog.current?.showModal();return()=>dialog.current?.close();},[]);
+  return <dialog ref={dialog} className="reader-next-dialog" aria-label="다음 권 읽기" onCancel={e=>{e.preventDefault();onClose();}}><h2>다음 권을 읽을까요?</h2><p>{title}</p><div><button autoFocus onClick={onClose}>취소</button><button onClick={onConfirm}>읽기<ArrowRight size={17}/></button></div></dialog>;
 }
 
 /** Measures the same blocks and typography used by the visible React pages. */
@@ -188,6 +202,9 @@ export function paginate(book: Book, measure: HTMLDivElement): PaperPage[] {
 
 export function Reader({ book, onClose, onProgress, onSplit, onNextVolume, nextVolumeTitle, onSaveBook }: ReaderProps) {
   const [editing,setEditing]=useState(false);
+  const [nextConfirm,setNextConfirm]=useState(false);
+  const blockedRef=useRef(false);blockedRef.current=editing||nextConfirm;
+  const requestNextRef=useRef(()=>{});requestNextRef.current=()=>setNextConfirm(true);
   const editingRef=useRef(false);editingRef.current=editing;
   const [initialPreferences] = useState(readReaderPreferences);
   const [theme, setTheme] = useState<Theme>(initialPreferences.theme);
@@ -197,6 +214,7 @@ export function Reader({ book, onClose, onProgress, onSplit, onNextVolume, nextV
   const deferredQuery = useDeferredValue(query.trim());
   const [pageIndex, setPageIndex] = useState(0);
   const [pages, setPages] = useState<PaperPage[]>([]);
+  const [contentCount,setContentCount]=useState(0);
   const [spread, setSpread] = useState(2);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [loading, setLoading] = useState(true);
@@ -320,6 +338,7 @@ export function Reader({ book, onClose, onProgress, onSplit, onNextVolume, nextV
       measure.style.height = `${height - 132}px`;
       measure.style.fontSize = `${fontSize}px`;
       const nextPages = paginate(currentBook, measure);
+      const bodyCount=nextPages.length;
       if (nextPages.length > MAX_VOLUME_PAGES && splitRef.current && !splitFailureRef.current) {
         if(splittingMessagesRef.current===currentBook.messages)return;
         splittingMessagesRef.current=currentBook.messages;
@@ -333,6 +352,9 @@ export function Reader({ book, onClose, onProgress, onSplit, onNextVolume, nextV
           splitFailureRef.current=true;
         }
       }
+      if(count===2&&nextPages.length%2)nextPages.push({fragments:[],intro:false,kind:'padding'});
+      nextPages.push({fragments:[],intro:false,kind:'back-cover'});
+      if(count===2)nextPages.push({fragments:[],intro:false,kind:'end'});
       pagesRef.current = nextPages;
       const target = anchorRef.current ? pageForAnchor(nextPages, anchorRef.current)
         : clamp(Math.floor(Number.isFinite(currentBook.lastPage) ? currentBook.lastPage! : 0), 0, nextPages.length - 1);
@@ -346,7 +368,8 @@ export function Reader({ book, onClose, onProgress, onSplit, onNextVolume, nextV
       const nodes = nextPages.map((page, index) => {
         const element = document.createElement('div');
         element.className = `reader-page ${index % 2 === 0 ? 'reader-page-left' : 'reader-page-right'}`;
-        element.setAttribute('data-density', 'soft');
+        element.dataset.pageKind=page.kind??'paper';
+        element.setAttribute('data-density', page.kind==='back-cover'?'hard':'soft');
         element.setAttribute('role', 'article');
         element.setAttribute('aria-label', `${index + 1}쪽`);
         element.setAttribute('lang', 'ko');
@@ -362,7 +385,7 @@ export function Reader({ book, onClose, onProgress, onSplit, onNextVolume, nextV
           for(let number=first;number<=last;number++){
             let entry=mounted.get(number);
             if(!entry){entry={root:createRoot(nodes[number]),element:nodes[number]};mounted.set(number,entry);
-              entry.root.render(<div className="reader-paper-shell"><div className="reader-running-head">{currentBook.title}</div><div className="reader-page-content"><PageContent page={nextPages[number]} book={currentBook} query={queryRef.current}/></div><div className="reader-page-number">{number+1}</div></div>);
+              entry.root.render(<PageLeaf page={nextPages[number]} book={currentBook} query={queryRef.current} index={number} mobile={count===1} onNext={nextVolumeRef.current?()=>requestNextRef.current():undefined} onClose={()=>closeRef.current()}/>);
             }
           }
         });
@@ -374,7 +397,7 @@ export function Reader({ book, onClose, onProgress, onSplit, onNextVolume, nextV
         const safe = clamp(index, 0, nextPages.length - 1);
         setPageIndex(safe);
         renderWindow(safe);
-        if (saveAnchor) anchorRef.current = nextPages[safe].fragments[0] ?? { message: 0, char: 0 };
+        if (saveAnchor) anchorRef.current = nextPages[safe].fragments[0] ?? nextPages[Math.min(safe,bodyCount-1)].fragments[0] ?? null;
         const key = `${currentBook.id}:${safe}`;
         if (lastReportedRef.current !== key) {
           lastReportedRef.current = key;
@@ -388,7 +411,7 @@ export function Reader({ book, onClose, onProgress, onSplit, onNextVolume, nextV
           usePortrait: count === 1, autoSize: false, showCover: false,
           drawShadow: true, maxShadowOpacity: 0.18, flippingTime: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : 360,
           mobileScrollSupport: true, swipeDistance: 30, useMouseEvents: true,
-          clickEventForward: false, showPageCorners: true, disableFlipByClick: false,
+          clickEventForward: true, showPageCorners: true, disableFlipByClick: false,
         });
         // Publish progress after the curl settles, not while it is drawing.
         instance.on('flip', event => { if (!cancelled) report(Number(event.data)); });
@@ -407,6 +430,7 @@ export function Reader({ book, onClose, onProgress, onSplit, onNextVolume, nextV
         report(target, false);
       }
       setPages(nextPages);
+      setContentCount(bodyCount);
       setSpread(count);
       setLoading(false);
     });
@@ -438,11 +462,7 @@ export function Reader({ book, onClose, onProgress, onSplit, onNextVolume, nextV
     mountedPagesRef.current.forEach(({root}, index) => {
       const page = pagesRef.current[index];
       if (!page) return;
-      root.render(<div className="reader-paper-shell">
-        <div className="reader-running-head">{currentBook.title}</div>
-        <div className="reader-page-content"><PageContent page={page} book={currentBook} query={deferredQuery} /></div>
-        <div className="reader-page-number">{index + 1}</div>
-      </div>);
+      root.render(<PageLeaf page={page} book={currentBook} query={deferredQuery} index={index} mobile={spread===1} onNext={nextVolumeRef.current?()=>requestNextRef.current():undefined} onClose={()=>closeRef.current()}/>);
     });
   }, [deferredQuery, pages]);
 
@@ -460,10 +480,10 @@ export function Reader({ book, onClose, onProgress, onSplit, onNextVolume, nextV
   };
   const turn = (direction: 'previous' | 'next') => {
     const flip = flipRef.current;
-    if (!flip) return;
+    if (!flip||blockedRef.current) return;
     // Corner hover isn't a committed turn. Let buttons override it immediately.
     if(flip.getState()==='flipping'||flip.getState()==='user_fold'){queuedTurnRef.current=direction;return;}
-    if(direction==='next'&&flip.getCurrentPageIndex()+spread>=pagesRef.current.length&&nextVolumeRef.current){nextVolumeRef.current();return;}
+    if(direction==='next'&&flip.getCurrentPageIndex()+spread>=pagesRef.current.length&&nextVolumeRef.current){requestNextRef.current();return;}
     if (direction === 'previous') flip.flipPrev(FlipCorner.BOTTOM);
     else flip.flipNext(FlipCorner.BOTTOM);
   };
@@ -474,14 +494,14 @@ export function Reader({ book, onClose, onProgress, onSplit, onNextVolume, nextV
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
-      if(editingRef.current)return;
+      if(blockedRef.current)return;
       const target = event.target as HTMLElement | null;
       if (event.key === 'Escape') {
         if (panel) { setPanel(null); panelButtonRefs.current[panel]?.focus(); }
         else closeRef.current();
         return;
       }
-      if (target?.closest('input, textarea, select, button, [contenteditable="true"]') || event.ctrlKey || event.metaKey || event.altKey || panel) return;
+      if (target?.closest('input, textarea, select, [contenteditable="true"]') || event.ctrlKey || event.metaKey || event.altKey || panel) return;
       if (['ArrowRight', 'PageDown', ' ', 'ArrowLeft', 'PageUp', 'Home', 'End'].includes(event.key)) event.preventDefault();
       if (event.key === 'ArrowRight' || event.key === 'PageDown' || (event.key === ' ' && !event.shiftKey)) turnRef.current('next');
       if (event.key === 'ArrowLeft' || event.key === 'PageUp' || (event.key === ' ' && event.shiftKey)) turnRef.current('previous');
@@ -492,6 +512,23 @@ export function Reader({ book, onClose, onProgress, onSplit, onNextVolume, nextV
     return () => window.removeEventListener('keydown', handleKey);
   }, [panel]);
 
+  useEffect(()=>{
+    const stage=stageRef.current;if(!stage)return;
+    let accumulated=0,last=0;
+    const wheel=(event:WheelEvent)=>{
+      if(event.ctrlKey||blockedRef.current||panel)return;
+      event.preventDefault();
+      if(performance.now()-last<450)return;
+      const delta=Math.abs(event.deltaX)>Math.abs(event.deltaY)?event.deltaX:event.deltaY;
+      const amount=delta*(event.deltaMode===1?16:event.deltaMode===2?stage.clientHeight:1);
+      if(Math.sign(amount)!==Math.sign(accumulated))accumulated=0;
+      accumulated+=amount;
+      if(Math.abs(accumulated)>=40){turnRef.current(accumulated>0?'next':'previous');last=performance.now();accumulated=0;}
+    };
+    stage.addEventListener('wheel',wheel,{passive:false});
+    return()=>stage.removeEventListener('wheel',wheel);
+  },[panel]);
+
   useEffect(() => {
     if (panel === 'search') searchRef.current?.focus();
     else if (panel) panelRef.current?.focus();
@@ -499,7 +536,7 @@ export function Reader({ book, onClose, onProgress, onSplit, onNextVolume, nextV
 
   const togglePanel = (next: Exclude<Panel, null>) => setPanel(value => value === next ? null : next);
   const visibleEnd = Math.min(pages.length, pageIndex + spread);
-  const percent = pages.length <= 1 ? (pages.length ? 100 : 0) : Math.round(pageIndex / (pages.length - 1) * 100);
+  const percent = !pages.length?0:pageIndex>=contentCount?100:Math.round(Math.min(1,pageIndex/Math.max(1,contentCount-1))*100);
   const style = { '--reader-font-size': `${fontSize}px` } as CSSProperties;
 
   return <div className={`reader reader-theme-${theme}${theme === 'dark' ? ' dark' : ''}`} style={style} lang="ko">
@@ -515,19 +552,19 @@ export function Reader({ book, onClose, onProgress, onSplit, onNextVolume, nextV
     </header>
 
     <main className="reader-main" aria-label={`${book.title} 읽기`}>
-      <div className="reader-stage" ref={stageRef} aria-busy={loading}>
+      <div className="reader-stage" ref={stageRef} aria-busy={loading} data-book-closed={pages[pageIndex]?.kind==='back-cover'}>
         <div className="reader-book-mount" ref={mountRef} />
         {loading && <div className="reader-loading" role="status"><BookOpen size={25} /><span>읽던 곳을 펼치고 있어요…</span></div>}
       </div>
       {error && <p className="reader-error" role="status">{error}</p>}
       <div className="reader-turn-controls">
         <button className="reader-icon-button" aria-label="이전 쪽" title="이전 쪽 (←)" disabled={loading || pageIndex === 0 || !!error} onClick={() => turn('previous')}><ArrowLeft size={20} /></button>
-        <button className="reader-icon-button" aria-label={visibleEnd>=pages.length&&onNextVolume?'다음 권':'다음 쪽'} title={visibleEnd>=pages.length&&onNextVolume?nextVolumeTitle:'다음 쪽 (→)'} disabled={loading || (visibleEnd >= pages.length&&!onNextVolume) || !!error} onClick={() => visibleEnd>=pages.length&&onNextVolume?onNextVolume():turn('next')}><ArrowRight size={20} /></button>
+        <button className="reader-icon-button" aria-label={visibleEnd>=pages.length&&onNextVolume?'다음 권':'다음 쪽'} title={visibleEnd>=pages.length&&onNextVolume?nextVolumeTitle:'다음 쪽 (→)'} disabled={loading || (visibleEnd >= pages.length&&!onNextVolume) || !!error} onClick={() => turn('next')}><ArrowRight size={20} /></button>
       </div>
     </main>
 
     <footer className="reader-footer">
-      <div className="reader-progress-label"><span>{pages.length ? `전체 ${pages.length}쪽 중 ${pageIndex + 1}${visibleEnd > pageIndex + 1 ? `–${visibleEnd}` : ''}쪽` : '책장을 준비하고 있어요'}</span><span>{percent}% 읽음</span></div>
+      <div className="reader-progress-label"><span>{pages.length ? pageIndex>=contentCount?'끝':`전체 ${contentCount}쪽 중 ${pageIndex + 1}${Math.min(visibleEnd,contentCount) > pageIndex + 1 ? `–${Math.min(visibleEnd,contentCount)}` : ''}쪽` : '책장을 준비하고 있어요'}</span><span>{percent}% 읽음</span></div>
       <input className="reader-progress" type="range" min={0} max={Math.max(0, pages.length - 1)} value={Math.min(pageIndex, Math.max(0, pages.length - 1))} disabled={loading || pages.length < 2} onChange={event => jump(Number(event.target.value))} aria-label="읽는 위치 이동" aria-valuetext={pages.length ? `전체 ${pages.length}쪽 중 ${pageIndex + 1}쪽` : '책장을 준비하고 있어요'} style={{ '--reader-progress': `${percent}%` } as CSSProperties} />
       <span className="reader-sr-only" aria-live="polite">{!loading && `전체 ${pages.length}쪽 중 ${pageIndex + 1}쪽`}</span>
     </footer>
@@ -563,6 +600,7 @@ export function Reader({ book, onClose, onProgress, onSplit, onNextVolume, nextV
     </>}
     <div ref={measureRef} className="reader-measure reader-page-content" aria-hidden="true" />
     {editing&&onSaveBook&&<BookEditor book={book} messageIndex={pagesRef.current[pageIndex]?.fragments[0]?.message??0} onSave={onSaveBook} onClose={()=>setEditing(false)}/>}
+    {nextConfirm&&onNextVolume&&<NextVolumeDialog title={nextVolumeTitle} onClose={()=>setNextConfirm(false)} onConfirm={()=>{setNextConfirm(false);onNextVolume();}}/>}
   </div>;
 }
 

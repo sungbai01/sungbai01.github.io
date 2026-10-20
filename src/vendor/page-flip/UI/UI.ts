@@ -169,7 +169,7 @@ export abstract class UI {
     private checkTarget(targer: EventTarget): boolean {
         if (!this.app.getSettings().clickEventForward) return true;
 
-        if (['a', 'button'].includes((targer as HTMLElement).tagName.toLowerCase())) {
+        if ((targer as Element).closest('a,button,input,textarea,select,[data-no-flip]')) {
             return false;
         }
 

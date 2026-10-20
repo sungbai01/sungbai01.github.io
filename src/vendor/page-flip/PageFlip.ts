@@ -379,6 +379,9 @@ export class PageFlip extends EventObject {
             this.flipController.showCorner(pos); // fold Page Corner
         } else if (this.isUserTouch) {
             if (Helper.GetDistanceBetweenTwoPoint(this.mousePosition, pos) > 5) {
+                // Keep the side/corner from the initial grab, including the page's
+                // middle; the first move may already have crossed the spine.
+                if (!this.isUserMove) this.flipController.start(this.mousePosition);
                 this.isUserMove = true;
                 this.flipController.fold(pos);
             }

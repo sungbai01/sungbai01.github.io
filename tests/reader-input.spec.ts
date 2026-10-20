@@ -16,9 +16,16 @@ test(`buttons, page click, drag and overflow ${size.width}`,async({page})=>{
  await page.getByRole('button',{name:'이전 쪽',exact:true}).click();await expect(page.locator('.reader-progress')).toHaveValue(start);
  b=(await host.boundingBox())!;await page.mouse.click(b.x+b.width*.82,b.y+b.height*.5);await expect(page.locator('.reader-progress')).not.toHaveValue(start);
  const beforeDrag=await page.locator('.reader-progress').inputValue();b=(await host.boundingBox())!;
- await page.mouse.move(b.x+b.width-8,b.y+b.height-20);await page.mouse.down();await page.mouse.move(b.x+10,b.y+b.height*.85,{steps:18});await page.mouse.up();await expect(page.locator('.reader-progress')).not.toHaveValue(beforeDrag);
+ await page.mouse.move(b.x+b.width*.82,b.y+b.height*.5);await page.mouse.down();await page.mouse.move(b.x+b.width*.65,b.y+b.height*.5,{steps:8});
+ await expect.poll(()=>page.evaluate(()=>Array.from(document.querySelectorAll('.reader-page')).some(el=>{const style=(el as HTMLElement).style;return style.display==='block'&&style.clipPath.startsWith('polygon')&&style.transform.includes('rotate');}))).toBe(true);
+ await page.mouse.move(b.x+10,b.y+b.height*.5,{steps:18});await page.mouse.up();await expect(page.locator('.reader-progress')).not.toHaveValue(beforeDrag);
  const afterForward=await page.locator('.reader-progress').inputValue();b=(await host.boundingBox())!;
- await page.mouse.move(b.x+8,b.y+b.height-20);await page.mouse.down();await page.mouse.move(b.x+b.width-10,b.y+b.height*.85,{steps:18});await page.mouse.up();await expect(page.locator('.reader-progress')).toHaveValue(beforeDrag);
+ await page.mouse.move(b.x+8,b.y+b.height*.5);await page.mouse.down();await page.mouse.move(b.x+b.width-10,b.y+b.height*.5,{steps:18});await page.mouse.up();await expect(page.locator('.reader-progress')).toHaveValue(beforeDrag);
+ const keyBefore=await page.locator('.reader-progress').inputValue();
+ await page.getByRole('button',{name:'다음 쪽',exact:true}).focus();await page.keyboard.press('ArrowRight');await expect(page.locator('.reader-progress')).not.toHaveValue(keyBefore);
+ await page.keyboard.press('ArrowLeft');await expect(page.locator('.reader-progress')).toHaveValue(keyBefore);
+ b=(await host.boundingBox())!;await page.mouse.move(b.x+b.width*.7,b.y+b.height*.5);await page.mouse.wheel(0,120);await expect(page.locator('.reader-progress')).not.toHaveValue(keyBefore);
+ await page.waitForTimeout(500);await page.mouse.wheel(0,-120);await expect(page.locator('.reader-progress')).toHaveValue(keyBefore);
  const stats=await page.evaluate(()=>{(window as any).__watch=false;return (window as any).__inputStats;});
  expect(stats.hosts).toBe(0);expect(stats.bars).toBe(0);
 });}
