@@ -13,7 +13,7 @@
 import {normalizeImageRules,type ImageRule} from './imageRules';
 import { legacyDisplayRules, normalizeDisplayRules, type DisplayRule } from './displayRules';
 import { jade, bronze, iris, gold } from '@radix-ui/colors';
-import { extractAssetSegments, normalizeAssets, safeAssetSource } from './assets';
+import { imageReferenceRanges, normalizeAssets, safeAssetSource } from './assets';
 
 export type BookAsset = { id: string; name: string; src: string; type?: 'icon' | 'asset' };
 export type BookBookmark = { message: number; char: number; label?: string; progress?: number };
@@ -126,13 +126,28 @@ function inertDocument(html: string): Document {
   // tags instead of renaming void elements avoids swallowing following prose.
   // Turn images into named references before removing resource-bearing tags.
   // Attributes are read as strings; no imported element enters a live document.
-  const images = html.replace(/<img\b(?:[^<>"']|"[^"]*"|'[^']*')*>/gi, tag => {
-    // Preserve unresolved references as inert text, not discarded markup. A
-    // shelf image added later must still be able to resolve their attributes.
-    return tag.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  });
+  // Protect every reference before the HTML parser sees it, including bracket
+  // tokens whose names contain angle brackets and custom <img...> spellings.
+  // Escaping only standard <img> tags left other supported references subject
+  // to HTML repair/removal before import preprocessing could protect them.
+  const prefix = `GALPI_IMAGE_${crypto.randomUUID().replace(/-/g, '')}_`;
+  const references = imageReferenceRanges(html);
+  const originals: string[] = [];
+  let images = '', cursor = 0;
+  for (const range of references) {
+    images += html.slice(cursor, range.start) + `${prefix}${originals.length}_END`;
+    originals.push(html.slice(range.start, range.end)); cursor = range.end;
+  }
+  images += html.slice(cursor);
   const disabled = images.replace(/<\/?(?:img|iframe|frame|frameset|link|base|object|embed|video|audio|source|track|image|use|input)\b(?:[^<>"']|"[^"]*"|'[^']*')*>/gi, '');
-  return new DOMParser().parseFromString('<meta http-equiv="Content-Security-Policy" content="default-src \'none\';">' + disabled, 'text/html');
+  const doc = new DOMParser().parseFromString('<meta http-equiv="Content-Security-Policy" content="default-src \'none\';">' + disabled, 'text/html');
+  const walker = doc.createTreeWalker(doc, NodeFilter.SHOW_TEXT);
+  const placeholder = new RegExp(`${prefix}(\\d+)_END`, 'g');
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    node.nodeValue = node.nodeValue!.replace(placeholder, (token, index: string) => originals[Number(index)] ?? token);
+  }
+  return doc;
 }
 
 function elementText(element: Element): string {
@@ -147,11 +162,9 @@ function elementText(element: Element): string {
   return (element.textContent || '').replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-function plainText(content: string, assets: BookAsset[] = [],imageRules:ImageRule[]=[]): string {
-  if (assets.length) content = content.replace(/<img\b(?:[^<>"']|"[^"]*"|'[^']*')*>/gi, tag => {
-    const resolved = extractAssetSegments(tag, assets,imageRules).find(segment => segment.type === 'asset');
-    return resolved?.type === 'asset' && !/[{}\r\n]/.test(resolved.asset.name) ? `{{img::${resolved.asset.name}}}` : tag;
-  });
+function plainText(content: string, _assets: BookAsset[] = [],_imageRules:ImageRule[]=[]): string {
+  // Keep original image tags even when today's assets resolve them. Rewriting
+  // them here prevents a card added later from matching its original syntax.
   return /<\/?[a-z][^>]*>/i.test(content) ? elementText(inertDocument(content).body) : content;
 }
 
