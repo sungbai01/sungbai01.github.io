@@ -3,9 +3,10 @@ const record = (value: unknown): value is Record<string, unknown> => !!value && 
 
 /** Read literal image identifiers only; surrounding HTML/CBS is discarded. */
 export function imageOutputTemplates(output: string): string[] {
+  output = output.replace(/\\+(?=["'])/g, '');
   const names = Array.from(output.matchAll(/\{\{(?:raw|img|image)::([^{}\r\n]+)\}\}/gi), match => match[1]!);
   for (const tag of output.matchAll(/<img\b(?:[^<>"']|"[^"]*"|'[^']*')*>/gi)) {
-    const src = tag[0].match(/\bsrc\s*=\s*(?:"([^"\r\n]*)"|'([^'\r\n]*)'|([^\s>]+))/i);
+    const src = tag[0].match(/(?:\bsrc|^<img)\s*=\s*(?:"([^"\r\n]*)"|'([^'\r\n]*)'|([^\s>]+))/i);
     const name = src?.[1] ?? src?.[2] ?? src?.[3];
     if (name) names.push(name);
   }

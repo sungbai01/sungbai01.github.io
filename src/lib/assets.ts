@@ -90,6 +90,10 @@ export function imageReferenceRanges(content: string): { start: number; end: num
 
 /** Attribute strings only: no image/document insertion and no asset requests. */
 export function imageReferenceNames(tag: string): string[] {
+  // Some exports retain JSON-escaped attribute quotes literally, e.g.
+  // <img=\"overwhelmed\">. Decode only quote delimiters for name lookup;
+  // the reference stored in the message and its source offsets stay intact.
+  tag = tag.replace(/\\+(?=["'])/g, '');
   const decode = (value: string) => value.replace(/&(?:amp|quot|apos|lt|gt|#\d+|#x[\da-f]+);/gi, entity => {
     const named: Record<string, string> = { '&amp;': '&', '&quot;': '"', '&apos;': "'", '&lt;': '<', '&gt;': '>' };
     const known = named[entity.toLowerCase()]; if (known) return known;
@@ -105,7 +109,8 @@ export function imageReferenceNames(tag: string): string[] {
   const token = src.match(/^\{\{(?:img|image|raw)::([^{}]+)\}\}$|^\[img(?:::|\s+)([^\]\r\n]+)\]$/i);
   const bracket = tag.match(/^\[img([\s\S]*?)(?:\]|$)$/i)?.[1];
   const bare = bracket?.replace(/^\s*(?:::|:|=)?\s*/, '').replace(/^["']|["']$/g, '').trim();
-  const candidates = [token?.[1] ?? token?.[2], attrs.get('src'), attrs.get('data-asset-name'), attrs.get('name'), attrs.get('alt'), attrs.get('title'), attrs.get('img'), bare];
+  const shorthand = tag.match(/^<img\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))\s*\/?\s*>$/i);
+  const candidates = [token?.[1] ?? token?.[2], attrs.get('src'), attrs.get('data-asset-name'), attrs.get('name'), attrs.get('alt'), attrs.get('title'), shorthand?.[1] ?? shorthand?.[2] ?? shorthand?.[3], attrs.get('img'), bare];
   if (src && !/^(?:data|javascript):/i.test(src)) {
     let path = src.split(/[?#]/)[0] || '';
     try { path = decodeURIComponent(path); } catch { /* Preserve undecodable paths. */ }
