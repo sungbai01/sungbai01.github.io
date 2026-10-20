@@ -1,7 +1,7 @@
 import type { Book } from './library';
 import { cleanText, paginate } from './pagination';
 import { splitBookByPages } from './volumes';
-import { imageReferenceRanges } from './assets';
+import { imageReferenceRanges,extractAssetSegments } from './assets';
 import { systemRanges, visibleProse } from './prose';
 import '../components/reader.css';
 
@@ -14,6 +14,7 @@ function preprocessBook(book: Book, removeEmoji: boolean): Book {
   const clean = (text: string) => removeEmoji ? cleanText(text) : text;
   const strippedContent = (content: string, end = content.length) => {
     const references = imageReferenceRanges(content);
+    const resolved=new Map(extractAssetSegments(content,book.assets??[],book.imageRules??[]).filter(segment=>segment.type==='asset').map(segment=>[segment.start,segment]));
     const segments: { type: 'asset' | 'text'; start: number; end: number }[] = [];
     let cursor = 0;
     for (const range of references) {
@@ -25,7 +26,7 @@ function preprocessBook(book: Book, removeEmoji: boolean): Book {
     return segments.map(segment => {
       const limit = Math.min(end, segment.end);
       if (segment.start >= limit) return '';
-      if (segment.type === 'asset') return content.slice(segment.start, limit);
+      if (segment.type === 'asset'){const matched=resolved.get(segment.start);if(matched?.type==='asset'&&!/[{}\r\n]/.test(matched.asset.name))return limit>=segment.end?`{{img::${matched.asset.name}}}`:'';return content.slice(segment.start,limit);}
       let value = '', cursor = segment.start;
       for (const range of hidden) {
         if (range.end <= cursor || range.start >= limit) continue;

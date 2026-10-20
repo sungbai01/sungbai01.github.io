@@ -7,9 +7,11 @@ import { sampleBooks } from './lib/sample';
 import ShelfAssets from './components/ShelfAssets';
 import BookIntake,{type IntakeRequest} from './components/BookIntake';
 import ThemePicker from './components/ThemePicker';
+import AuthorPicker from './components/AuthorPicker';
 import BookRibbon from './components/BookRibbon';
 import {readTheme,saveTheme,THEME_EVENT,type Theme} from './lib/appearance';
 import { portraitPalette } from './lib/assets';
+import type {ImageRule} from './lib/imageRules';
 
 type BookAsset = NonNullable<Book['assets']>[number];
 type BookmarkAnchor={message:number;char:number;label?:string;progress?:number};
@@ -26,6 +28,11 @@ function canonicalBookmark(books:Book[]):ShelfBookmark|undefined{
 type ShelfTarget = {id:string;title:string;ungrouped:boolean};
 function shelfBooks(books:Book[],shelf:ShelfTarget){return books.filter(book=>shelf.ungrouped?!book.seriesId:(book.seriesId??book.id)===shelf.id).sort((a,b)=>(a.volumeNumber??1)-(b.volumeNumber??1));}
 function shelfAssets(books:Book[],shelf:ShelfTarget):BookAsset[]{return [...new Map(shelfBooks(books,shelf).flatMap(book=>book.assets??[]).map(asset=>[asset.id,asset])).values()];}
+
+function shelfImageRules(books:Book[],shelf:ShelfTarget):ImageRule[]{
+  const seen=new Set<string>();
+  return shelfBooks(books,shelf).flatMap(book=>book.imageRules??[]).filter(rule=>{const key=JSON.stringify(rule);if(seen.has(key))return false;seen.add(key);return true;});
+}
 
 function collapseShelfBookmarks(siblings:Book[]):Book[]{
   if(siblings.reduce((count,book)=>count+(book.bookmarks?.length??0),0)<=1)return siblings;
@@ -64,6 +71,7 @@ function reuseBookReferences(book:Book,previous:Book|undefined):Book{
   if(equalRows(book.messages,previous.messages,['role','name','content','chapter']))next.messages=previous.messages;
   if(equalRows(book.assets,previous.assets,['id','name','src','type']))next.assets=previous.assets;
   if(equalRows(book.bookmarks,previous.bookmarks,['message','char','label','progress']))next.bookmarks=previous.bookmarks;
+  if(book.imageRules===previous.imageRules||JSON.stringify(book.imageRules)===JSON.stringify(previous.imageRules))next.imageRules=previous.imageRules;
   const fields=new Set([...Object.keys(previous),...Object.keys(next)]);
   return [...fields].every(field=>next[field as keyof Book]===previous[field as keyof Book])?previous:next;
 }
@@ -101,11 +109,6 @@ function SortMenu({value,onChange}:{value:string;onChange:(value:string)=>void})
     {open&&<div id={id} role="listbox" aria-label="책 정렬" className="sort-options">{options.map(option=><button key={option.value} type="button" role="option" aria-selected={value===option.value} onClick={()=>{onChange(option.value);setOpen(false);trigger.current?.focus();}}><span>{option.label}</span>{value===option.value&&<Check size={14}/>}</button>)}</div>}
   </div>;
 }
-function ModelPicker({value,onChange}:{value:string;onChange:(value:string)=>void}){
- const options=['','GPT','Claude','Gemini','Llama','Qwen','Mistral','DeepSeek'];const [open,setOpen]=useState(false);const [custom,setCustom]=useState(!!value&&!options.includes(value));const root=useRef<HTMLDivElement>(null);const trigger=useRef<HTMLButtonElement>(null);const id=useId();
- useEffect(()=>{if(!open)return;const outside=(event:PointerEvent)=>{if(!root.current?.contains(event.target as Node))setOpen(false);};document.addEventListener('pointerdown',outside);return()=>document.removeEventListener('pointerdown',outside);},[open]);
- return <div className="field model-picker" ref={root} onBlur={event=>{if(!event.currentTarget.contains(event.relatedTarget as Node))setOpen(false);}} onKeyDown={event=>{if(event.key==='Escape'){setOpen(false);trigger.current?.focus();}if(open&&['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();const items=Array.from(root.current!.querySelectorAll<HTMLButtonElement>('[role=option]'));const index=items.indexOf(document.activeElement as HTMLButtonElement);items[event.key==='Home'?0:event.key==='End'?items.length-1:(index+(event.key==='ArrowDown'?1:items.length-1))%items.length]?.focus();}}}><span id={`${id}-label`}>AI 모델</span><button ref={trigger} className="model-trigger" type="button" aria-labelledby={`${id}-label`} aria-haspopup="listbox" aria-controls={id} aria-expanded={open} onClick={()=>setOpen(previous=>!previous)} onKeyDown={event=>{if(!open&&['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();setOpen(true);}}}><span>{custom?'직접 입력':value||'선택 안 함'}</span><ChevronDown size={14}/></button>{open&&<div id={id} className="model-options" role="listbox" aria-label="AI 모델">{[...options,'직접 입력'].map(option=><button key={option} type="button" role="option" aria-selected={option==='직접 입력'?custom:!custom&&value===option} onClick={()=>{setCustom(option==='직접 입력');if(option!=='직접 입력')onChange(option);else if(options.includes(value))onChange('');setOpen(false);trigger.current?.focus();}}>{option||'선택 안 함'}</button>)}</div>}{custom&&<input aria-label="AI 모델 직접 입력" maxLength={160} value={value} placeholder="모델 이름" onChange={event=>onChange(event.target.value)}/>}</div>;
-}
 function LibraryDrawer({children,onClose}:{children:ReactNode;onClose:()=>void}){
   const ref=useRef<HTMLDialogElement>(null);
   useEffect(()=>{ref.current?.showModal();return()=>ref.current?.close();},[]);
@@ -121,13 +124,12 @@ function Cover({book, small=false}: {book:Book;small?:boolean}) {
 }
 
 function EditBook({book,onSave,onClose,scope='book'}:{book:Book;onSave:(book:Book,reset:boolean)=>Promise<void>;onClose:()=>void;scope?:'book'|'shelf'}){
-  const [draft,setDraft]=useState(book);const [reset,setReset]=useState(false);const [busy,setBusy]=useState(false);const [error,setError]=useState('');
+  const [draft,setDraft]=useState(()=>({...book,author:book.author?.trim()?book.author:book.aiModel??book.author??''}));const [reset,setReset]=useState(false);const [busy,setBusy]=useState(false);const [error,setError]=useState('');
   function defaults(){setReset(true);setDraft(previous=>({...previous,color:colors[0]!,customColor:undefined,cover:undefined,backCover:undefined,characterIcon:undefined,assets:previous.assets?.map(asset=>asset.type==='icon'?{...asset,type:'asset' as const}:asset)}));}
   return <Modal title={scope==='shelf'?'책 꾸미기':`책 꾸미기 · ${String(book.volumeNumber??1).padStart(2,'0')}`} onClose={onClose} wide locked={busy}><form onSubmit={async e=>{e.preventDefault();setBusy(true);setError('');try{await onSave({...draft,title:draft.title.trim()},reset);onClose();}catch(e){setError(e instanceof Error?e.message:'저장하지 못했어요.');}finally{setBusy(false);}}}>
     <div className="edit-layout"><div className="cover-previews"><Cover book={draft}/></div><div className="space-y-4">
       <label className="field">책 제목<input required maxLength={100} value={draft.title} onChange={e=>setDraft({...draft,title:e.target.value})}/></label>
-      <label className="field">저자<input maxLength={100} value={draft.author} onChange={e=>setDraft({...draft,author:e.target.value})}/></label>
-      <ModelPicker value={draft.aiModel??''} onChange={aiModel=>setDraft({...draft,aiModel})}/>
+      <AuthorPicker value={draft.author} disabled={busy} onChange={author=>setDraft({...draft,author})}/>
       <div className="field">표지 색<div className="cover-swatches">{colors.map(color=><button key={color} type="button" className="swatch" aria-label={`${color} 표지`} aria-pressed={draft.color===color} style={{background:color}} onClick={()=>setDraft({...draft,color})}>{draft.color===color&&<Check size={15}/>}</button>)}<label className="swatch custom-color-swatch" title="사용자 지정 색" style={{background:draft.customColor??draft.color}}><input type="color" aria-label="사용자 지정 표지 색" value={draft.customColor??draft.color} onChange={e=>setDraft({...draft,color:e.target.value,customColor:e.target.value})}/>{draft.color===draft.customColor?<Check size={15}/>:<Plus size={13}/>}</label></div></div>
       <button type="button" className="secondary-btn" title="표지와 캐릭터 초상을 기본값으로 되돌리기" disabled={busy} onClick={defaults}>기본값으로</button>
     </div></div>
@@ -135,7 +137,7 @@ function EditBook({book,onSave,onClose,scope='book'}:{book:Book;onSave:(book:Boo
   </form></Modal>;
 }
 function styleBook(book:Book,draft:Book,reset:boolean):Book{
-  return {...book,author:draft.author,aiModel:draft.aiModel?.trim()||undefined,color:draft.color,customColor:draft.customColor,
+  return {...book,author:draft.author.trim(),aiModel:undefined,color:draft.color,customColor:draft.customColor,
     ...(reset?{cover:undefined,backCover:undefined,characterIcon:undefined,assets:book.assets?.some(asset=>asset.type==='icon')?book.assets.map(asset=>asset.type==='icon'?{...asset,type:'asset' as const}:asset):book.assets}:{})};
 }
 
@@ -248,14 +250,14 @@ export default function App() {
     let incoming:Book[]=[];
     if(request.mode==='file'){
       const failures:string[]=[];
-      for(const file of request.files){try{incoming.push(...(await importChatFile(file,{removeUserInputs:request.removeUserInputs})).map(book=>({...book,author:request.author.trim(),...(request.title.trim()?{title:book.seriesId?`${request.title.trim()} · ${book.volumeNumber??1}권`:request.title.trim(),...(book.seriesId||book.seriesTitle?{seriesTitle:request.title.trim()}:{})}:{})})));}catch(cause){failures.push(`${file.name}: ${cause instanceof Error?cause.message:'파일을 읽지 못했어요.'}`);}}
+      for(const file of request.files){try{incoming.push(...(await importChatFile(file,{removeUserInputs:request.removeUserInputs})).map(book=>({...book,author:request.author.trim(),aiModel:undefined,...(request.title.trim()?{title:book.seriesId?`${request.title.trim()} · ${book.volumeNumber??1}권`:request.title.trim(),...(book.seriesId||book.seriesTitle?{seriesTitle:request.title.trim()}:{})}:{})})));}catch(cause){failures.push(`${file.name}: ${cause instanceof Error?cause.message:'파일을 읽지 못했어요.'}`);}}
       if(failures.length)throw new Error(failures.join('\n'));
     }else{
       const now=new Date().toISOString();
       incoming=[{id:crypto.randomUUID(),title:request.title,author:request.name,description:request.text.slice(0,160),color:colors[0]!,createdAt:now,updatedAt:now,messages:[{role:'assistant',name:request.name,content:request.text}]}];
     }
     const target=creating;const siblings=target?shelfBooks(latestBooks.current,target):[];
-    if(target&&siblings.length)incoming=incoming.map(book=>({...book,assets:shelfAssets(latestBooks.current,target),characterIcon:portrait(siblings[0]!),color:siblings[0]!.color,customColor:siblings[0]!.customColor}));
+    if(target&&siblings.length)incoming=incoming.map(book=>({...book,assets:shelfAssets(latestBooks.current,target),imageRules:shelfImageRules(latestBooks.current,target),characterIcon:portrait(siblings[0]!),color:siblings[0]!.color,customColor:siblings[0]!.customColor}));
     // Parse every staged file first. Preparation happens once, before any write.
     const prepared=await prepareBooks(incoming,{removeEmoji:request.removeEmoji});
     if(!prepared.length)throw new Error('추가할 본문이 없어요.');
@@ -272,11 +274,11 @@ export default function App() {
     });
     setQuery('');setToast(`${prepared.length}권의 책을 추가했어요.`);if(request.mode==='text'&&createdBook)openBook(createdBook);
   }
-  async function saveShelfAssets(shelf:ShelfTarget,assets:BookAsset[]){
+  async function saveShelfAssets(shelf:ShelfTarget,assets:BookAsset[],imageRules:ImageRule[]=shelfImageRules(latestBooks.current,shelf)){
     if(!canEdit)return;
     const icon=assets.find(asset=>asset.type==='icon')??assets[0];
     const palette=icon?await portraitPalette(icon.src):undefined;
-    await commitBooks(shelfBooks(latestBooks.current,shelf).map(book=>book.id),current=>shelfBooks(current,shelf).map(book=>({...book,assets,characterIcon:icon?.src,...(palette?{color:palette,customColor:palette}:assets.length?{}:{cover:undefined,backCover:undefined,color:colors[0]!,customColor:undefined})})));
+    await commitBooks(shelfBooks(latestBooks.current,shelf).map(book=>book.id),current=>shelfBooks(current,shelf).map(book=>({...book,assets,imageRules,characterIcon:icon?.src,...(palette?{color:palette,customColor:palette}:assets.length?{}:{cover:undefined,backCover:undefined,color:colors[0]!,customColor:undefined})})));
     setToast('에셋을 저장했어요.');
   }
   async function backupBooks(){
@@ -351,7 +353,7 @@ export default function App() {
     <input className="sr-only" ref={restore} type="file" accept=".json" onChange={e=>void restoreBackup(e.target.files?.[0])}/>
     {canEdit&&(importing||creating)&&<BookIntake initialMode={intakeMode} title="" onConfirm={intakeBooks} onClose={()=>{setImporting(false);setCreating(null);}}/>}
     {canEdit&&renaming&&shelfBooks(books,renaming)[0]&&<EditBook scope="shelf" book={{...shelfBooks(books,renaming)[0]!,title:renaming.title}} onSave={(draft,reset)=>decorateShelf(renaming,draft,reset)} onClose={()=>setRenaming(null)}/>}
-    {canEdit&&assetShelf&&<ShelfAssets assets={shelfAssets(books,assetShelf)} onSave={assets=>saveShelfAssets(assetShelf,assets)} onClose={()=>setAssetShelf(null)}/>}
+    {canEdit&&assetShelf&&<ShelfAssets assets={shelfAssets(books,assetShelf)} imageRules={shelfImageRules(books,assetShelf)} onSave={(assets,rules)=>saveShelfAssets(assetShelf,assets,rules)} onClose={()=>setAssetShelf(null)}/>}
     {canEdit&&edit&&<EditBook book={edit} onSave={decorateBook} onClose={()=>setEdit(null)}/>}
     {canEdit&&clearConfirm&&<Modal title="책장 삭제" locked={busy} onClose={()=>setClearConfirm(null)}>
       <div className="delete-shelf-confirm" aria-busy={deleting}>

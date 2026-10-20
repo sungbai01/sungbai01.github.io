@@ -191,8 +191,8 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
   queryRef.current = deferredQuery;
   nextVolumeRef.current=onNextVolume;
   // Stable content dependencies prevent a parent's progress update rebuilding the book.
-  const contentKey = useMemo(() => ({ title: book.title, author: book.author, messages: book.messages,assets:book.assets }),
-    [book.title, book.author, book.messages,book.assets]);
+  const contentKey = useMemo(() => ({ title: book.title, author: book.author, messages: book.messages,assets:book.assets,imageRules:book.imageRules }),
+    [book.title, book.author, book.messages,book.assets,book.imageRules]);
 
   useEffect(() => {
     const pointer = window.matchMedia('(pointer: coarse)');

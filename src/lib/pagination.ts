@@ -80,7 +80,7 @@ export function paginate(book: Book, measure: HTMLDivElement, options: Paginatio
       if (current.fragments.length) nextPage();
     }
     const content = message.content || '', name = speakerName(message);
-    const extracted = extractAssetSegments(content, book.assets ?? []);
+    const extracted = extractAssetSegments(content, book.assets ?? [],book.imageRules??[]);
     const references = imageReferenceRanges(content);
     const unresolved = references.filter(range => !extracted.some(segment => segment.type === 'asset' && segment.start === range.start && segment.end === range.end));
     const hiddenRanges: { start: number; end: number }[] = [];

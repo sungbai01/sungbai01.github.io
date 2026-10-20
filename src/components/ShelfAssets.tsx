@@ -2,21 +2,24 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { ImagePlus, LoaderCircle, Trash2, X } from 'lucide-react';
 import type { BookAsset } from '../lib/library';
 import { importAssetFile, normalizeAssets, numberAssetNames, safeAssetSource, uniqueAssetName } from '../lib/assets';
+import {normalizeImageRules,type ImageRule} from '../lib/imageRules';
 import './shelf-assets.css';
 
 export interface ShelfAssetsProps {
   assets: BookAsset[];
+  imageRules?:ImageRule[];
   /** App persists this entire library onto every book belonging to this shelf. */
-  onSave: (assets: BookAsset[]) => Promise<void>;
+  onSave: (assets: BookAsset[],imageRules:ImageRule[]) => Promise<void>;
   onClose: () => void;
 }
 
-export default function ShelfAssets({ assets, onSave, onClose }: ShelfAssetsProps) {
+export default function ShelfAssets({ assets,imageRules=[], onSave, onClose }: ShelfAssetsProps) {
   const dialog = useRef<HTMLDialogElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const locked = useRef(false);
   const titleId = useId();
   const [draft, setDraft] = useState<BookAsset[]>(() => normalizeAssets(assets));
+  const [rules,setRules]=useState<ImageRule[]>(()=>normalizeImageRules(imageRules));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -32,16 +35,18 @@ export default function ShelfAssets({ assets, onSave, onClose }: ShelfAssetsProp
     if (!files.length || locked.current) return;
     locked.current = true; setBusy(true); setError(''); setNotice('');
     const incoming: BookAsset[] = [];
+    const incomingRules:ImageRule[]=[];
     const problems: string[] = [];
     const warnings: string[] = [];
     try {
       for (const file of files) {
         try {
           const result = await importAssetFile(file);
-          incoming.push(...result.assets);
+          incoming.push(...result.assets);incomingRules.push(...(result.imageRules??[]));
           warnings.push(...result.warnings.map(warning => `${file.name}: ${warning}`));
         } catch (cause) { problems.push(`${file.name}: ${cause instanceof Error ? cause.message : '파일을 읽지 못했습니다.'}`); }
       }
+      setRules(previous=>normalizeImageRules([...previous,...incomingRules]));
       setDraft(previous => {
         const next = previous.map(asset => ({ ...asset }));
         const ids = new Set(next.map(asset => asset.id));
@@ -75,7 +80,7 @@ export default function ShelfAssets({ assets, onSave, onClose }: ShelfAssetsProp
     locked.current = true; setBusy(true); setError('');
     try {
       setDraft(numbered);
-      await onSave(normalizeAssets(numbered));
+      await onSave(normalizeAssets(numbered),normalizeImageRules(rules));
       onClose();
     } catch (cause) { setError(cause instanceof Error ? cause.message : '저장하지 못했습니다. 다시 시도해 주세요.'); }
     finally { locked.current = false; setBusy(false); }
@@ -89,8 +94,8 @@ export default function ShelfAssets({ assets, onSave, onClose }: ShelfAssetsProp
     } }}>
     <header className="shelf-assets-heading"><h2 id={titleId}>책장 이미지</h2><button type="button" className="shelf-assets-icon" aria-label="닫기" disabled={busy} onClick={onClose}><X size={20}/></button></header>
     <p className="shelf-assets-description">이 책장의 이야기에 사용할 이미지를 모아 두세요.</p>
-    <div className="shelf-assets-toolbar"><button type="button" className="shelf-assets-add" disabled={busy} onClick={() => input.current?.click()}><ImagePlus size={19}/> 캐릭터 카드</button><button type="button" className="shelf-assets-defaults" disabled={busy} title="이 책장의 이미지와 초상을 비우기" onClick={()=>{setDraft([]);setError('');setNotice('');setPreviewFailures(new Set());}}>기본값으로</button></div>
-    <input ref={input} type="file" className="shelf-assets-input" multiple accept=".png,.jpg,.jpeg,.webp,.gif,.avif,.json,.charx,.zip,image/png,image/jpeg,image/webp,image/gif,image/avif,application/json,application/zip,application/charx"
+    <div className="shelf-assets-toolbar"><button type="button" className="shelf-assets-add" disabled={busy} onClick={() => input.current?.click()}><ImagePlus size={19}/> 캐릭터 카드</button><button type="button" className="shelf-assets-defaults" disabled={busy} title="이 책장의 이미지와 초상을 비우기" onClick={()=>{setDraft([]);setRules([]);setError('');setNotice('');setPreviewFailures(new Set());}}>기본값으로</button></div>
+    <input ref={input} type="file" className="shelf-assets-input" multiple accept=".png,.jpg,.jpeg,.webp,.gif,.avif,.json,.charx,.risum,.zip,image/png,image/jpeg,image/webp,image/gif,image/avif,application/json,application/zip,application/charx"
       aria-label="이미지 또는 캐릭터 카드 파일" disabled={busy} onChange={event => { const files = Array.from(event.target.files ?? []); event.target.value = ''; void addFiles(files); }}/>
     <p className="shelf-assets-hint">이미지, PNG·JSON·CHARX 카드, 카드 ZIP</p>
     <div className="shelf-assets-list" aria-label="책장 이미지 목록">
@@ -106,6 +111,6 @@ export default function ShelfAssets({ assets, onSave, onClose }: ShelfAssetsProp
     </div>
     {notice && <p role="status" className="shelf-assets-notice">{notice}</p>}
     {error && <p role="alert" className="shelf-assets-error">{error}</p>}
-    <footer className="shelf-assets-actions"><span>{draft.length.toLocaleString()}개 이미지</span><button type="button" disabled={busy} onClick={onClose}>취소</button><button type="button" className="shelf-assets-save" disabled={busy} onClick={() => void save()}>{busy && <LoaderCircle size={16}/>} 저장</button></footer>
+    <footer className="shelf-assets-actions"><span>{draft.length.toLocaleString()}개 이미지{rules.length>0&&` · 이미지 규칙 ${rules.length}개`}</span><button type="button" disabled={busy} onClick={onClose}>취소</button><button type="button" className="shelf-assets-save" disabled={busy} onClick={() => void save()}>{busy && <LoaderCircle size={16}/>} 저장</button></footer>
   </dialog>;
 }

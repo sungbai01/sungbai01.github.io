@@ -10,6 +10,7 @@
  * All text stays inert. Consumers MUST render it as text (or Markdown with raw
  * HTML disabled), never innerHTML. No Risu scripts/macros/assets are executed.
  */
+import {normalizeImageRules,type ImageRule} from './imageRules';
 import { jade, bronze, iris, gold } from '@radix-ui/colors';
 import { extractAssetSegments, normalizeAssets, safeAssetSource } from './assets';
 
@@ -42,6 +43,7 @@ export interface Book {
   characterIcon?: string;
   bookmarkStyle?: 'normal' | 'character';
   assets?: BookAsset[];
+  imageRules?: ImageRule[];
   bookmarks?: BookBookmark[];
   seriesId?: string;
   seriesTitle?: string;
@@ -140,16 +142,16 @@ function elementText(element: Element): string {
   return (element.textContent || '').replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-function plainText(content: string, assets: BookAsset[] = []): string {
+function plainText(content: string, assets: BookAsset[] = [],imageRules:ImageRule[]=[]): string {
   if (assets.length) content = content.replace(/<img\b(?:[^<>"']|"[^"]*"|'[^']*')*>/gi, tag => {
-    const resolved = extractAssetSegments(tag, assets).find(segment => segment.type === 'asset');
+    const resolved = extractAssetSegments(tag, assets,imageRules).find(segment => segment.type === 'asset');
     return resolved?.type === 'asset' && !/[{}\r\n]/.test(resolved.asset.name) ? `{{img::${resolved.asset.name}}}` : tag;
   });
   return /<\/?[a-z][^>]*>/i.test(content) ? elementText(inertDocument(content).body) : content;
 }
 
-function normalizeMessage(value: unknown, index: number, character: string, user: string, names: Map<string, string>, assets: BookAsset[] = []): Message {
-  if (typeof value === 'string') return { role: 'narrator', name: '서술', content: plainText(value, assets) };
+function normalizeMessage(value: unknown, index: number, character: string, user: string, names: Map<string, string>, assets: BookAsset[] = [],imageRules:ImageRule[]=[]): Message {
+  if (typeof value === 'string') return { role: 'narrator', name: '서술', content: plainText(value, assets,imageRules) };
   if (!record(value)) throw new LibraryError(`${index + 1}번째 메시지 형식이 올바르지 않습니다.`);
   const content = textContent(value.content) ?? textContent(value.data) ?? textContent(value.mes) ?? textContent(value.text);
   if (content === undefined) throw new LibraryError(`${index + 1}번째 메시지에 읽을 수 있는 텍스트가 없습니다.`);
@@ -162,7 +164,7 @@ function normalizeMessage(value: unknown, index: number, character: string, user
   return {
     role,
     name: string(value.name, value.speaker, speaker, role === 'user' ? user : role === 'assistant' ? character : role === 'system' ? '시스템' : '서술'),
-    content: plainText(content, assets).replace(/\r\n?/g, '\n'),
+    content: plainText(content, assets,imageRules).replace(/\r\n?/g, '\n'),
     ...(typeof value.chapter === 'string' ? { chapter: value.chapter } : {}),
   };
 }
@@ -180,6 +182,7 @@ interface ImportContext {
 
 function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, index: number): Book {
   const assets = normalizeAssets(value.assets);
+  const imageRules=normalizeImageRules(value.imageRules);
   const character = string(value.character_name, value.character, context.character, '캐릭터');
   const user = string(value.user_name, context.user, '나');
   const normalized = rows.map((row, i) => {
@@ -187,10 +190,10 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
     // normalize roles, trim speaker names, or change source line endings.
     if (context.preserveIds && record(row) && typeof row.role === 'string' &&
         typeof row.name === 'string' && typeof row.content === 'string') {
-      return { role: row.role, name: row.name, content: context.removeUserInputs ? plainText(row.content, assets) : row.content,
+      return { role: row.role, name: row.name, content: context.removeUserInputs ? plainText(row.content, assets,imageRules) : row.content,
         ...(typeof row.chapter === 'string' ? { chapter: row.chapter } : {}) };
     }
-    return normalizeMessage(row, i, character, user, context.names, assets);
+    return normalizeMessage(row, i, character, user, context.names, assets,imageRules);
   });
   const retained = normalized.map((message, index) => ({ message, index })).filter(({ message }) =>
     !context.removeUserInputs || ['assistant', 'char', 'character', 'bot', 'ai', 'model'].includes(message.role.toLowerCase()));
@@ -223,6 +226,7 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
   if (characterIcon) book.characterIcon = characterIcon;
   if (value.bookmarkStyle === 'normal' || value.bookmarkStyle === 'character') book.bookmarkStyle = value.bookmarkStyle;
   if (Array.isArray(value.assets)) book.assets = assets;
+  if (Array.isArray(value.imageRules)) book.imageRules=imageRules;
   if (Array.isArray(value.bookmarks)) {
     const indices = new Map(retained.map(({ index }, destination) => [index, destination]));
     book.bookmarks = value.bookmarks.flatMap(entry => {
@@ -538,6 +542,7 @@ function validateBook(book: Book): void {
     (book.assets !== undefined && (!Array.isArray(book.assets) || !book.assets.every(asset => record(asset) &&
       typeof asset.id === 'string' && !!asset.id.trim() && typeof asset.name === 'string' && !!asset.name.trim() && typeof asset.src === 'string' &&
       (asset.type === undefined || asset.type === 'icon' || asset.type === 'asset')))) ||
+    (book.imageRules !== undefined && (!Array.isArray(book.imageRules)||normalizeImageRules(book.imageRules).length!==book.imageRules.length)) ||
     (book.bookmarks !== undefined && (!Array.isArray(book.bookmarks) || !book.bookmarks.every(mark => record(mark) &&
       Number.isSafeInteger(mark.message) && mark.message >= 0 && mark.message < book.messages.length &&
       Number.isSafeInteger(mark.char) && mark.char >= 0 && mark.char <= book.messages[mark.message]!.content.length &&
@@ -551,7 +556,7 @@ function validateBook(book: Book): void {
 function sanitizedBook(book: Book): Book {
   // Runtime records/old backups can still have extra legacy fields even though
   // the Book contract no longer exposes them. Never write/export lastPage.
-  const { lastPage: _lastPage, customColor: _customColor, cover: _cover, backCover: _backCover, characterIcon: _characterIcon, assets: _assets, bookmarks: _bookmarks, ...rest } = book as Book & { lastPage?: unknown };
+  const { lastPage: _lastPage, customColor: _customColor, cover: _cover, backCover: _backCover, characterIcon: _characterIcon, assets: _assets, bookmarks: _bookmarks, imageRules:_imageRules, ...rest } = book as Book & { lastPage?: unknown };
   const cover = safeCover(book.cover);
   const backCover = safeAssetSource(book.backCover);
   const characterIcon = safeAssetSource(book.characterIcon);
@@ -560,6 +565,7 @@ function sanitizedBook(book: Book): Book {
     ...(cover ? { cover } : {}), ...(backCover ? { backCover } : {}),
     ...(characterIcon ? { characterIcon } : {}),
     ...(customColor ? { customColor } : {}),
+    ...(book.imageRules === undefined ? {} : {imageRules:normalizeImageRules(book.imageRules)}),
     ...(book.assets === undefined ? {} : { assets: normalizeAssets(book.assets) }),
     ...(book.bookmarks === undefined ? {} : { bookmarks: book.bookmarks.map(mark => ({ ...mark })) }) };
 }

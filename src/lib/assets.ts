@@ -1,4 +1,6 @@
 import type { BookAsset } from './library';
+import { extractImageRules, imageRuleCandidates, normalizeImageRules, type ImageRule } from './imageRules';
+import { readModuleData } from './rpack';
 import { Inflate } from 'fflate';
 import { jade } from '@radix-ui/colors';
 
@@ -115,7 +117,7 @@ export function imageReferenceNames(tag: string): string[] {
  * No HTML, URLs or code are evaluated. Only a known asset name resolves; an
  * unresolved token remains verbatim text. Empty content returns no segments.
  */
-export function extractAssetSegments(content: string, assets: BookAsset[]): AssetSegment[] {
+export function extractAssetSegments(content: string, assets: BookAsset[], imageRules: ImageRule[] = []): AssetSegment[] {
   const byName = new Map<string, BookAsset>();
   for (const asset of assets) if (!byName.has(asset.name) && safeAssetSource(asset.src)) byName.set(asset.name, asset);
   const aliases = new Map<string, BookAsset | null>();
@@ -148,7 +150,7 @@ export function extractAssetSegments(content: string, assets: BookAsset[]): Asse
     let name = (match[1] ?? match[2] ?? match[3] ?? '').trim();
     if (name.startsWith('<') && name.endsWith('>')) name = name.slice(1, -1);
     name = name.replace(/^\{\{(?:img|image|raw)::([^{}]+)\}\}$/i, '$1').replace(/\\([\\()[\] ])/g, '$1').trim();
-    const candidates = /^(?:<img|\[img)/i.test(match[0]) ? imageReferenceNames(match[0]) : [name];
+    const candidates = [...imageRuleCandidates(match[0], imageRules), ...(/^(?:<img|\[img)/i.test(match[0]) ? imageReferenceNames(match[0]) : [name])];
     let asset: BookAsset | undefined;
     for (const candidate of candidates) {
       asset = byName.get(candidate) ?? aliases.get(candidate) ?? undefined;
@@ -208,7 +210,7 @@ function sourceFromCard(uri: string, embedded: Map<string, string>, portrait?: s
   return undefined;
 }
 
-export interface AssetImportResult { assets: BookAsset[]; warnings: string[] }
+export interface AssetImportResult { assets: BookAsset[]; warnings: string[]; imageRules?: ImageRule[] }
 
 function assetsFromJson(value: unknown, embedded = new Map<string, string>(), portrait?: string): AssetImportResult {
   const assets: BookAsset[] = [];
@@ -245,7 +247,8 @@ function assetsFromJson(value: unknown, embedded = new Map<string, string>(), po
     seen.add(key);
     assets.push({ id: typeof entry.id === 'string' && entry.id.trim() ? entry.id : id(), name, src, type: entry.type === 'icon' ? 'icon' : 'asset' });
   }
-  return { assets: normalizeAssets(assets), warnings };
+  const imageRules = extractImageRules(value, warnings);
+  return { assets: normalizeAssets(assets), warnings, ...(imageRules.length ? { imageRules } : {}) };
 }
 
 async function inflateText(bytes: Uint8Array): Promise<Uint8Array> {
@@ -412,8 +415,8 @@ async function readCharx(bytes: Uint8Array, directory: { entries: ZipEntry[]; pr
   const referenced = new Set<string>();
   for (const asset of card.data.assets) if (object(asset) && typeof asset.uri === 'string' && asset.uri.startsWith('embeded://')) referenced.add(asset.uri.slice(10));
   const embedded = new Map<string, string>();
-  // Decompress only explicitly referenced images. module.risum, scripts,
-  // fonts, HTML and unreferenced archive entries are never evaluated or loaded.
+  // Decompress referenced images here; module.risum is read separately as JSON
+  // metadata only. Scripts, fonts and HTML are never evaluated or loaded.
   for (const entry of directory.entries) {
     if (!referenced.has(entry.name) || entry.name === 'module.risum' || /\.(?:json|js|ts|lua|html?|css|woff2?|ttf|otf)$/i.test(entry.name)) continue;
     const source = imageData(zipFile(bytes, entry));
@@ -421,10 +424,18 @@ async function readCharx(bytes: Uint8Array, directory: { entries: ZipEntry[]; pr
   }
   const portrait = directory.prefix ? imageData(bytes.subarray(0, directory.prefix)) : undefined;
   const result = assetsFromJson(card, embedded, portrait);
+  const moduleEntry = directory.entries.find(entry => entry.name === 'module.risum');
+  if (moduleEntry) {
+    try {
+      const moduleRules = extractImageRules(readModuleData(zipFile(bytes, moduleEntry)), result.warnings);
+      const imageRules = normalizeImageRules([...(result.imageRules ?? []), ...moduleRules]);
+      if (imageRules.length) result.imageRules = imageRules;
+    } catch { result.warnings.push('module.risum의 이미지 규칙을 읽지 못했습니다. 카드 이미지는 가져왔습니다.'); }
+  }
   if (portrait && !result.assets.some(asset => asset.type === 'icon')) {
     result.assets.unshift({ id: id(), name: typeof card.data.name === 'string' ? card.data.name : '캐릭터', src: portrait, type: 'icon' });
   }
-  if (!result.assets.length) throw new Error('CHARX 카드에 가져올 수 있는 이미지가 없습니다.' + (result.warnings[0] ? ` ${result.warnings[0]}` : ''));
+  if (!result.assets.length && !result.imageRules?.length) throw new Error('CHARX 카드에 가져올 수 있는 이미지 또는 이미지 규칙이 없습니다.' + (result.warnings[0] ? ` ${result.warnings[0]}` : ''));
   return result;
 }
 
@@ -524,7 +535,12 @@ export async function portraitPalette(src: string): Promise<string> {
  */
 export async function importAssetFile(file: File): Promise<AssetImportResult> {
   if (/\.(?:risup|risupreset)$/i.test(file.name)) throw new Error('RISUP은 RisuAI 프리셋 파일입니다. 이미지나 PNG·JSON 캐릭터 카드를 선택해 주세요.');
-  if (/\.(?:risum|risupack)$/i.test(file.name)) throw new Error('RISUM 모듈과 RISUPACK은 지원하지 않습니다. 이미지 또는 PNG·JSON·CHARX 카드를 사용해 주세요.');
+  if (/\.risupack$/i.test(file.name)) throw new Error('RISUPACK은 지원하지 않습니다. 이미지 또는 PNG·JSON·CHARX 카드를 사용해 주세요.');
+  if (/\.risum$/i.test(file.name)) {
+    const imageRules = extractImageRules(readModuleData(new Uint8Array(await file.arrayBuffer())));
+    if (!imageRules.length) throw new Error('모듈에서 지원하는 이미지 규칙을 찾지 못했습니다.');
+    return { assets: [], warnings: ['모듈의 이미지 규칙만 가져왔습니다. 모듈 내 에셋·스크립트는 실행하거나 가져오지 않습니다.'], imageRules };
+  }
   if (!file.size) throw new Error('파일이 비어 있습니다.');
   const basename = file.name.replace(/\.[^.]+$/, '') || '이미지';
   if (/\.json$/i.test(file.name) || file.type === 'application/json') {
@@ -532,7 +548,7 @@ export async function importAssetFile(file: File): Promise<AssetImportResult> {
     try { value = JSON.parse((await file.text()).replace(/^\uFEFF/, '')); }
     catch { throw new Error('에셋 JSON을 읽지 못했습니다.'); }
     const result = assetsFromJson(value);
-    if (!result.assets.length) throw new Error('가져올 이미지가 없습니다. 이미지가 포함된 카드 또는 에셋 JSON을 선택해 주세요.' + (result.warnings.length ? ` ${result.warnings[0]}` : ''));
+    if (!result.assets.length && !result.imageRules?.length) throw new Error('가져올 이미지 또는 이미지 규칙이 없습니다. 이미지가 포함된 카드 또는 에셋 JSON을 선택해 주세요.' + (result.warnings.length ? ` ${result.warnings[0]}` : ''));
     return result;
   }
   const bytes = new Uint8Array(await file.arrayBuffer());
