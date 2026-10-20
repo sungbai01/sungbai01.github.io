@@ -58,7 +58,6 @@ export class LibraryError extends Error {
 }
 
 export const BOOK_COLORS = [jade.jade12, bronze.bronze11, iris.iris12, gold.gold11];
-const MAX_FILE_BYTES = 50 * 1024 * 1024;
 const DB_NAME = 'risu-bookshelf';
 const STORE = 'books';
 type RecordValue = Record<string, unknown>;
@@ -418,7 +417,6 @@ function parseHtml(text: string, context: ImportContext): Book[] {
 /** Parse only: does not persist, fetch remote assets, or execute embedded HTML. */
 export async function importChatFile(file: File, options: { removeUserInputs?: boolean } = {}): Promise<Book[]> {
   if (!file || typeof file.text !== 'function') throw new LibraryError('가져올 파일을 선택해 주세요.');
-  if (file.size > MAX_FILE_BYTES) throw new LibraryError('50MB 이하의 대화 파일을 선택해 주세요.');
   const extension = file.name.split('.').pop()?.toLowerCase() || '';
   if (!['json', 'jsonl', 'ndjson', 'txt', 'md', 'markdown', 'chat', 'html', 'htm'].includes(extension)) {
     throw new LibraryError('JSON, JSONL, TXT, HTML 또는 Markdown 파일을 선택해 주세요.');

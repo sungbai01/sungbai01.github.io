@@ -11,8 +11,6 @@ import { jade } from '@radix-ui/colors';
  * embeded:// paths. Its writeJpeg appends ZIP after JPEG (ZIP offsets exclude
  * that prefix). Archives are read only in memory; card scripts never run.
  */
-const MAX_BYTES = 50 * 1024 * 1024;
-const MAX_METADATA_BYTES = 8 * 1024 * 1024;
 const MAX_ASSETS = 2000;
 type ObjectValue = Record<string, unknown>;
 const object = (value: unknown): value is ObjectValue => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -22,7 +20,7 @@ const id = () => crypto.randomUUID();
  * This validates a reference, and does not fetch or decode remote images.
  */
 export function safeAssetSource(value: unknown): string | undefined {
-  if (typeof value !== 'string' || !value.trim() || value.length > MAX_BYTES * 1.4) return undefined;
+  if (typeof value !== 'string' || !value.trim()) return undefined;
   const src = value.trim();
   if (/^data:image\/(?:png|jpeg|webp|gif|avif);base64,[a-z\d+/=\s]+$/i.test(src)) return src;
   try {
@@ -168,10 +166,9 @@ export function extractAssetSegments(content: string, assets: BookAsset[]): Asse
 
 function bytesFromBase64(value: string): Uint8Array {
   const clean = value.replace(/\s/g, '');
-  if (clean.length > MAX_BYTES * 1.4 || !/^[a-z\d+/]*={0,2}$/i.test(clean)) throw new Error('이미지의 base64 데이터가 올바르지 않습니다.');
+  if (!/^[a-z\d+/]*={0,2}$/i.test(clean)) throw new Error('이미지의 base64 데이터가 올바르지 않습니다.');
   try {
     const decoded = atob(clean);
-    if (decoded.length > MAX_BYTES) throw new Error('이미지가 너무 큽니다.');
     return Uint8Array.from(decoded, char => char.charCodeAt(0));
   } catch { throw new Error('이미지의 base64 데이터를 읽지 못했습니다.'); }
 }
@@ -262,7 +259,6 @@ async function inflateText(bytes: Uint8Array): Promise<Uint8Array> {
       const { value, done } = await reader.read();
       if (done) break;
       length += value.length;
-      if (length > MAX_METADATA_BYTES) throw new Error('PNG 카드 정보가 너무 큽니다.');
       chunks.push(value);
     }
   } finally { await reader.cancel(); reader.releaseLock(); }
@@ -277,7 +273,6 @@ async function readPng(bytes: Uint8Array): Promise<{ metadata: Map<string, strin
   const imageParts: Uint8Array[] = [bytes.slice(0, 8)];
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const decoder = new TextDecoder('utf-8', { fatal: true });
-  let totalText = 0;
   let ended = false;
   for (let offset = 8; offset < bytes.length;) {
     if (offset + 12 > bytes.length) throw new Error('PNG 청크가 손상되었습니다.');
@@ -301,8 +296,6 @@ async function readPng(bytes: Uint8Array): Promise<{ metadata: Map<string, strin
           payload = payload.subarray(translatedEnd + 1);
           if (compressed) payload = await inflateText(payload);
         }
-        totalText += payload.length;
-        if (totalText > MAX_BYTES || ((key === 'chara' || key === 'ccv3') && payload.length > MAX_METADATA_BYTES)) throw new Error('PNG 카드 정보가 너무 큽니다.');
         metadata.set(key, decoder.decode(payload));
       }
     } else imageParts.push(bytes.slice(offset, end));
@@ -342,7 +335,6 @@ function zipDirectory(bytes: Uint8Array): { entries: ZipEntry[]; prefix: number 
   const entries: ZipEntry[] = [];
   const names = new Set<string>();
   let offset = directoryStart;
-  let totalSize = 0;
   let prefix = bytes.length;
   for (let i = 0; i < count; i++) {
     if (offset + 46 > end || view.getUint32(offset, true) !== 0x02014b50) throw new Error('CHARX ZIP 디렉터리가 손상되었습니다.');
@@ -368,8 +360,6 @@ function zipDirectory(bytes: Uint8Array): { entries: ZipEntry[]; prefix: number 
     const dataOffset = localOffset + 30 + localNameLength + localExtraLength;
     if (dataOffset + compressed > directoryStart || decoder.decode(bytes.subarray(localOffset + 30, localOffset + 30 + localNameLength)) !== name ||
         view.getUint16(localOffset + 8, true) !== method || view.getUint16(localOffset + 6, true) !== flags) throw new Error('CHARX 파일 헤더가 일치하지 않습니다.');
-    totalSize += size;
-    if (size > MAX_BYTES || totalSize > MAX_BYTES) throw new Error('CHARX의 압축 해제 크기는 합계 50MB 이하여야 합니다.');
     prefix = Math.min(prefix, localOffset);
     if (!name.endsWith('/')) entries.push({ name, size, compressed, method, crc: view.getUint32(offset + 16, true), offset: dataOffset });
     offset = next;
@@ -392,7 +382,7 @@ function zipFile(bytes: Uint8Array, entry: ZipEntry): Uint8Array {
     if (entry.size !== entry.compressed) throw new Error('CHARX 파일 크기가 일치하지 않습니다.');
     data = compressed;
   } else {
-    // Bound output by both declared size and aggregate preflight limits. Small
+    // Bound output by the archive-declared size. Small
     // input pushes avoid inflating an entire malicious payload before checking.
     data = new Uint8Array(entry.size);
     let written = 0;
@@ -415,7 +405,6 @@ function zipFile(bytes: Uint8Array, entry: ZipEntry): Uint8Array {
 async function readCharx(bytes: Uint8Array, directory: { entries: ZipEntry[]; prefix: number }): Promise<AssetImportResult> {
   const cardEntry = directory.entries.find(entry => entry.name === 'card.json');
   if (!cardEntry) throw new Error('CHARX ZIP의 최상위 card.json을 찾을 수 없습니다.');
-  if (cardEntry.size > MAX_METADATA_BYTES) throw new Error('CHARX 카드 JSON이 너무 큽니다.');
   let card: unknown;
   try { card = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(zipFile(bytes, cardEntry)).replace(/^\uFEFF/, '')); }
   catch { throw new Error('CHARX의 card.json을 읽지 못했습니다.'); }
@@ -536,7 +525,6 @@ export async function portraitPalette(src: string): Promise<string> {
 export async function importAssetFile(file: File): Promise<AssetImportResult> {
   if (/\.(?:risup|risupreset)$/i.test(file.name)) throw new Error('RISUP은 RisuAI 프리셋 파일입니다. 이미지나 PNG·JSON 캐릭터 카드를 선택해 주세요.');
   if (/\.(?:risum|risupack)$/i.test(file.name)) throw new Error('RISUM 모듈과 RISUPACK은 지원하지 않습니다. 이미지 또는 PNG·JSON·CHARX 카드를 사용해 주세요.');
-  if (file.size > MAX_BYTES) throw new Error('50MB 이하의 이미지 또는 카드 파일을 선택해 주세요.');
   if (!file.size) throw new Error('파일이 비어 있습니다.');
   const basename = file.name.replace(/\.[^.]+$/, '') || '이미지';
   if (/\.json$/i.test(file.name) || file.type === 'application/json') {

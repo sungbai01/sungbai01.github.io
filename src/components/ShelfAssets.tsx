@@ -92,7 +92,7 @@ export default function ShelfAssets({ assets, onSave, onClose }: ShelfAssetsProp
     <div className="shelf-assets-toolbar"><button type="button" className="shelf-assets-add" disabled={busy} onClick={() => input.current?.click()}><ImagePlus size={19}/> 캐릭터 카드</button><button type="button" className="shelf-assets-defaults" disabled={busy} title="이 책장의 이미지와 초상을 비우기" onClick={()=>{setDraft([]);setError('');setNotice('');setPreviewFailures(new Set());}}>기본값으로</button></div>
     <input ref={input} type="file" className="shelf-assets-input" multiple accept=".png,.jpg,.jpeg,.webp,.gif,.avif,.json,.charx,.zip,image/png,image/jpeg,image/webp,image/gif,image/avif,application/json,application/zip,application/charx"
       aria-label="이미지 또는 캐릭터 카드 파일" disabled={busy} onChange={event => { const files = Array.from(event.target.files ?? []); event.target.value = ''; void addFiles(files); }}/>
-    <p className="shelf-assets-hint">이미지, PNG·JSON·CHARX 카드, 카드 ZIP · 파일·압축 해제 합계 50MB</p>
+    <p className="shelf-assets-hint">이미지, PNG·JSON·CHARX 카드, 카드 ZIP</p>
     <div className="shelf-assets-list" aria-label="책장 이미지 목록">
       {!draft.length && <p className="shelf-assets-empty">아직 이미지가 없어요.</p>}
       {draft.map((asset, index) => <div className="shelf-assets-row" key={asset.id}>
