@@ -365,6 +365,7 @@ export class PageFlip extends EventObject {
      */
     public startUserTouch(pos: Point): void {
         if (!this.isInteractionEnabled()) return;
+        this.render.finishAnimation();
         this.mousePosition = pos; // Save touch position
         this.isUserTouch = true;
         this.isUserMove = false;
@@ -413,6 +414,7 @@ export class PageFlip extends EventObject {
             if (!this.isInteractionEnabled()) return;
             if (!this.isUserMove) this.flipController.flip(pos);
             else {
+                this.flipController.fold(pos);
                 const direction = this.flipController.getCalculation()?.getDirection();
                 const dx = pos.x - this.mousePosition.x;
                 const followsDirection = direction === FlipDirection.BACK ? dx > 0 : dx < 0;
@@ -435,6 +437,13 @@ export class PageFlip extends EventObject {
 
     public isInteractionEnabled(): boolean {
         return this.interactionEnabled && !this.destroyed;
+    }
+
+    public settleUserTouch(): void {
+        const moving=this.isUserTouch&&this.isUserMove;
+        this.isUserTouch=false;this.isUserMove=false;
+        this.ui?.clearUserTouch();
+        if(moving||this.flipController?.getState()===FlippingState.USER_FOLD)this.flipController.stopMove();
     }
 
     public cancelUserTouch(): void {

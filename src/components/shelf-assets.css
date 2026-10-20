@@ -22,6 +22,8 @@
 .shelf-assets-name>span{font-size:11px;color:var(--sand-11)}
 .shelf-assets-name input{width:100%;min-width:0;height:35px;padding:6px 9px;border:1px solid var(--sand-6);border-radius:6px;background:var(--sand-1);color:var(--sand-12);font-size:13px}
 .shelf-assets-name small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:11px ui-monospace,monospace;color:var(--sand-11)}
+.shelf-assets-portrait{display:flex;align-items:center;gap:6px;color:var(--sand-11);font-size:11px}
+.shelf-assets-name .shelf-assets-portrait input{width:13px;height:13px;margin:0;padding:0;accent-color:var(--jade-9)}
 .shelf-assets-remove{color:var(--bronze-11)}
 .shelf-assets-empty{padding:28px 0;text-align:center;color:var(--sand-11);font-size:13px}
 .shelf-assets-error,.shelf-assets-notice{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;line-height:1.7;margin:14px 0 0}

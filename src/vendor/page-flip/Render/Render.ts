@@ -118,23 +118,22 @@ export abstract class Render {
      * @param timer
      */
     private render(timer: number): void {
-        const wasAnimating = this.animation !== null;
-        if (this.animation !== null) {
-            // Find current frame of animation
-            const frameIndex = Math.round(
-                (timer - this.animation.startedAt) / this.animation.durationFrame
-            );
-
-            if (frameIndex < this.animation.frames.length) {
-                this.animation.frames[frameIndex]();
-            } else {
-                this.animation.onAnimateEnd();
+        const animation = this.animation;
+        if (animation) {
+            // RAF timestamps describe the beginning of a frame; input can create
+            // an animation later in that same frame. Never index a negative frame.
+            const elapsed = Math.max(0, performance.now() - animation.startedAt);
+            const frameIndex = Math.min(animation.frames.length - 1,
+                Math.max(0, Math.floor(elapsed / animation.durationFrame)));
+            animation.frames[frameIndex]?.();
+            if (elapsed >= animation.duration && this.animation === animation) {
+                // Detach first: completion can synchronously start another turn.
                 this.animation = null;
+                animation.onAnimateEnd?.();
             }
         }
-
         this.timer = timer;
-        if (wasAnimating || this.dirty) {
+        if (animation || this.dirty) {
             this.dirty = false;
             this.drawFrame();
         }
@@ -157,8 +156,8 @@ export abstract class Render {
         this.frameId = requestAnimationFrame(timer => {
             this.frameId = null;
             if (!this.running) return;
-            this.render(timer);
-            if (this.animation !== null || this.dirty) this.requestFrame();
+            try { this.render(timer); }
+            finally { if (this.animation !== null || this.dirty) this.requestFrame(); }
         });
     }
 
@@ -193,10 +192,12 @@ export abstract class Render {
     ): void {
         this.finishAnimation(); // finish the previous animation process
 
+        if (!frames.length) { onAnimateEnd?.(); return; }
+        const safeDuration = Math.max(1, Number.isFinite(duration) ? duration : 1);
         this.animation = {
             frames,
-            duration,
-            durationFrame: duration / frames.length,
+            duration: safeDuration,
+            durationFrame: safeDuration / frames.length,
             onAnimateEnd,
             startedAt: performance.now(),
         };
@@ -207,15 +208,12 @@ export abstract class Render {
      * End the current animation process and call the callback
      */
     public finishAnimation(): void {
-        if (this.animation !== null) {
-            this.animation.frames[this.animation.frames.length - 1]();
-
-            if (this.animation.onAnimateEnd !== null) {
-                this.animation.onAnimateEnd();
-            }
-        }
-
+        const animation = this.animation;
+        if (!animation) return;
         this.animation = null;
+        animation.frames[animation.frames.length - 1]?.();
+        animation.onAnimateEnd?.();
+        this.invalidate();
     }
 
     /**

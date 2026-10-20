@@ -48,10 +48,16 @@ export default function ShelfAssets({ assets, onSave, onClose }: ShelfAssetsProp
         for (const asset of incoming) {
           // Reimporting an identical image is harmless; distinct images retain
           // their original token name so the user can resolve conflicts explicitly.
-          if (next.some(entry => entry.name === asset.name && entry.src === asset.src)) continue;
+          const existing = next.find(entry => entry.name === asset.name && entry.src === asset.src);
+          if (existing) { if (asset.type === 'icon') existing.type = 'icon'; continue; }
           const assetId = ids.has(asset.id) ? crypto.randomUUID() : asset.id;
           ids.add(assetId); next.push({ ...asset, id: assetId });
         }
+        // Importing another card selects its main portrait for App's first-icon
+        // lookup, while retaining other explicit icon flags from card metadata.
+        const portrait = incoming.find(asset => asset.type === 'icon' && asset.name === 'main') ?? incoming.find(asset => asset.type === 'icon');
+        const portraitIndex = portrait ? next.findIndex(asset => asset.name === portrait.name && asset.src === portrait.src) : -1;
+        if (portraitIndex > 0) next.unshift(...next.splice(portraitIndex, 1));
         return next;
       });
       setError(problems.join('\n'));
@@ -87,16 +93,17 @@ export default function ShelfAssets({ assets, onSave, onClose }: ShelfAssetsProp
     <header className="shelf-assets-heading"><h2 id={titleId}>책장 이미지</h2><button type="button" className="shelf-assets-icon" aria-label="닫기" disabled={busy} onClick={onClose}><X size={20}/></button></header>
     <p className="shelf-assets-description">이 책장의 이야기에 사용할 이미지를 모아 두세요.</p>
     <button type="button" className="shelf-assets-add" disabled={busy} onClick={() => input.current?.click()}><ImagePlus size={19}/> 이미지 · 캐릭터 카드 추가</button>
-    <input ref={input} type="file" className="shelf-assets-input" multiple accept=".png,.jpg,.jpeg,.webp,.gif,.avif,.json,image/png,image/jpeg,image/webp,image/gif,image/avif,application/json"
+    <input ref={input} type="file" className="shelf-assets-input" multiple accept=".png,.jpg,.jpeg,.webp,.gif,.avif,.json,.charx,.zip,image/png,image/jpeg,image/webp,image/gif,image/avif,application/json,application/zip,application/charx"
       aria-label="이미지 또는 캐릭터 카드 파일" disabled={busy} onChange={event => { const files = Array.from(event.target.files ?? []); event.target.value = ''; void addFiles(files); }}/>
-    <p className="shelf-assets-hint">이미지 파일, PNG·JSON 카드, 에셋 JSON · 파일당 50MB</p>
+    <p className="shelf-assets-hint">이미지, PNG·JSON·CHARX 카드, 카드 ZIP · 파일·압축 해제 합계 50MB</p>
     <div className="shelf-assets-list" aria-label="책장 이미지 목록">
       {!draft.length && <p className="shelf-assets-empty">아직 이미지가 없어요.</p>}
       {draft.map((asset, index) => <div className="shelf-assets-row" key={asset.id}>
         <div className="shelf-assets-preview">{previewFailures.has(asset.id) ? <span>미리보기 없음</span> : <img src={asset.src} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setPreviewFailures(previous => new Set(previous).add(asset.id))}/>}</div>
         <label className="shelf-assets-name"><span>이미지 이름</span><input aria-label={`${index + 1}번째 이미지 이름`} value={asset.name} disabled={busy} onChange={event => {
           const name = event.target.value; setDraft(previous => previous.map(entry => entry.id === asset.id ? { ...entry, name } : entry));
-        }}/><small>{`{{img::${asset.name}}}`}</small></label>
+        }}/><small>{`{{img::${asset.name}}}`}</small>
+        <span className="shelf-assets-portrait"><input type="radio" name={`${titleId}-portrait`} aria-label={`${asset.name || '이미지'} 표지 초상으로 사용`} checked={draft.find(entry => entry.type === 'icon')?.id === asset.id} disabled={busy} onChange={() => setDraft(previous => previous.map(entry => ({ ...entry, type: entry.id === asset.id ? 'icon' : 'asset' })))}/> 표지 초상</span></label>
         <button type="button" className="shelf-assets-icon shelf-assets-remove" aria-label={`${asset.name || '이미지'} 삭제`} disabled={busy} onClick={() => setDraft(previous => previous.filter(entry => entry.id !== asset.id))}><Trash2 size={18}/></button>
       </div>)}
     </div>

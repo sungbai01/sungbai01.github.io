@@ -1,14 +1,7 @@
 import { PageFlip } from '../PageFlip';
 import { Point } from '../BasicTypes';
 import { FlipSetting, SizeType } from '../Settings';
-import { FlippingState } from '../Flip/Flip';
 import { Orientation } from '../Render/Render';
-
-type SwipeData = {
-    point: Point;
-    time: number;
-    identifier: number;
-};
 
 /**
  * UI Class, represents work with DOM
@@ -20,9 +13,7 @@ export abstract class UI {
     protected readonly wrapper: HTMLElement;
     protected distElement: HTMLElement;
 
-    private touchPoint: SwipeData = null;
-    private mouseActive = false;
-    private readonly swipeTimeout = 250;
+    private pointer: {id:number;start:Point;last:Point;startedAt:number;touch:boolean} | null = null;
     private readonly swipeDistance: number;
 
     private onResize = (): void => {
@@ -130,179 +121,78 @@ export abstract class UI {
 
     protected removeHandlers(): void {
         window.removeEventListener('resize', this.onResize);
-
-        this.distElement.removeEventListener('mousedown', this.onMouseDown);
-        this.distElement.removeEventListener('touchstart', this.onTouchStart);
-        window.removeEventListener('mousemove', this.onMouseMove);
-        window.removeEventListener('touchmove', this.onTouchMove);
-        window.removeEventListener('mouseup', this.onMouseUp);
-        window.removeEventListener('touchend', this.onTouchEnd);
-        window.removeEventListener('touchcancel', this.onTouchCancel);
-        window.removeEventListener('blur', this.onTouchCancel);
+        this.distElement.removeEventListener('pointerdown', this.onPointerDown);
+        window.removeEventListener('pointermove', this.onPointerMove);
+        window.removeEventListener('pointerup', this.onPointerUp);
+        window.removeEventListener('pointercancel', this.onPointerCancel);
+        this.distElement.removeEventListener('lostpointercapture', this.onLostCapture);
+        window.removeEventListener('blur', this.onBlur);
+        this.clearUserTouch();
     }
 
     protected setHandlers(): void {
-        window.addEventListener('resize', this.onResize, false);
+        window.addEventListener('resize', this.onResize);
         if (!this.app.getSettings().useMouseEvents) return;
-
-        this.distElement.addEventListener('mousedown', this.onMouseDown);
-        this.distElement.addEventListener('touchstart', this.onTouchStart, { passive: false });
-        window.addEventListener('mousemove', this.onMouseMove);
-        window.addEventListener('touchmove', this.onTouchMove, {
-            passive: !this.app.getSettings().mobileScrollSupport,
-        });
-        window.addEventListener('mouseup', this.onMouseUp);
-        window.addEventListener('touchend', this.onTouchEnd);
-        window.addEventListener('touchcancel', this.onTouchCancel);
-        window.addEventListener('blur', this.onTouchCancel);
+        this.distElement.addEventListener('pointerdown', this.onPointerDown);
+        window.addEventListener('pointermove', this.onPointerMove, {passive:false});
+        window.addEventListener('pointerup', this.onPointerUp);
+        window.addEventListener('pointercancel', this.onPointerCancel);
+        this.distElement.addEventListener('lostpointercapture', this.onLostCapture);
+        window.addEventListener('blur', this.onBlur);
     }
 
-    /**
-     * Convert global coordinates to relative book coordinates
-     *
-     * @param x
-     * @param y
-     */
-    private getMousePos(x: number, y: number): Point {
-        const rect = this.distElement.getBoundingClientRect();
-
-        return {
-            x: x - rect.left,
-            y: y - rect.top,
-        };
+    private getMousePos(x:number,y:number):Point {
+        const rect=this.distElement.getBoundingClientRect();
+        return {x:x-rect.left,y:y-rect.top};
     }
-
-    private checkTarget(target: EventTarget): boolean {
-        if (!this.app.isInteractionEnabled()) return false;
-        const element = target instanceof Element ? target : (target as Node)?.parentElement;
-        if (!element) return false;
-        // Controls and editors must retain native focus, selection and gestures,
-        // regardless of the legacy clickEventForward setting.
-        return !element.closest('a,button,input,textarea,select,label,summary,[contenteditable]:not([contenteditable="false"]),[role="button"],[role="textbox"],[data-no-flip]');
+    private checkTarget(target:EventTarget):boolean {
+        if(!this.app.isInteractionEnabled())return false;
+        const element=target instanceof Element?target:(target as Node)?.parentElement;
+        return !!element&&!element.closest('a,button,input,textarea,select,label,summary,[contenteditable]:not([contenteditable="false"]),[role="button"],[role="textbox"],[data-no-flip]');
     }
-
-    private onMouseDown = (e: MouseEvent): void => {
-        if (e.button === 0 && this.touchPoint === null && this.checkTarget(e.target)) {
-            this.mouseActive = true;
-            const pos = this.getMousePos(e.clientX, e.clientY);
-
-            this.app.startUserTouch(pos);
-
-            e.preventDefault();
-        }
+    private onPointerDown=(event:PointerEvent):void=>{
+        if(!event.isPrimary||event.button!==0||this.pointer||!this.checkTarget(event.target))return;
+        const point=this.getMousePos(event.clientX,event.clientY);
+        this.pointer={id:event.pointerId,start:point,last:point,startedAt:performance.now(),touch:event.pointerType!=='mouse'};
+        this.app.startUserTouch(point);
+        try{this.distElement.setPointerCapture(event.pointerId);}catch{}
+        if(event.cancelable)event.preventDefault();
     };
-
-    private onTouchStart = (e: TouchEvent): void => {
-        if (e.touches.length > 1) {
-            this.onTouchCancel();
-            return;
-        }
-        if (this.touchPoint === null && this.checkTarget(e.target)) {
-            if (e.touches.length === 1 && e.changedTouches.length > 0) {
-                const t = e.changedTouches[0];
-                const pos = this.getMousePos(t.clientX, t.clientY);
-
-                this.touchPoint = {
-                    point: pos,
-                    time: Date.now(),
-                    identifier: t.identifier,
-                };
-
-                // The reader is a fixed book surface. Register a tap immediately;
-                // delaying it by 250ms discarded short taps and let native scroll
-                // and compatibility mouse events compete with the page curl.
-                this.app.startUserTouch(pos);
-                if (e.cancelable) e.preventDefault();
-            }
-        }
+    private onPointerMove=(event:PointerEvent):void=>{
+        const pointer=this.pointer;if(!pointer||event.pointerId!==pointer.id)return;
+        const point=this.getMousePos(event.clientX,event.clientY);pointer.last=point;
+        if(!this.app.isInteractionEnabled()){this.clearUserTouch();return;}
+        // A release outside the window may not deliver pointerup. Recover on reentry.
+        if(event.pointerType==='mouse'&&event.buttons===0){this.completeGesture(point);return;}
+        this.app.userMove(point,pointer.touch);
+        if(event.cancelable)event.preventDefault();
     };
-
-    private onMouseUp = (e: MouseEvent): void => {
-        if (!this.mouseActive || e.button !== 0) return;
-        this.mouseActive = false;
-        const pos = this.getMousePos(e.clientX, e.clientY);
-
-        this.app.userMove(pos, false);
-        this.app.userStop(pos);
+    private onPointerUp=(event:PointerEvent):void=>{
+        if(this.pointer?.id!==event.pointerId)return;
+        this.completeGesture(this.getMousePos(event.clientX,event.clientY));
+        if(event.cancelable)event.preventDefault();
     };
-
-    private onMouseMove = (e: MouseEvent): void => {
-        if (!this.mouseActive) return; // No hover work, including layout reads.
-        const pos = this.getMousePos(e.clientX, e.clientY);
-
-        this.app.userMove(pos, false);
-    };
-
-    private onTouchMove = (e: TouchEvent): void => {
-        if (this.touchPoint === null || !this.app.isInteractionEnabled()) return;
-        const t = Array.from(e.changedTouches).find(t => t.identifier === this.touchPoint.identifier);
-        if (t) {
-            const pos = this.getMousePos(t.clientX, t.clientY);
-
-            if (this.app.getSettings().mobileScrollSupport) {
-                if (this.touchPoint !== null) {
-                    if (
-                        Math.abs(this.touchPoint.point.x - pos.x) > 10 ||
-                        this.app.getState() !== FlippingState.READ
-                    ) {
-                        this.app.userMove(pos, true);
-                    }
-                }
-
-                if (this.app.getState() !== FlippingState.READ) {
-                    if (e.cancelable) e.preventDefault();
-                }
-            } else {
-                this.app.userMove(pos, true);
-            }
-        }
-    };
-
-    private onTouchEnd = (e: TouchEvent): void => {
-        if (this.touchPoint === null) return;
-        const t = Array.from(e.changedTouches).find(t => t.identifier === this.touchPoint.identifier);
-        if (t) {
-            const pos = this.getMousePos(t.clientX, t.clientY);
-            let isSwipe = false;
-
-            if (this.app.getState() === FlippingState.READ &&
-                Math.abs(pos.x - this.touchPoint.point.x) < 10 &&
-                Math.abs(pos.y - this.touchPoint.point.y) > 10) {
-                this.onTouchCancel();
-                return;
-            }
-
-            // swipe detection
-            if (this.touchPoint !== null) {
-                const dx = pos.x - this.touchPoint.point.x;
-                const distY = Math.abs(pos.y - this.touchPoint.point.y);
-
-                if (
-                    Math.abs(dx) > this.swipeDistance &&
-                    distY < this.swipeDistance * 2 &&
-                    Date.now() - this.touchPoint.time < this.swipeTimeout
-                ) {
-                    isSwipe = true;
-                }
-
-                this.touchPoint = null;
-            }
-
-            // Account for a final move delivered only with touchend. Settle the
-            // existing fold instead of replacing it with a corner animation.
-            this.app.userMove(pos, true);
-            this.app.userStop(pos, isSwipe);
-        }
-    };
-
-    public clearUserTouch(): void {
-        this.touchPoint = null;
-        this.mouseActive = false;
-    }
-
-    private onTouchCancel = (): void => {
-        if (this.touchPoint === null && !this.mouseActive) return;
+    private completeGesture(point:Point):void {
+        const pointer=this.pointer;if(!pointer)return;
+        const dx=point.x-pointer.start.x,dy=point.y-pointer.start.y;
+        const swipe=pointer.touch&&Math.abs(dx)>this.swipeDistance&&Math.abs(dx)>Math.abs(dy)&&performance.now()-pointer.startedAt<300;
+        // Clear capture before settling so lostpointercapture cannot cancel it.
         this.clearUserTouch();
-        this.app.cancelUserTouch();
+        if(pointer.touch&&this.app.getState()==='read'&&Math.abs(dy)>10&&Math.abs(dx)<10){this.app.cancelUserTouch();return;}
+        this.app.userMove(point,pointer.touch);
+        this.app.userStop(point,swipe);
+    }
+    private onPointerCancel=(event:PointerEvent):void=>{
+        if(this.pointer?.id!==event.pointerId)return;
+        this.completeGesture(this.pointer.last);
     };
+    private onLostCapture=(event:PointerEvent):void=>{
+        if(this.pointer?.id===event.pointerId)this.completeGesture(this.pointer.last);
+    };
+    private onBlur=():void=>{if(this.pointer)this.completeGesture(this.pointer.last);};
+
+    public clearUserTouch():void {
+        const pointer=this.pointer;this.pointer=null;
+        if(pointer)try{if(this.distElement.hasPointerCapture(pointer.id))this.distElement.releasePointerCapture(pointer.id);}catch{}
+    }
 }

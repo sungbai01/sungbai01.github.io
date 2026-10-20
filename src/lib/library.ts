@@ -13,7 +13,7 @@
 import { jade, bronze, iris, gold } from '@radix-ui/colors';
 import { normalizeAssets, safeAssetSource } from './assets';
 
-export type BookAsset = { id: string; name: string; src: string };
+export type BookAsset = { id: string; name: string; src: string; type?: 'icon' | 'asset' };
 export type BookBookmark = { message: number; char: number; label?: string };
 
 export interface Message {
@@ -35,6 +35,8 @@ export interface Book {
   messages: Message[];
   cover?: string;
   backCover?: string;
+  characterIcon?: string;
+  bookmarkStyle?: 'normal' | 'character';
   assets?: BookAsset[];
   bookmarks?: BookBookmark[];
   /** Zero-based reader page; the reader determines the page count. */
@@ -88,9 +90,8 @@ function timestamp(value: unknown, fallback: string): string {
 }
 
 function safeCover(value: unknown): string | undefined {
-  // No SVG, HTML, script URLs, remote tracking requests, or persistent blob URLs.
-  return typeof value === 'string' && /^data:image\/(?:png|jpeg|webp|gif);base64,[a-z\d+/=\s]+$/i.test(value)
-    ? value : undefined;
+  // Covers may use the same explicitly imported image references as assets.
+  return safeAssetSource(value);
 }
 
 function textContent(value: unknown): string | undefined {
@@ -216,6 +217,9 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
   if (cover) book.cover = cover;
   const backCover = safeAssetSource(value.backCover);
   if (backCover) book.backCover = backCover;
+  const characterIcon = safeAssetSource(value.characterIcon);
+  if (characterIcon) book.characterIcon = characterIcon;
+  if (value.bookmarkStyle === 'normal' || value.bookmarkStyle === 'character') book.bookmarkStyle = value.bookmarkStyle;
   if (Array.isArray(value.assets)) book.assets = normalizeAssets(value.assets);
   if (Array.isArray(value.bookmarks)) {
     const indices = new Map(retained.map(({ index }, destination) => [index, destination]));
@@ -506,8 +510,11 @@ function validateBook(book: Book): void {
     (book.volumeNumber !== undefined && (!Number.isSafeInteger(book.volumeNumber) || book.volumeNumber < 1)) ||
     (book.volumeCount !== undefined && (!Number.isSafeInteger(book.volumeCount) || book.volumeCount < 1)) ||
     (book.backCover !== undefined && typeof book.backCover !== 'string') ||
+    (book.characterIcon !== undefined && typeof book.characterIcon !== 'string') ||
+    (book.bookmarkStyle !== undefined && book.bookmarkStyle !== 'normal' && book.bookmarkStyle !== 'character') ||
     (book.assets !== undefined && (!Array.isArray(book.assets) || !book.assets.every(asset => record(asset) &&
-      typeof asset.id === 'string' && !!asset.id.trim() && typeof asset.name === 'string' && !!asset.name.trim() && typeof asset.src === 'string'))) ||
+      typeof asset.id === 'string' && !!asset.id.trim() && typeof asset.name === 'string' && !!asset.name.trim() && typeof asset.src === 'string' &&
+      (asset.type === undefined || asset.type === 'icon' || asset.type === 'asset')))) ||
     (book.bookmarks !== undefined && (!Array.isArray(book.bookmarks) || !book.bookmarks.every(mark => record(mark) &&
       Number.isSafeInteger(mark.message) && mark.message >= 0 && mark.message < book.messages.length &&
       Number.isSafeInteger(mark.char) && mark.char >= 0 && mark.char <= book.messages[mark.message]!.content.length &&
@@ -518,11 +525,13 @@ function validateBook(book: Book): void {
 
 /** The same safety rules apply to imports, persisted records and backup blobs. */
 function sanitizedBook(book: Book): Book {
-  const { cover: _cover, backCover: _backCover, assets: _assets, bookmarks: _bookmarks, ...rest } = book;
+  const { cover: _cover, backCover: _backCover, characterIcon: _characterIcon, assets: _assets, bookmarks: _bookmarks, ...rest } = book;
   const cover = safeCover(book.cover);
   const backCover = safeAssetSource(book.backCover);
+  const characterIcon = safeAssetSource(book.characterIcon);
   return { ...rest, messages: book.messages.map(message => ({ ...message })),
     ...(cover ? { cover } : {}), ...(backCover ? { backCover } : {}),
+    ...(characterIcon ? { characterIcon } : {}),
     ...(book.assets === undefined ? {} : { assets: normalizeAssets(book.assets) }),
     ...(book.bookmarks === undefined ? {} : { bookmarks: book.bookmarks.map(mark => ({ ...mark })) }) };
 }

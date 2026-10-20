@@ -138,6 +138,8 @@ export function mergeLegacyVolumes(books: Book[]): Book[] {
       ...(siblings.some(book => book.assets !== undefined) ? { assets: [...assets.values()] } : {}),
       ...(siblings.some(book => book.bookmarks !== undefined) ? { bookmarks } : {}),
       ...(siblings.some(book => book.backCover !== undefined) ? { backCover: first.backCover ?? siblings.find(book => book.backCover)?.backCover } : {}),
+      ...(siblings.some(book => book.characterIcon !== undefined) ? { characterIcon: first.characterIcon ?? siblings.find(book => book.characterIcon)?.characterIcon } : {}),
+      ...(siblings.some(book => book.bookmarkStyle !== undefined) ? { bookmarkStyle: first.bookmarkStyle ?? siblings.find(book => book.bookmarkStyle)?.bookmarkStyle } : {}),
     };
   });
 }

@@ -360,8 +360,8 @@ export class Flip {
 
     private setState(newState: FlippingState): void {
         if (this.state !== newState) {
-            this.app.updateState(newState);
             this.state = newState;
+            this.app.updateState(newState);
         }
     }
 

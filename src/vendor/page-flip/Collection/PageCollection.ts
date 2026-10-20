@@ -204,7 +204,7 @@ export abstract class PageCollection {
      * Show next spread
      */
     public showNext(): void {
-        if (this.currentSpreadIndex < this.getSpread().length) {
+        if (this.currentSpreadIndex < this.getSpread().length - 1) {
             this.currentSpreadIndex++;
             this.showSpread();
         }
