@@ -109,6 +109,7 @@ export class ImagePage extends Page {
         if (!this.isLoad)
             this.image.onload = (): void => {
                 this.isLoad = true;
+                this.render.invalidate();
             };
     }
 

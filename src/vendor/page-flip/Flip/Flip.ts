@@ -49,6 +49,7 @@ export class Flip {
     private bottomPage: Page = null;
 
     private calc: FlipCalculation = null;
+    private dragStart: Point = null;
 
     private state: FlippingState = FlippingState.READ;
 
@@ -63,12 +64,15 @@ export class Flip {
      * @param globalPos - Touch Point Coordinates (relative window)
      */
     public fold(globalPos: Point): void {
+        if (this.calc === null) return;
         this.setState(FlippingState.USER_FOLD);
-
-        // If the process has not started yet
-        if (this.calc === null) this.start(globalPos);
-
-        this.do(this.render.convertToPage(globalPos));
+        const point = this.render.convertToPage(globalPos);
+        if (this.dragStart !== null) {
+            const dx = point.x - this.dragStart.x;
+            point.x = this.getBoundsRect().pageWidth + dx;
+            point.y = this.calc.getGrabY() + point.y - this.dragStart.y;
+        }
+        this.do(point);
     }
 
     /**
@@ -76,8 +80,8 @@ export class Flip {
      *
      * @param globalPos - Touch Point Coordinates (relative window)
      */
-    public flip(globalPos: Point): void {
-        if (this.app.getSettings().disableFlipByClick && !this.isPointOnCorners(globalPos)) return;
+    public flip(globalPos: Point, programmatic = false): void {
+        if (!programmatic && this.app.getSettings().disableFlipByClick && !this.isPointOnCorners(globalPos)) return;
 
         // the flipiing process is already running
         if (this.calc !== null) this.render.finishAnimation();
@@ -88,21 +92,20 @@ export class Flip {
 
         this.setState(FlippingState.FLIPPING);
 
-        // Margin from top to start flipping
-        const topMargins = rect.height / 10;
+        const margin = Math.min(rect.pageWidth, rect.height) / 10;
 
         // Defining animation start points
-        const yStart =
-            this.calc.getCorner() === FlipCorner.BOTTOM ? rect.height - topMargins : topMargins;
-
-        const yDest = this.calc.getCorner() === FlipCorner.BOTTOM ? rect.height : 0;
+        const yDest = this.calc.getGrabY();
+        const yStart = Math.max(0, Math.min(rect.height,
+            yDest + margin * (1 - 2 * yDest / rect.height)));
 
         // Сalculations for these points
-        this.calc.calc({ x: rect.pageWidth - topMargins, y: yStart });
+        const xStart = rect.pageWidth - margin;
+        this.calc.calc({ x: xStart, y: yStart });
 
         // Run flipping animation
         this.animateFlippingTo(
-            { x: rect.pageWidth - topMargins, y: yStart },
+            { x: xStart, y: yStart },
             { x: -rect.pageWidth, y: yDest },
             true
         );
@@ -115,14 +118,15 @@ export class Flip {
      *
      * @returns {boolean} True if flipping is possible, false otherwise
      */
-    public start(globalPos: Point): boolean {
+    public start(globalPos: Point, isDrag = false, directionOverride?: FlipDirection): boolean {
+        this.render.finishAnimation();
         this.reset();
 
         const bookPos = this.render.convertToBook(globalPos);
         const rect = this.getBoundsRect();
 
         // Find the direction of flipping
-        const direction = this.getDirectionByPoint(bookPos);
+        const direction = directionOverride ?? this.getDirectionByPoint(bookPos);
 
         // Find the active corner
         const flipCorner = bookPos.y >= rect.height / 2 ? FlipCorner.BOTTOM : FlipCorner.TOP;
@@ -157,15 +161,19 @@ export class Flip {
             }
 
             this.render.setDirection(direction);
+            this.dragStart = isDrag ? this.render.convertToPage(globalPos, direction) : null;
             this.calc = new FlipCalculation(
                 direction,
                 flipCorner,
                 rect.pageWidth.toString(10), // fix bug with type casting
-                rect.height.toString(10) // fix bug with type casting
+                rect.height.toString(10),
+                bookPos.y
             );
+            this.calc.calc({ x: rect.pageWidth, y: this.calc.getGrabY() });
 
             return true;
         } catch (e) {
+            this.cancel();
             return false;
         }
     }
@@ -241,10 +249,11 @@ export class Flip {
      * @param {FlipCorner} corner - Active page corner when turning
      */
     public flipNext(corner: FlipCorner): void {
+        const rect = this.getBoundsRect();
         this.flip({
-            x: this.render.getRect().left + this.render.getRect().pageWidth * 2 - 10,
-            y: corner === FlipCorner.TOP ? 1 : this.render.getRect().height - 2,
-        });
+            x: rect.left + rect.pageWidth * 2 - 1,
+            y: rect.top + (corner === FlipCorner.TOP ? 1 : rect.height - 1),
+        }, true);
     }
 
     /**
@@ -253,73 +262,42 @@ export class Flip {
      * @param {FlipCorner} corner - Active page corner when turning
      */
     public flipPrev(corner: FlipCorner): void {
+        const rect = this.getBoundsRect();
         this.flip({
-            x: 10,
-            y: corner === FlipCorner.TOP ? 1 : this.render.getRect().height - 2,
-        });
+            x: rect.left + (this.render.getOrientation() === Orientation.PORTRAIT ? rect.pageWidth : 0) + 1,
+            y: rect.top + (corner === FlipCorner.TOP ? 1 : rect.height - 1),
+        }, true);
     }
 
     /**
      * Called when the user has stopped flipping
      */
-    public stopMove(): void {
+    public stopMove(forceTurn = false): void {
         if (this.calc === null) return;
 
         const pos = this.calc.getPosition();
         const rect = this.getBoundsRect();
 
-        const y = this.calc.getCorner() === FlipCorner.BOTTOM ? rect.height : 0;
-
-        const threshold = this.render.getOrientation() === Orientation.PORTRAIT
-            ? (this.calc.getDirection() === FlipDirection.BACK ? -rect.pageWidth / 2 : rect.pageWidth / 2)
-            : 0;
-        if (pos.x <= threshold) this.animateFlippingTo(pos, { x: -rect.pageWidth, y }, true);
-        else this.animateFlippingTo(pos, { x: rect.pageWidth, y }, false);
+        const y = this.calc.getGrabY();
+        // Both portrait directions use coordinates normalised to the visible
+        // sheet. A half-page pointer drag commits either direction.
+        const threshold = this.render.getOrientation() === Orientation.PORTRAIT ? rect.pageWidth / 2 : 0;
+        const turned = forceTurn || pos.x <= threshold;
+        const destination = turned ? -rect.pageWidth : rect.pageWidth;
+        this.animateFlippingTo(pos, { x: destination, y }, turned);
     }
 
-    /**
-     * Fold the corners of the book when the mouse pointer is over them.
-     * Called when the mouse pointer is over the book without clicking
-     *
-     * @param globalPos
-     */
-    public showCorner(globalPos: Point): void {
-        if (!this.checkState(FlippingState.READ, FlippingState.FOLD_CORNER)) return;
+    /** Hover previews are intentionally disabled, regardless of settings. */
+    public showCorner(_globalPos: Point): void {}
 
-        const rect = this.getBoundsRect();
-        const pageWidth = rect.pageWidth;
-
-        if (this.isPointOnCorners(globalPos)) {
-            if (this.calc === null) {
-                if (!this.start(globalPos)) return;
-
-                this.setState(FlippingState.FOLD_CORNER);
-
-                this.calc.calc({ x: pageWidth - 1, y: 1 });
-
-                const fixedCornerSize = 50;
-                const yStart = this.calc.getCorner() === FlipCorner.BOTTOM ? rect.height - 1 : 1;
-
-                const yDest =
-                    this.calc.getCorner() === FlipCorner.BOTTOM
-                        ? rect.height - fixedCornerSize
-                        : fixedCornerSize;
-
-                this.animateFlippingTo(
-                    { x: pageWidth - 1, y: yStart },
-                    { x: pageWidth - fixedCornerSize, y: yDest },
-                    false,
-                    false
-                );
-            } else {
-                this.do(this.render.convertToPage(globalPos));
-            }
-        } else {
-            this.setState(FlippingState.READ);
-            this.render.finishAnimation();
-
-            this.stopMove();
-        }
+    /** Cancel a gesture or animation without changing the current spread. */
+    public cancel(): void {
+        this.render.cancelAnimation();
+        this.render.setBottomPage(null);
+        this.render.setFlippingPage(null);
+        this.render.clearShadow();
+        this.reset();
+        this.setState(FlippingState.READ);
     }
 
     /**
@@ -336,7 +314,9 @@ export class Flip {
         isTurned: boolean,
         needReset = true
     ): void {
+        this.setState(FlippingState.FLIPPING);
         const points = Helper.GetCordsFromTwoPoint(start, dest);
+        points.push(dest); // Include the exact endpoint for fractional page sizes.
 
         // Create frames
         const frames = [];
@@ -416,20 +396,13 @@ export class Flip {
 
     private reset(): void {
         this.calc = null;
+        this.dragStart = null;
         this.flippingPage = null;
         this.bottomPage = null;
     }
 
     private getBoundsRect(): PageRect {
         return this.render.getRect();
-    }
-
-    private checkState(...states: FlippingState[]): boolean {
-        for (const state of states) {
-            if (this.state === state) return true;
-        }
-
-        return false;
     }
 
     private isPointOnCorners(globalPos: Point): boolean {
@@ -450,3 +423,4 @@ export class Flip {
         );
     }
 }
+

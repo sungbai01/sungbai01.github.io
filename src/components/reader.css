@@ -164,3 +164,38 @@
 @media (prefers-reduced-motion: reduce) {
   .reader *, .reader *::before, .reader *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 }
+/* Reading surface: unobtrusive Risu prose, inline editing, page ribbons. */
+.reader-page-content{top:36px;bottom:56px}
+.reader-prose em{font-style:italic;color:var(--reader-muted)}
+.reader-prose strong{font-weight:700}
+.reader-dialogue{color:var(--reader-ink)}
+.reader-page-content-editing{overflow:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.reader-live-passage{min-height:1.75em;outline:1px dashed var(--reader-accent);outline-offset:5px;cursor:text;white-space:pre-wrap;overflow-wrap:anywhere}
+.reader-live-passage:focus{outline:2px solid var(--reader-accent);background:var(--reader-hover)}
+.reader-inline-actions{display:flex;justify-content:center;align-items:center;gap:10px;padding:9px;flex-shrink:0;font-size:12px}
+.reader-inline-actions>span{color:var(--reader-muted);margin-right:8px}
+.reader-inline-actions button{padding:8px 14px;border:1px solid var(--reader-line);border-radius:5px;display:flex;align-items:center;gap:6px}
+.reader-inline-actions button:last-child{background:var(--reader-accent);color:var(--reader-paper)}
+.reader .reader-page-ribbon{position:absolute;top:0;right:25px;width:27px;height:54px;display:flex;justify-content:center;align-items:center;background:var(--bronze-9);color:var(--reader-preview-paper);clip-path:polygon(0 0,100% 0,100% 100%,50% 82%,0 100%);z-index:5;padding-bottom:8px;cursor:pointer}
+.reader-asset-page{position:absolute;inset:0;margin:0;display:flex;align-items:center;justify-content:center;background:var(--reader-paper);padding:0 0 28px}
+.reader-asset-page img{display:block;width:100%;height:100%;object-fit:contain}
+.reader-true-back{padding:0;overflow:hidden;background:linear-gradient(90deg,#0002,transparent 9%,#fff1 10%,transparent 12%),var(--book-cover)}
+.reader-back-cover-art{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.reader-back-imprint{position:absolute;inset:0;display:flex;align-items:center;justify-content:flex-end;flex-direction:column;gap:14px;padding:35px 25px 50px;text-align:center}
+.reader-back-colophon{font:11px 'Gowun Batang',serif;letter-spacing:.15em;opacity:.7}
+.reader-back-mark{font:18px 'Gowun Batang',serif;letter-spacing:.4em;border-top:1px solid #fff5;padding-top:14px;width:74px}
+.reader-back-volume{font-size:10px;opacity:.7}
+.reader-back-barcode{width:54px;height:20px;opacity:.6;background:repeating-linear-gradient(90deg,currentColor 0 1px,transparent 1px 3px,currentColor 3px 5px,transparent 5px 6px,currentColor 6px 7px,transparent 7px 10px)}
+.reader-back-imprint .reader-end-action{margin-top:18px}
+.reader-tools{gap:3px}
+.reader-fullscreen .reader-toolbar,.reader-fullscreen .reader-footer,.reader-fullscreen .reader-turn-controls{display:none}
+.reader-fullscreen .reader-main{padding:0}
+.reader-fullscreen-exit{position:fixed;top:0;left:50%;transform:translateX(-50%);width:160px;height:46px;display:flex;align-items:flex-start;justify-content:center;z-index:150}
+.reader-fullscreen-exit button{display:grid;place-items:center;width:50px;height:40px;background:var(--reader-panel-bg);border:1px solid var(--reader-line);border-top:0;border-radius:0 0 9px 9px;box-shadow:0 4px 18px #0002;transform:translateY(-105%);transition:transform .18s ease}
+.reader-fullscreen-exit:hover button,.reader-fullscreen-exit:focus-within button{transform:translateY(0)}
+.reader-fullscreen .reader-panel{top:48px}
+.reader-fullscreen .reader-inline-actions{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);z-index:120;background:var(--reader-panel-bg);border:1px solid var(--reader-line);border-radius:8px}
+@media(max-width:700px){.reader-toolbar{grid-template-columns:auto minmax(0,1fr);padding:8px 12px;min-height:92px}.reader-toolbar-title{align-items:flex-start}.reader-tools{grid-column:1/-1;justify-self:center;gap:7px}.reader-tools .reader-icon-button{width:32px!important;height:32px}.reader-toolbar-title small{display:none}}
+@media(hover:none){.reader-fullscreen-exit button{transform:translateY(0);opacity:.75}}
+@media(prefers-reduced-motion:reduce){.reader-fullscreen-exit button{transition:none}}
+.reader-is-editing .reader-book-mount,.reader-page-content-editing{touch-action:pan-y}

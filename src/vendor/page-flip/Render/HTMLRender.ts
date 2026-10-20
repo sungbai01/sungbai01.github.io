@@ -316,13 +316,11 @@ export class HTMLRender extends Render {
         const tempDensity =
             this.flippingPage != null ? this.flippingPage.getDrawingDensity() : null;
 
-        if (!(this.orientation === Orientation.PORTRAIT && this.direction === FlipDirection.BACK)) {
-            (this.bottomPage as HTMLPage).getElement().style.zIndex = (
-                this.getSettings().startZIndex + 3
-            ).toString(10);
+        (this.bottomPage as HTMLPage).getElement().style.zIndex = (
+            this.getSettings().startZIndex + 3
+        ).toString(10);
 
-            this.bottomPage.draw(tempDensity);
-        }
+        this.bottomPage.draw(tempDensity);
     }
 
     protected drawFrame(): void {

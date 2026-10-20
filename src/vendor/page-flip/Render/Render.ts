@@ -148,13 +148,28 @@ export abstract class Render {
         this.running = true;
         this.update();
 
-        const loop = (timer: number): void => {
+        this.requestFrame();
+    }
+
+    /** Sleep completely between changes, including while a drag is held still. */
+    private requestFrame(): void {
+        if (!this.running || this.frameId !== null) return;
+        this.frameId = requestAnimationFrame(timer => {
+            this.frameId = null;
             if (!this.running) return;
             this.render(timer);
-            if (this.running) this.frameId = requestAnimationFrame(loop);
-        };
+            if (this.animation !== null || this.dirty) this.requestFrame();
+        });
+    }
 
-        this.frameId = requestAnimationFrame(loop);
+    public invalidate(): void {
+        this.dirty = true;
+        this.requestFrame();
+    }
+
+    public cancelAnimation(): void {
+        this.animation = null;
+        this.invalidate();
     }
 
     public stop(): void {
@@ -183,8 +198,9 @@ export abstract class Render {
             duration,
             durationFrame: duration / frames.length,
             onAnimateEnd,
-            startedAt: this.timer,
+            startedAt: performance.now(),
         };
+        this.invalidate();
     }
 
     /**
@@ -206,7 +222,7 @@ export abstract class Render {
      * Recalculate the size of the displayed area, and update the page orientation
      */
     public update(): void {
-        this.dirty = true;
+        this.invalidate();
         this.boundsRect = null;
         const orientation = this.calculateBoundsRect();
 
@@ -290,7 +306,7 @@ export abstract class Render {
         progress: number,
         direction: FlipDirection
     ): void {
-        this.dirty = true;
+        this.invalidate();
         if (!this.app.getSettings().drawShadow) return;
 
         const maxShadowOpacity = 100 * this.getSettings().maxShadowOpacity;
@@ -309,7 +325,7 @@ export abstract class Render {
      * Clear shadow
      */
     public clearShadow(): void {
-        this.dirty = true;
+        this.invalidate();
         this.shadow = null;
     }
 
@@ -363,7 +379,7 @@ export abstract class Render {
      * @param direction
      */
     public setPageRect(pageRect: RectPoints): void {
-        this.dirty = true;
+        this.invalidate();
         this.pageRect = pageRect;
     }
 
@@ -373,7 +389,7 @@ export abstract class Render {
      * @param direction
      */
     public setDirection(direction: FlipDirection): void {
-        this.dirty = true;
+        this.invalidate();
         this.direction = direction;
     }
 
@@ -383,7 +399,7 @@ export abstract class Render {
      * @param page
      */
     public setRightPage(page: Page): void {
-        this.dirty = true;
+        this.invalidate();
         if (page !== null) page.setOrientation(PageOrientation.RIGHT);
 
         this.rightPage = page;
@@ -394,7 +410,7 @@ export abstract class Render {
      * @param page
      */
     public setLeftPage(page: Page): void {
-        this.dirty = true;
+        this.invalidate();
         if (page !== null) page.setOrientation(PageOrientation.LEFT);
 
         this.leftPage = page;
@@ -405,7 +421,7 @@ export abstract class Render {
      * @param page
      */
     public setBottomPage(page: Page): void {
-        this.dirty = true;
+        this.invalidate();
         if (page !== null)
             page.setOrientation(
                 this.direction === FlipDirection.BACK ? PageOrientation.LEFT : PageOrientation.RIGHT
@@ -420,7 +436,7 @@ export abstract class Render {
      * @param page
      */
     public setFlippingPage(page: Page): void {
-        this.dirty = true;
+        this.invalidate();
         if (page !== null)
             page.setOrientation(
                 this.direction === FlipDirection.FORWARD &&
@@ -460,13 +476,14 @@ export abstract class Render {
      * @returns {Point} Coordinates relative to the work page
      */
     public convertToPage(pos: Point, direction?: FlipDirection): Point {
-        if (!direction) direction = this.direction;
+        if (direction === undefined) direction = this.direction;
 
         const rect = this.getRect();
         const x =
             direction === FlipDirection.FORWARD
                 ? pos.x - rect.left - rect.width / 2
-                : rect.width / 2 - pos.x + rect.left;
+                : rect.width / 2 - pos.x + rect.left +
+                  (this.orientation === Orientation.PORTRAIT ? rect.pageWidth : 0);
 
         return {
             x,
@@ -483,7 +500,7 @@ export abstract class Render {
      * @returns {Point} Global coordinates relative to the window
      */
     public convertToGlobal(pos: Point, direction?: FlipDirection): Point {
-        if (!direction) direction = this.direction;
+        if (direction === undefined) direction = this.direction;
 
         if (pos == null) return null;
 
@@ -492,7 +509,8 @@ export abstract class Render {
         const x =
             direction === FlipDirection.FORWARD
                 ? pos.x + rect.left + rect.width / 2
-                : rect.width / 2 - pos.x + rect.left;
+                : rect.width / 2 - pos.x + rect.left +
+                  (this.orientation === Orientation.PORTRAIT ? rect.pageWidth : 0);
 
         return {
             x,
@@ -509,7 +527,7 @@ export abstract class Render {
      * @returns {RectPoints} Coordinates of the corners of the rectangle relative to the window
      */
     public convertRectToGlobal(rect: RectPoints, direction?: FlipDirection): RectPoints {
-        if (!direction) direction = this.direction;
+        if (direction === undefined) direction = this.direction;
 
         return {
             topLeft: this.convertToGlobal(rect.topLeft, direction),
@@ -519,3 +537,4 @@ export abstract class Render {
         };
     }
 }
+

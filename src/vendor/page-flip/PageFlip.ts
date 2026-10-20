@@ -2,7 +2,7 @@ import { PageCollection } from './Collection/PageCollection';
 import { ImagePageCollection } from './Collection/ImagePageCollection';
 import { HTMLPageCollection } from './Collection/HTMLPageCollection';
 import { PageRect, Point } from './BasicTypes';
-import { Flip, FlipCorner, FlippingState } from './Flip/Flip';
+import { Flip, FlipCorner, FlipDirection, FlippingState } from './Flip/Flip';
 import { Orientation, Render } from './Render/Render';
 import { CanvasRender } from './Render/CanvasRender';
 import { HTMLUI } from './UI/HTMLUI';
@@ -25,6 +25,7 @@ export class PageFlip extends EventObject {
     private mousePosition: Point;
     private isUserTouch = false;
     private isUserMove = false;
+    private interactionEnabled = true;
 
     private readonly setting: FlipSetting = null;
     private readonly block: HTMLElement; // Root HTML Element
@@ -363,6 +364,7 @@ export class PageFlip extends EventObject {
      * @param {Point} pos - Touch position in coordinates relative to the book
      */
     public startUserTouch(pos: Point): void {
+        if (!this.isInteractionEnabled()) return;
         this.mousePosition = pos; // Save touch position
         this.isUserTouch = true;
         this.isUserMove = false;
@@ -375,13 +377,23 @@ export class PageFlip extends EventObject {
      * @param {boolean} isTouch - True if there was a touch event, not a mouse click
      */
     public userMove(pos: Point, isTouch: boolean): void {
-        if (!this.isUserTouch && !isTouch && this.setting.showPageCorners) {
-            this.flipController.showCorner(pos); // fold Page Corner
-        } else if (this.isUserTouch) {
-            if (Helper.GetDistanceBetweenTwoPoint(this.mousePosition, pos) > 5) {
+        if (!this.isInteractionEnabled() || !this.isUserTouch) return;
+        if (isTouch && !this.isUserMove && Math.abs(pos.x - this.mousePosition.x) < 5) return;
+        if (this.isUserTouch) {
+            if (this.isUserMove || Helper.GetDistanceBetweenTwoPoint(this.mousePosition, pos) > 5) {
                 // Keep the side/corner from the initial grab, including the page's
                 // middle; the first move may already have crossed the spine.
-                if (!this.isUserMove) this.flipController.start(this.mousePosition);
+                if (!this.isUserMove) {
+                    // On a single visible page, finger direction chooses previous
+                    // or next; a tap still uses the existing left/right zones.
+                    const direction = isTouch && this.render.getOrientation() === Orientation.PORTRAIT
+                        ? (pos.x > this.mousePosition.x ? FlipDirection.BACK : FlipDirection.FORWARD)
+                        : undefined;
+                    if (!this.flipController.start(this.mousePosition, true, direction)) {
+                        this.isUserTouch = false;
+                        return;
+                    }
+                }
                 this.isUserMove = true;
                 this.flipController.fold(pos);
             }
@@ -398,10 +410,36 @@ export class PageFlip extends EventObject {
         if (this.isUserTouch) {
             this.isUserTouch = false;
 
-            if (!isSwipe) {
-                if (!this.isUserMove) this.flipController.flip(pos);
-                else this.flipController.stopMove();
+            if (!this.isInteractionEnabled()) return;
+            if (!this.isUserMove) this.flipController.flip(pos);
+            else {
+                const direction = this.flipController.getCalculation()?.getDirection();
+                const dx = pos.x - this.mousePosition.x;
+                const followsDirection = direction === FlipDirection.BACK ? dx > 0 : dx < 0;
+                this.flipController.stopMove(isSwipe && followsDirection);
             }
+            this.isUserMove = false;
         }
+    }
+
+    /** Disable gesture input during inline editing. Navigation APIs remain usable.
+     * Disabling also cancels an in-flight gesture without turning a page.
+     */
+    public setInteractionEnabled(enabled: boolean): void {
+        this.interactionEnabled = enabled;
+        if (!enabled) {
+            this.cancelUserTouch();
+            this.ui?.clearUserTouch();
+        }
+    }
+
+    public isInteractionEnabled(): boolean {
+        return this.interactionEnabled && !this.destroyed;
+    }
+
+    public cancelUserTouch(): void {
+        this.isUserTouch = false;
+        this.isUserMove = false;
+        this.flipController?.cancel();
     }
 }

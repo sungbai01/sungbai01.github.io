@@ -52,7 +52,7 @@ export interface FlipSetting {
 
     swipeDistance: number;
 
-    /** if this value is true, fold the corners of the book when the mouse pointer is over them. */
+    /** Legacy option retained for compatibility. Hover folding is disabled. */
     showPageCorners: boolean;
 
     /** if this value is true, flipping by clicking on the whole book will be locked. Only on corners */
@@ -80,7 +80,7 @@ export class Settings {
         swipeDistance: 30,
         clickEventForward: true,
         useMouseEvents: true,
-        showPageCorners: true,
+        showPageCorners: false,
         disableFlipByClick: false,
     };
 

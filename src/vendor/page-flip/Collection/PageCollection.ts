@@ -157,9 +157,9 @@ export abstract class PageCollection {
         const current = this.currentSpreadIndex;
 
         if (this.render.getOrientation() === Orientation.PORTRAIT) {
-            return direction === FlipDirection.FORWARD
-                ? this.pages[current].newTemporaryCopy()
-                : this.pages[current - 1];
+            // In either direction the visible sheet folds away to reveal its
+            // neighbour. Backward folds mirror around the visible page's centre.
+            return this.pages[current].newTemporaryCopy();
         } else {
             const spread =
                 direction === FlipDirection.FORWARD

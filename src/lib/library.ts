@@ -11,6 +11,10 @@
  * HTML disabled), never innerHTML. No Risu scripts/macros/assets are executed.
  */
 import { jade, bronze, iris, gold } from '@radix-ui/colors';
+import { normalizeAssets, safeAssetSource } from './assets';
+
+export type BookAsset = { id: string; name: string; src: string };
+export type BookBookmark = { message: number; char: number; label?: string };
 
 export interface Message {
   role: string;
@@ -30,6 +34,9 @@ export interface Book {
   updatedAt: string;
   messages: Message[];
   cover?: string;
+  backCover?: string;
+  assets?: BookAsset[];
+  bookmarks?: BookBookmark[];
   /** Zero-based reader page; the reader determines the page count. */
   lastPage?: number;
   seriesId?: string;
@@ -109,12 +116,30 @@ function inertDocument(html: string): Document {
   if (typeof DOMParser === 'undefined') throw new LibraryError('HTML 가져오기는 DOMParser를 지원하는 브라우저에서 사용해 주세요.');
   // Match whole tags including quoted '>' characters (notably srcdoc). Removing
   // tags instead of renaming void elements avoids swallowing following prose.
-  const disabled = html.replace(/<\/?(?:img|iframe|frame|frameset|link|base|object|embed|video|audio|source|track|image|use|input)\b(?:[^<>"']|"[^"]*"|'[^']*')*>/gi, '');
+  // Turn images into named references before removing resource-bearing tags.
+  // Attributes are read as strings; no imported element enters a live document.
+  const images = html.replace(/<img\b(?:[^<>"']|"[^"]*"|'[^']*')*>/gi, tag => {
+    const attrs = new Map<string, string>();
+    for (const match of tag.matchAll(/([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g)) attrs.set(match[1]!.toLowerCase(), match[2] ?? match[3] ?? match[4] ?? '');
+    const src = attrs.get('src') || '';
+    const token = src.match(/\{\{(?:img|image|raw)::([^{}]+)\}\}/i);
+    let filename = src.split(/[?#]/)[0]?.split(/[\\/]/).pop() || '';
+    try { filename = decodeURIComponent(filename); } catch { /* Keep the original name. */ }
+    const name = (token?.[1] || attrs.get('data-asset-name') || attrs.get('alt') || attrs.get('title') ||
+      (!/^data:/i.test(src) ? filename : '')).trim();
+    return name && !/[{}\r\n]/.test(name) ? `{{img::${name.replace(/</g, '&lt;').replace(/>/g, '&gt;')}}` : '';
+  });
+  const disabled = images.replace(/<\/?(?:img|iframe|frame|frameset|link|base|object|embed|video|audio|source|track|image|use|input)\b(?:[^<>"']|"[^"]*"|'[^']*')*>/gi, '');
   return new DOMParser().parseFromString('<meta http-equiv="Content-Security-Policy" content="default-src \'none\';">' + disabled, 'text/html');
 }
 
 function elementText(element: Element): string {
   element.querySelectorAll('script,style,noscript,template,svg,math,[hidden],.idat').forEach(node => node.remove());
+  // Keep semantic emphasis as the simple Markdown understood by Reader.
+  Array.from(element.querySelectorAll('em,i,strong,b')).reverse().forEach(node => {
+    const marker = /^(strong|b)$/i.test(node.tagName) ? '**' : '*';
+    node.prepend(marker); node.append(marker);
+  });
   element.querySelectorAll('br').forEach(node => node.replaceWith('\n'));
   element.querySelectorAll('p,div,section,article,li,blockquote,pre,h1,h2,h3,h4,h5,h6,tr').forEach(node => node.append('\n'));
   return (element.textContent || '').replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
@@ -157,7 +182,7 @@ interface ImportContext {
 function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, index: number): Book {
   const character = string(value.character_name, value.character, context.character, '캐릭터');
   const user = string(value.user_name, context.user, '나');
-  const messages = rows.map((row, i) => {
+  const normalized = rows.map((row, i) => {
     // Our own books already contain canonical messages. Backup restore must not
     // normalize roles, trim speaker names, or change source line endings.
     if (context.preserveIds && record(row) && typeof row.role === 'string' &&
@@ -166,7 +191,10 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
         ...(typeof row.chapter === 'string' ? { chapter: row.chapter } : {}) };
     }
     return normalizeMessage(row, i, character, user, context.names);
-  }).filter(message => !context.removeUserInputs || ['assistant', 'char', 'character', 'bot', 'ai', 'model'].includes(message.role.toLowerCase()));
+  });
+  const retained = normalized.map((message, index) => ({ message, index })).filter(({ message }) =>
+    !context.removeUserInputs || ['assistant', 'char', 'character', 'bot', 'ai', 'model'].includes(message.role.toLowerCase()));
+  const messages = retained.map(({ message }) => message);
   if (!messages.some((message) => message.content.trim())) throw new LibraryError(context.removeUserInputs
     ? '사용자·시스템 메시지를 제외한 뒤 읽을 수 있는 캐릭터 대화가 없습니다.' : '대화 내용이 비어 있습니다.');
   const createdAt = timestamp(value.createdAt ?? value.created_at ?? value.creation_date, context.now);
@@ -186,6 +214,19 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
   };
   const cover = safeCover(value.cover);
   if (cover) book.cover = cover;
+  const backCover = safeAssetSource(value.backCover);
+  if (backCover) book.backCover = backCover;
+  if (Array.isArray(value.assets)) book.assets = normalizeAssets(value.assets);
+  if (Array.isArray(value.bookmarks)) {
+    const indices = new Map(retained.map(({ index }, destination) => [index, destination]));
+    book.bookmarks = value.bookmarks.flatMap(entry => {
+      if (!record(entry) || !Number.isSafeInteger(entry.message) || !Number.isSafeInteger(entry.char) ||
+          typeof entry.message !== 'number' || typeof entry.char !== 'number' || entry.char < 0) return [];
+      const message = indices.get(entry.message);
+      if (message === undefined || entry.char > (normalized[entry.message]?.content.length ?? -1)) return [];
+      return [{ message, char: entry.char, ...(typeof entry.label === 'string' ? { label: entry.label } : {}) }];
+    });
+  }
   if (typeof value.lastPage === 'number' && Number.isSafeInteger(value.lastPage) && value.lastPage >= 0) book.lastPage = value.lastPage;
   if (context.preserveIds) {
     if (typeof value.seriesId === 'string') book.seriesId = value.seriesId;
@@ -463,19 +504,38 @@ function validateBook(book: Book): void {
     (book.seriesId !== undefined && typeof book.seriesId !== 'string') ||
     (book.seriesTitle !== undefined && typeof book.seriesTitle !== 'string') ||
     (book.volumeNumber !== undefined && (!Number.isSafeInteger(book.volumeNumber) || book.volumeNumber < 1)) ||
-    (book.volumeCount !== undefined && (!Number.isSafeInteger(book.volumeCount) || book.volumeCount < 1))) {
+    (book.volumeCount !== undefined && (!Number.isSafeInteger(book.volumeCount) || book.volumeCount < 1)) ||
+    (book.backCover !== undefined && typeof book.backCover !== 'string') ||
+    (book.assets !== undefined && (!Array.isArray(book.assets) || !book.assets.every(asset => record(asset) &&
+      typeof asset.id === 'string' && !!asset.id.trim() && typeof asset.name === 'string' && !!asset.name.trim() && typeof asset.src === 'string'))) ||
+    (book.bookmarks !== undefined && (!Array.isArray(book.bookmarks) || !book.bookmarks.every(mark => record(mark) &&
+      Number.isSafeInteger(mark.message) && mark.message >= 0 && mark.message < book.messages.length &&
+      Number.isSafeInteger(mark.char) && mark.char >= 0 && mark.char <= book.messages[mark.message]!.content.length &&
+      (mark.label === undefined || typeof mark.label === 'string'))))) {
     throw new LibraryError('저장할 책의 데이터 형식이 올바르지 않습니다.');
   }
 }
 
+/** The same safety rules apply to imports, persisted records and backup blobs. */
+function sanitizedBook(book: Book): Book {
+  const { cover: _cover, backCover: _backCover, assets: _assets, bookmarks: _bookmarks, ...rest } = book;
+  const cover = safeCover(book.cover);
+  const backCover = safeAssetSource(book.backCover);
+  return { ...rest, messages: book.messages.map(message => ({ ...message })),
+    ...(cover ? { cover } : {}), ...(backCover ? { backCover } : {}),
+    ...(book.assets === undefined ? {} : { assets: normalizeAssets(book.assets) }),
+    ...(book.bookmarks === undefined ? {} : { bookmarks: book.bookmarks.map(mark => ({ ...mark })) }) };
+}
+
 export async function loadBooks(): Promise<Book[]> {
   let progress: ReadingProgress[] = [];
-  const books = await withStores<Book[]>([STORE, PROGRESS_STORE], 'readonly', (transaction) => {
+  const records = await withStores<Book[]>([STORE, PROGRESS_STORE], 'readonly', (transaction) => {
     const request = transaction.objectStore(PROGRESS_STORE).getAll();
     request.onsuccess = () => { progress = request.result; };
     return transaction.objectStore(STORE).getAll();
   });
-  books.forEach(validateBook);
+  records.forEach(validateBook);
+  const books = records.map(sanitizedBook);
   const byId = new Map(progress.filter((entry) => record(entry) && typeof entry.id === 'string' &&
     Number.isSafeInteger(entry.lastPage) && entry.lastPage >= 0 &&
     typeof entry.updatedAt === 'string' && Number.isFinite(Date.parse(entry.updatedAt))).map((entry) => [entry.id, entry]));
@@ -502,9 +562,7 @@ export async function saveReadingProgress(id: string, page: number, updatedAt: s
 /** Upsert by id. Timestamps are caller-owned, allowing lossless backup restore. */
 export async function saveBook(book: Book): Promise<void> {
   validateBook(book);
-  const { cover: _cover, ...rest } = book;
-  const cover = safeCover(book.cover);
-  const stored: Book = cover ? { ...rest, cover } : rest;
+  const stored = sanitizedBook(book);
   await withStores([STORE, PROGRESS_STORE], 'readwrite', (transaction) => {
     const request = transaction.objectStore(STORE).put(stored);
     transaction.objectStore(PROGRESS_STORE).delete(book.id);
@@ -535,9 +593,7 @@ export async function repackSeries(originalId: string, volumes: Book[], obsolete
     validateBook(book);
     if (ids.has(book.id)) throw new LibraryError('분권 목록에 중복된 책 ID가 있습니다.');
     ids.add(book.id);
-    const { cover: _cover, ...rest } = book;
-    const cover = safeCover(book.cover);
-    return { ...rest, messages: book.messages.map((message) => ({ ...message })), ...(cover ? { cover } : {}) };
+    return sanitizedBook(book);
   });
   if (!ids.has(originalId)) throw new LibraryError('분권 목록에 원본 책 ID가 필요합니다.');
 
@@ -594,7 +650,7 @@ export async function deleteBook(id: string): Promise<void> {
 /** Feed the resulting .json File back into importChatFile to restore books. */
 export function exportBackup(books: Book[]): Blob {
   books.forEach(validateBook);
-  return new Blob([JSON.stringify({ format: 'galpi-backup', version: 1, exportedAt: new Date().toISOString(), books }, null, 2)], { type: 'application/json;charset=utf-8' });
+  return new Blob([JSON.stringify({ format: 'galpi-backup', version: 1, exportedAt: new Date().toISOString(), books: books.map(sanitizedBook) }, null, 2)], { type: 'application/json;charset=utf-8' });
 }
 
 export function exportBookMarkdown(book: Book): Blob {

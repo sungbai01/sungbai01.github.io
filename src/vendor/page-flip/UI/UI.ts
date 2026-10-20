@@ -1,12 +1,13 @@
 import { PageFlip } from '../PageFlip';
 import { Point } from '../BasicTypes';
 import { FlipSetting, SizeType } from '../Settings';
-import { FlipCorner, FlippingState } from '../Flip/Flip';
+import { FlippingState } from '../Flip/Flip';
 import { Orientation } from '../Render/Render';
 
 type SwipeData = {
     point: Point;
     time: number;
+    identifier: number;
 };
 
 /**
@@ -20,6 +21,7 @@ export abstract class UI {
     protected distElement: HTMLElement;
 
     private touchPoint: SwipeData = null;
+    private mouseActive = false;
     private readonly swipeTimeout = 250;
     private readonly swipeDistance: number;
 
@@ -71,7 +73,7 @@ export abstract class UI {
      * Destructor. Remove all HTML elements and all event handlers
      */
     public destroy(): void {
-        if (this.app.getSettings().useMouseEvents) this.removeHandlers();
+        this.removeHandlers();
 
         this.distElement.remove();
         this.wrapper.remove();
@@ -135,6 +137,8 @@ export abstract class UI {
         window.removeEventListener('touchmove', this.onTouchMove);
         window.removeEventListener('mouseup', this.onMouseUp);
         window.removeEventListener('touchend', this.onTouchEnd);
+        window.removeEventListener('touchcancel', this.onTouchCancel);
+        window.removeEventListener('blur', this.onTouchCancel);
     }
 
     protected setHandlers(): void {
@@ -149,6 +153,8 @@ export abstract class UI {
         });
         window.addEventListener('mouseup', this.onMouseUp);
         window.addEventListener('touchend', this.onTouchEnd);
+        window.addEventListener('touchcancel', this.onTouchCancel);
+        window.addEventListener('blur', this.onTouchCancel);
     }
 
     /**
@@ -166,18 +172,18 @@ export abstract class UI {
         };
     }
 
-    private checkTarget(targer: EventTarget): boolean {
-        if (!this.app.getSettings().clickEventForward) return true;
-
-        if ((targer as Element).closest('a,button,input,textarea,select,[data-no-flip]')) {
-            return false;
-        }
-
-        return true;
+    private checkTarget(target: EventTarget): boolean {
+        if (!this.app.isInteractionEnabled()) return false;
+        const element = target instanceof Element ? target : (target as Node)?.parentElement;
+        if (!element) return false;
+        // Controls and editors must retain native focus, selection and gestures,
+        // regardless of the legacy clickEventForward setting.
+        return !element.closest('a,button,input,textarea,select,label,summary,[contenteditable]:not([contenteditable="false"]),[role="button"],[role="textbox"],[data-no-flip]');
     }
 
     private onMouseDown = (e: MouseEvent): void => {
-        if (this.checkTarget(e.target)) {
+        if (e.button === 0 && this.touchPoint === null && this.checkTarget(e.target)) {
+            this.mouseActive = true;
             const pos = this.getMousePos(e.clientX, e.clientY);
 
             this.app.startUserTouch(pos);
@@ -187,14 +193,19 @@ export abstract class UI {
     };
 
     private onTouchStart = (e: TouchEvent): void => {
-        if (this.checkTarget(e.target)) {
-            if (e.changedTouches.length > 0) {
+        if (e.touches.length > 1) {
+            this.onTouchCancel();
+            return;
+        }
+        if (this.touchPoint === null && this.checkTarget(e.target)) {
+            if (e.touches.length === 1 && e.changedTouches.length > 0) {
                 const t = e.changedTouches[0];
                 const pos = this.getMousePos(t.clientX, t.clientY);
 
                 this.touchPoint = {
                     point: pos,
                     time: Date.now(),
+                    identifier: t.identifier,
                 };
 
                 // The reader is a fixed book surface. Register a tap immediately;
@@ -207,20 +218,25 @@ export abstract class UI {
     };
 
     private onMouseUp = (e: MouseEvent): void => {
+        if (!this.mouseActive || e.button !== 0) return;
+        this.mouseActive = false;
         const pos = this.getMousePos(e.clientX, e.clientY);
 
+        this.app.userMove(pos, false);
         this.app.userStop(pos);
     };
 
     private onMouseMove = (e: MouseEvent): void => {
+        if (!this.mouseActive) return; // No hover work, including layout reads.
         const pos = this.getMousePos(e.clientX, e.clientY);
 
         this.app.userMove(pos, false);
     };
 
     private onTouchMove = (e: TouchEvent): void => {
-        if (e.changedTouches.length > 0) {
-            const t = e.changedTouches[0];
+        if (this.touchPoint === null || !this.app.isInteractionEnabled()) return;
+        const t = Array.from(e.changedTouches).find(t => t.identifier === this.touchPoint.identifier);
+        if (t) {
             const pos = this.getMousePos(t.clientX, t.clientY);
 
             if (this.app.getSettings().mobileScrollSupport) {
@@ -229,12 +245,12 @@ export abstract class UI {
                         Math.abs(this.touchPoint.point.x - pos.x) > 10 ||
                         this.app.getState() !== FlippingState.READ
                     ) {
-                        if (e.cancelable) this.app.userMove(pos, true);
+                        this.app.userMove(pos, true);
                     }
                 }
 
                 if (this.app.getState() !== FlippingState.READ) {
-                    e.preventDefault();
+                    if (e.cancelable) e.preventDefault();
                 }
             } else {
                 this.app.userMove(pos, true);
@@ -243,10 +259,18 @@ export abstract class UI {
     };
 
     private onTouchEnd = (e: TouchEvent): void => {
-        if (e.changedTouches.length > 0) {
-            const t = e.changedTouches[0];
+        if (this.touchPoint === null) return;
+        const t = Array.from(e.changedTouches).find(t => t.identifier === this.touchPoint.identifier);
+        if (t) {
             const pos = this.getMousePos(t.clientX, t.clientY);
             let isSwipe = false;
+
+            if (this.app.getState() === FlippingState.READ &&
+                Math.abs(pos.x - this.touchPoint.point.x) < 10 &&
+                Math.abs(pos.y - this.touchPoint.point.y) > 10) {
+                this.onTouchCancel();
+                return;
+            }
 
             // swipe detection
             if (this.touchPoint !== null) {
@@ -258,26 +282,27 @@ export abstract class UI {
                     distY < this.swipeDistance * 2 &&
                     Date.now() - this.touchPoint.time < this.swipeTimeout
                 ) {
-                    if (dx > 0) {
-                        this.app.flipPrev(
-                            this.touchPoint.point.y < this.app.getRender().getRect().height / 2
-                                ? FlipCorner.TOP
-                                : FlipCorner.BOTTOM
-                        );
-                    } else {
-                        this.app.flipNext(
-                            this.touchPoint.point.y < this.app.getRender().getRect().height / 2
-                                ? FlipCorner.TOP
-                                : FlipCorner.BOTTOM
-                        );
-                    }
                     isSwipe = true;
                 }
 
                 this.touchPoint = null;
             }
 
+            // Account for a final move delivered only with touchend. Settle the
+            // existing fold instead of replacing it with a corner animation.
+            this.app.userMove(pos, true);
             this.app.userStop(pos, isSwipe);
         }
+    };
+
+    public clearUserTouch(): void {
+        this.touchPoint = null;
+        this.mouseActive = false;
+    }
+
+    private onTouchCancel = (): void => {
+        if (this.touchPoint === null && !this.mouseActive) return;
+        this.clearUserTouch();
+        this.app.cancelUserTouch();
     };
 }

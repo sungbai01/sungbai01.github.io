@@ -67,6 +67,7 @@ export function splitBookByPages(book: Book, pages: MeasuredPage[]): Book[] {
   let sourceChar = 0;
   const volumes = ranges.map(({ start, end }, index): Book => {
     const messages: Book['messages'] = [];
+    const spans: { source: number; start: number; end: number; local: number }[] = [];
     let previousMessage = -1;
     for (const page of pages.slice(start, end)) {
       for (const fragment of page.fragments) {
@@ -77,8 +78,13 @@ export function splitBookByPages(book: Book, pages: MeasuredPage[]): Book[] {
           throw new RangeError('Measured pages must cover source messages in order without gaps or overlaps.');
         }
         const content = source.content.slice(fragment.char, fragment.end);
-        if (previousMessage === fragment.message) messages[messages.length - 1]!.content += content;
-        else messages.push({ ...source, content });
+        if (previousMessage === fragment.message) {
+          messages[messages.length - 1]!.content += content;
+          spans[spans.length - 1]!.end = fragment.end;
+        } else {
+          messages.push({ ...source, content });
+          spans.push({ source: fragment.message, start: fragment.char, end: fragment.end, local: messages.length - 1 });
+        }
         previousMessage = fragment.message;
         sourceChar = fragment.end;
         if (sourceChar === source.content.length) { sourceMessage++; sourceChar = 0; }
@@ -90,6 +96,12 @@ export function splitBookByPages(book: Book, pages: MeasuredPage[]): Book[] {
       id: index === 0 ? book.id : `${book.id}--part-${volumeNumber}`,
       title: `${seriesTitle} · ${volumeNumber}권`, seriesId, seriesTitle,
       volumeNumber, volumeCount: ranges.length, messages,
+      ...(book.assets === undefined ? {} : { assets: book.assets.map(asset => ({ ...asset })) }),
+      ...(book.bookmarks === undefined ? {} : { bookmarks: book.bookmarks.flatMap(mark => {
+        const span = spans.find(span => span.source === mark.message && mark.char >= span.start &&
+          (mark.char < span.end || (mark.char === span.end && span.end === book.messages[span.source]!.content.length)));
+        return span ? [{ ...mark, message: span.local, char: mark.char - span.start }] : [];
+      }) }),
       volumePolicy: 'chapters-100-v1',
       ...(book.lastPage === undefined ? {} : {
         lastPage: Math.max(0, Math.min(end - start - 1, book.lastPage - start)),
@@ -111,10 +123,21 @@ export function mergeLegacyVolumes(books: Book[]): Book[] {
   return groupBooks(books).map(({ books: siblings }) => {
     const first = siblings[0]!;
     if (siblings.length === 1) return first;
+    let messageOffset = 0;
+    const bookmarks: NonNullable<Book['bookmarks']> = [];
+    const assets = new Map<string, NonNullable<Book['assets']>[number]>();
+    for (const sibling of siblings) {
+      for (const mark of sibling.bookmarks ?? []) bookmarks.push({ ...mark, message: mark.message + messageOffset });
+      for (const asset of sibling.assets ?? []) if (!assets.has(asset.id)) assets.set(asset.id, { ...asset });
+      messageOffset += sibling.messages.length;
+    }
     return {
       ...first, title: first.seriesTitle ?? first.title,
       volumeNumber: 1, volumeCount: 1, lastPage: 0,
       messages: siblings.flatMap(book => book.messages.map(message => ({ ...message }))),
+      ...(siblings.some(book => book.assets !== undefined) ? { assets: [...assets.values()] } : {}),
+      ...(siblings.some(book => book.bookmarks !== undefined) ? { bookmarks } : {}),
+      ...(siblings.some(book => book.backCover !== undefined) ? { backCover: first.backCover ?? siblings.find(book => book.backCover)?.backCover } : {}),
     };
   });
 }

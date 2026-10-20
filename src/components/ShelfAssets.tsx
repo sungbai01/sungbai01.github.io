@@ -1,0 +1,107 @@
+import { useEffect, useId, useRef, useState } from 'react';
+import { ImagePlus, LoaderCircle, Trash2, X } from 'lucide-react';
+import type { BookAsset } from '../lib/library';
+import { importAssetFile, normalizeAssets, safeAssetSource } from '../lib/assets';
+import './shelf-assets.css';
+
+export interface ShelfAssetsProps {
+  assets: BookAsset[];
+  /** App persists this entire library onto every book belonging to this shelf. */
+  onSave: (assets: BookAsset[]) => Promise<void>;
+  onClose: () => void;
+}
+
+export default function ShelfAssets({ assets, onSave, onClose }: ShelfAssetsProps) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const locked = useRef(false);
+  const titleId = useId();
+  const [draft, setDraft] = useState<BookAsset[]>(() => normalizeAssets(assets));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [previewFailures, setPreviewFailures] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    const element = dialog.current!;
+    element.showModal();
+    return () => element.close();
+  }, []);
+
+  async function addFiles(files: File[]) {
+    if (!files.length || locked.current) return;
+    locked.current = true; setBusy(true); setError(''); setNotice('');
+    const incoming: BookAsset[] = [];
+    const problems: string[] = [];
+    const warnings: string[] = [];
+    try {
+      for (const file of files) {
+        try {
+          const result = await importAssetFile(file);
+          incoming.push(...result.assets);
+          warnings.push(...result.warnings.map(warning => `${file.name}: ${warning}`));
+        } catch (cause) { problems.push(`${file.name}: ${cause instanceof Error ? cause.message : '파일을 읽지 못했습니다.'}`); }
+      }
+      setDraft(previous => {
+        const next = previous.map(asset => ({ ...asset }));
+        const ids = new Set(next.map(asset => asset.id));
+        for (const asset of incoming) {
+          // Reimporting an identical image is harmless; distinct images retain
+          // their original token name so the user can resolve conflicts explicitly.
+          if (next.some(entry => entry.name === asset.name && entry.src === asset.src)) continue;
+          const assetId = ids.has(asset.id) ? crypto.randomUUID() : asset.id;
+          ids.add(assetId); next.push({ ...asset, id: assetId });
+        }
+        return next;
+      });
+      setError(problems.join('\n'));
+      setNotice(warnings.length ? warnings.slice(0, 8).join('\n') + (warnings.length > 8 ? `\n외 ${warnings.length - 8}개 항목` : '') : '');
+    } finally { locked.current = false; setBusy(false); }
+  }
+
+  async function save() {
+    if (locked.current) return;
+    const names = new Set<string>();
+    for (const asset of draft) {
+      const name = asset.name.trim();
+      if (!name || /[{}\r\n]/.test(name)) { setError('이름을 입력해 주세요. 중괄호와 줄바꿈은 사용할 수 없습니다.'); return; }
+      if (names.has(name)) { setError(`“${name}” 이름이 겹칩니다. 이미지마다 다른 이름을 지정해 주세요.`); return; }
+      if (!safeAssetSource(asset.src)) { setError(`“${name}” 이미지 주소가 올바르지 않습니다.`); return; }
+      names.add(name);
+    }
+    if (draft.length > 2000) { setError('책장마다 2,000개 이하의 이미지를 저장해 주세요.'); return; }
+    locked.current = true; setBusy(true); setError('');
+    try {
+      await onSave(normalizeAssets(draft));
+      onClose();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '저장하지 못했습니다. 다시 시도해 주세요.'); }
+    finally { locked.current = false; setBusy(false); }
+  }
+
+  return <dialog ref={dialog} className="shelf-assets-dialog" aria-labelledby={titleId}
+    aria-busy={busy} onCancel={event => { event.preventDefault(); if (!locked.current) onClose(); }}
+    onClick={event => { if (event.target === event.currentTarget && !locked.current) {
+      const rect = event.currentTarget.getBoundingClientRect();
+      if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) onClose();
+    } }}>
+    <header className="shelf-assets-heading"><h2 id={titleId}>책장 이미지</h2><button type="button" className="shelf-assets-icon" aria-label="닫기" disabled={busy} onClick={onClose}><X size={20}/></button></header>
+    <p className="shelf-assets-description">이 책장의 이야기에 사용할 이미지를 모아 두세요.</p>
+    <button type="button" className="shelf-assets-add" disabled={busy} onClick={() => input.current?.click()}><ImagePlus size={19}/> 이미지 · 캐릭터 카드 추가</button>
+    <input ref={input} type="file" className="shelf-assets-input" multiple accept=".png,.jpg,.jpeg,.webp,.gif,.avif,.json,image/png,image/jpeg,image/webp,image/gif,image/avif,application/json"
+      aria-label="이미지 또는 캐릭터 카드 파일" disabled={busy} onChange={event => { const files = Array.from(event.target.files ?? []); event.target.value = ''; void addFiles(files); }}/>
+    <p className="shelf-assets-hint">이미지 파일, PNG·JSON 카드, 에셋 JSON · 파일당 50MB</p>
+    <div className="shelf-assets-list" aria-label="책장 이미지 목록">
+      {!draft.length && <p className="shelf-assets-empty">아직 이미지가 없어요.</p>}
+      {draft.map((asset, index) => <div className="shelf-assets-row" key={asset.id}>
+        <div className="shelf-assets-preview">{previewFailures.has(asset.id) ? <span>미리보기 없음</span> : <img src={asset.src} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setPreviewFailures(previous => new Set(previous).add(asset.id))}/>}</div>
+        <label className="shelf-assets-name"><span>이미지 이름</span><input aria-label={`${index + 1}번째 이미지 이름`} value={asset.name} disabled={busy} onChange={event => {
+          const name = event.target.value; setDraft(previous => previous.map(entry => entry.id === asset.id ? { ...entry, name } : entry));
+        }}/><small>{`{{img::${asset.name}}}`}</small></label>
+        <button type="button" className="shelf-assets-icon shelf-assets-remove" aria-label={`${asset.name || '이미지'} 삭제`} disabled={busy} onClick={() => setDraft(previous => previous.filter(entry => entry.id !== asset.id))}><Trash2 size={18}/></button>
+      </div>)}
+    </div>
+    {notice && <p role="status" className="shelf-assets-notice">{notice}</p>}
+    {error && <p role="alert" className="shelf-assets-error">{error}</p>}
+    <footer className="shelf-assets-actions"><span>{draft.length.toLocaleString()}개 이미지</span><button type="button" disabled={busy} onClick={onClose}>취소</button><button type="button" className="shelf-assets-save" disabled={busy} onClick={() => void save()}>{busy && <LoaderCircle size={16}/>} 저장</button></footer>
+  </dialog>;
+}
