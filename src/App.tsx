@@ -10,8 +10,8 @@ import AuthorPicker from './components/AuthorPicker';
 import BookRibbon from './components/BookRibbon';
 import SpineTitle,{CoverTitle} from './components/SpineTitle';
 import {readTheme,saveTheme,THEME_EVENT,type Theme} from './lib/appearance';
-import { portraitPalette } from './lib/assets';
-import type {ImageRule} from './lib/imageRules';
+import { importAssetFile, normalizeAssets, portraitPalette } from './lib/assets';
+import {normalizeImageRules,type ImageRule} from './lib/imageRules';
 import {applyBookDisplayRules,type DisplayRule} from './lib/displayRules';
 
 type BookAsset = NonNullable<Book['assets']>[number];
@@ -284,6 +284,20 @@ export default function App() {
     }
     const target=creating;const siblings=target?shelfBooks(latestBooks.current,target):[];
     if(target&&siblings.length)incoming=incoming.map(book=>({...book,assets:shelfAssets(latestBooks.current,target),imageRules:shelfImageRules(latestBooks.current,target),displayRules:shelfDisplayRules(latestBooks.current,target),characterIcon:portrait(siblings[0]!),bookmarkAssetId:siblings[0]!.bookmarkAssetId,bookmarkStyle:siblings[0]!.bookmarkStyle,color:siblings[0]!.color,customColor:siblings[0]!.customColor}));
+    // The optional card is staged with the logs and applied before their single
+    // preprocessing pass. Nothing is persisted merely by selecting a file.
+    if(request.mode==='file'&&request.cardFile){
+      const card=await importAssetFile(request.cardFile);
+      const icon=card.assets.find(asset=>asset.type==='icon');
+      const palette=icon?await portraitPalette(icon.src):undefined;
+      incoming=incoming.map(book=>({...book,
+        assets:normalizeAssets([...(book.assets??[]),...card.assets]),
+        imageRules:normalizeImageRules([...(book.imageRules??[]),...(card.imageRules??[])]),
+        displayRules:[...(book.displayRules??[]),...(card.displayRules??[])],
+        ...(icon?{characterIcon:icon.src}:{}),
+        ...(palette?{color:palette,customColor:palette}:{})
+      }));
+    }
     // Parse every staged file first. Preparation happens once, before any write.
     const prepared=await prepareBooks(incoming,{removeEmoji:request.removeEmoji,removeSquareBrackets:request.removeSquareBrackets,removeAngleBrackets:request.removeAngleBrackets});
     if(!prepared.length)throw new Error('추가할 본문이 없어요.');
