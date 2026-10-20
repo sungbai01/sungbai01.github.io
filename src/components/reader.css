@@ -182,16 +182,10 @@
 .reader-back-barcode{width:54px;height:20px;opacity:.6;background:repeating-linear-gradient(90deg,currentColor 0 1px,transparent 1px 3px,currentColor 3px 5px,transparent 5px 6px,currentColor 6px 7px,transparent 7px 10px)}
 .reader-back-imprint .reader-end-action{margin-top:18px}
 .reader-tools{gap:3px}
-.reader-fullscreen .reader-toolbar,.reader-fullscreen .reader-footer{display:none}
 .reader-fullscreen .reader-main{padding:0}
-.reader-fullscreen-exit{position:fixed;top:0;left:50%;transform:translateX(-50%);width:160px;height:46px;display:flex;align-items:flex-start;justify-content:center;z-index:150}
-.reader-fullscreen-exit button{display:grid;place-items:center;width:50px;height:40px;background:var(--reader-panel-bg);border:1px solid var(--reader-line);border-top:0;border-radius:0 0 9px 9px;box-shadow:0 4px 18px #0002;transform:translateY(-105%);transition:transform .18s ease}
-.reader-fullscreen-exit:hover button,.reader-fullscreen-exit:focus-within button{transform:translateY(0)}
 .reader-fullscreen .reader-panel{top:48px}
 .reader-fullscreen .reader-inline-actions{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);z-index:120;background:var(--reader-panel-bg);border:1px solid var(--reader-line);border-radius:8px}
 @media(max-width:700px){.reader-toolbar{grid-template-columns:auto minmax(0,1fr);padding:8px 12px;min-height:92px}.reader-toolbar-title{align-items:flex-start}.reader-tools{grid-column:1/-1;justify-self:center;gap:7px}.reader-tools .reader-icon-button{width:32px!important;height:32px}.reader-toolbar-title small{display:none}}
-@media(hover:none){.reader-fullscreen-exit button{transform:translateY(0);opacity:.75}}
-@media(prefers-reduced-motion:reduce){.reader-fullscreen-exit button{transition:none}}
 .reader-is-editing .reader-book-mount,.reader-page-content-editing{touch-action:pan-y}
 
 /* The one shelf ribbon sits above the clipped engine, never inside a leaf. */
@@ -273,3 +267,23 @@
 .reader-asset-page img{width:auto;height:auto;max-width:100%;max-height:100%;object-fit:contain;flex:0 1 auto}
 
 .reader-prose.reader-chapter-opening { text-indent: 1em; }
+
+/* The full-window drawer overlays a fixed reading area; it never takes layout space. */
+.reader-drawer{display:contents}
+.reader-drawer[hidden]{display:none!important}
+.reader:not(.reader-fullscreen) .reader-main{order:1}
+.reader:not(.reader-fullscreen) .reader-footer{order:2}
+.reader-fullscreen .reader-main{position:absolute;inset:0;padding:0}
+.reader-fullscreen .reader-drawer{display:block;position:absolute;z-index:40;top:0;left:0;right:0;max-height:calc(100% - 40px);overflow:auto;overscroll-behavior:contain;background:var(--reader-panel-bg);border-bottom:1px solid var(--reader-line);box-shadow:0 12px 34px #0002;padding-top:max(28px,env(safe-area-inset-top))}
+.reader-fullscreen .reader-toolbar{display:grid;padding-right:46px}
+.reader-fullscreen .reader-footer{display:block;padding-bottom:18px}
+.reader-drawer-handle{position:absolute;z-index:42;top:env(safe-area-inset-top,0px);left:50%;transform:translateX(-50%);display:grid;place-items:center;width:92px;height:28px;border:1px solid var(--reader-line);border-top:0;border-radius:0 0 14px 14px;background:var(--reader-panel-bg);color:var(--reader-muted);touch-action:none;user-select:none;cursor:pointer}
+.reader-drawer-handle>span{width:32px;height:4px;border-radius:4px;background:currentColor}
+.reader-drawer-backdrop{position:absolute;inset:0;z-index:39;border:0;background:#0002;touch-action:none}
+.reader-drawer-close{position:absolute;right:8px;top:max(26px,env(safe-area-inset-top))}
+.reader-fullscreen .reader-panel{z-index:45;top:44px;max-height:calc(100% - 60px)}
+.reader-fullscreen .reader-panel-backdrop{z-index:44;inset:0}
+.reader-fullscreen .reader-error{position:absolute;bottom:8px;left:12px;right:12px;z-index:5}
+.reader-fullscreen .reader-drawer:not([hidden]){animation:reader-drawer-enter .18s ease-out}
+@keyframes reader-drawer-enter{from{transform:translateY(-20px);opacity:0}to{transform:translateY(0);opacity:1}}
+@media(prefers-reduced-motion:reduce){.reader-fullscreen .reader-drawer:not([hidden]){animation:none}}

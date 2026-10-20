@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties, ReactNode, PointerEvent as ReactPointerEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
 import { flushSync } from 'react-dom';
@@ -153,7 +153,13 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
   const [editError,setEditError]=useState('');
   const [leafRevision,setLeafRevision]=useState(0);
   const draftsRef=useRef(new Map<string,string>());
-  const [fullscreen,setFullscreen]=useState(false);
+  const [fullscreen,setFullscreen]=useState(()=>{const view=readReaderViewport();return view.touch||view.width<=700;});
+  const [drawerOpen,setDrawerOpen]=useState(false);
+  const drawerRef=useRef(false);drawerRef.current=drawerOpen;
+  const drawerHandleRef=useRef<HTMLButtonElement>(null);
+  const windowModeButtonRef=useRef<HTMLButtonElement>(null);
+  const drawerDrag=useRef<{id:number;x:number;y:number;opened:boolean}|null>(null);
+  const suppressHandleClick=useRef(false);
   const fullscreenRef=useRef(false);fullscreenRef.current=fullscreen;
   const readerRef=useRef<HTMLDivElement>(null);
   const [selectedLeaf,setSelectedLeaf]=useState<number|null>(null);
@@ -408,7 +414,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
         });
         instance.loadFromHTML(nodes);
         flipRef.current = instance;
-        instance.setInteractionEnabled(!blockedRef.current);
+        instance.setInteractionEnabled(!blockedRef.current&&!drawerRef.current);
         report(instance.getCurrentPageIndex(), !anchorRef.current);
       } catch {
         setError('책장 넘기기를 사용할 수 없어요. 화면을 스크롤해 계속 읽어 주세요.');
@@ -503,10 +509,12 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
       const target = event.target as HTMLElement | null;
       if (event.key === 'Escape') {
         if (panel) { setPanel(null); panelButtonRefs.current[panel]?.focus(); }
-        else if(fullscreenRef.current)void exitFullscreen();
+        else if(drawerRef.current){closeDrawer();}
+        else if(fullscreenRef.current){setDrawerOpen(true);}
         else requestCloseRef.current();
         return;
       }
+      if(drawerRef.current)return;
       const field=target?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
       if ((field && !field.matches('input[type="range"].reader-progress')) || event.ctrlKey || event.metaKey || event.altKey || panel) return;
       if(event.key===' '&&target?.closest('button, a, input'))return;
@@ -524,7 +532,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
     const stage=stageRef.current;if(!stage)return;
     let accumulated=0,last=-Infinity,lastInput=0;
     const wheel=(event:WheelEvent)=>{
-      if(event.ctrlKey||blockedRef.current||panel)return;
+      if(event.ctrlKey||blockedRef.current||panel||drawerRef.current){accumulated=0;return;}
       event.preventDefault();
       const now=performance.now();
       if(now-lastInput>180)accumulated=0;
@@ -545,25 +553,52 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
     else if (panel) panelRef.current?.focus();
   }, [panel]);
 
+  function closeDrawer(){setPanel(null);setDrawerOpen(false);drawerHandleRef.current?.focus();}
+  function enterFullwindow(){setFullscreen(true);setDrawerOpen(false);setPanel(null);}
+  function exitFullwindow(){setPanel(null);setDrawerOpen(false);setFullscreen(false);}
+  function startDrawerDrag(event:ReactPointerEvent<HTMLButtonElement>){
+    if(!event.isPrimary||event.button!==0)return;
+    event.stopPropagation();suppressHandleClick.current=false;
+    drawerDrag.current={id:event.pointerId,x:event.clientX,y:event.clientY,opened:false};
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+  function moveDrawerDrag(event:ReactPointerEvent<HTMLButtonElement>){
+    const drag=drawerDrag.current;if(!drag||drag.id!==event.pointerId)return;
+    event.stopPropagation();
+    if(event.clientY-drag.y>=24&&event.clientY-drag.y>Math.abs(event.clientX-drag.x)){
+      drag.opened=true;suppressHandleClick.current=true;setDrawerOpen(true);
+    }
+  }
+  function endDrawerDrag(event:ReactPointerEvent<HTMLButtonElement>){
+    if(drawerDrag.current?.id!==event.pointerId)return;
+    event.stopPropagation();drawerDrag.current=null;
+    if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId);
+  }
   useEffect(()=>{
-    const change=()=>setFullscreen(document.fullscreenElement===readerRef.current);
-    document.addEventListener('fullscreenchange',change);
-    return()=>document.removeEventListener('fullscreenchange',change);
+    const cancel=()=>{
+      const drag=drawerDrag.current;drawerDrag.current=null;
+      if(!drag)return;
+      suppressHandleClick.current=true;
+      const handle=drawerHandleRef.current;
+      if(handle?.hasPointerCapture(drag.id))handle.releasePointerCapture(drag.id);
+    };
+    window.addEventListener('blur',cancel);
+    return()=>{window.removeEventListener('blur',cancel);cancel();};
   },[]);
-  async function enterFullscreen(){
-    try{if(readerRef.current?.requestFullscreen)await readerRef.current.requestFullscreen();setFullscreen(true);}catch{setFullscreen(true);}
-  }
-  async function exitFullscreen(){
-    if(document.fullscreenElement)try{await document.exitFullscreen();}catch{}
-    setFullscreen(false);
-  }
+  const previousWindowMode=useRef(fullscreen);
   useEffect(()=>{
-    if(editing||nextConfirm||leaveConfirm||panel){navigationRevisionRef.current++;queuedTurnRef.current=null;}
+    if(previousWindowMode.current===fullscreen)return;
+    previousWindowMode.current=fullscreen;
+    if(fullscreen)drawerHandleRef.current?.focus();
+    else windowModeButtonRef.current?.focus();
+  },[fullscreen]);
+  useEffect(()=>{
+    if(editing||nextConfirm||leaveConfirm||panel||drawerOpen){navigationRevisionRef.current++;queuedTurnRef.current=null;}
     const flip=flipRef.current;
-    const enabled=!editing&&!nextConfirm&&!leaveConfirm;
+    const enabled=!editing&&!nextConfirm&&!leaveConfirm&&!drawerOpen&&!panel;
     // Reapplying false cancels a gesture; only update on an actual transition.
     if(flip&&flip.isInteractionEnabled()!==enabled)flip.setInteractionEnabled(enabled);
-  },[editing,nextConfirm,leaveConfirm,loading,panel]);
+  },[editing,nextConfirm,leaveConfirm,loading,panel,drawerOpen]);
   useEffect(()=>{if(!editing&&!nextConfirm&&!leaveConfirm){setViewport(previous=>{const next=readReaderViewport();return previous.width===next.width&&previous.height===next.height&&previous.touch===next.touch&&previous.horizontalSegments===next.horizontalSegments?previous:next;});const stage=stageRef.current;if(stage){const box=stage.getBoundingClientRect();setDimensions(previous=>{const next={width:Math.floor(box.width),height:Math.floor(box.height)};return previous.width===next.width&&previous.height===next.height?previous:next;});}}},[editing,nextConfirm,leaveConfirm]);
   const onEdit:EditFragment=(fragment,text)=>{draftsRef.current.set(`${fragment.message}:${fragment.char}`,text);};
   useEffect(()=>{
@@ -629,19 +664,28 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
   const style = { '--reader-font-size': `${fontSize}px` } as CSSProperties;
 
   return <div ref={readerRef} className={`reader reader-theme-${theme}${theme === 'dark' ? ' dark' : ''}${fullscreen?' reader-fullscreen':''}${editing?' reader-is-editing':''}`} data-page-layout={spread===2?'spread':'single'} data-bookmark-current={markedPage>=pageIndex&&markedPage<pageIndex+spread||undefined} style={style} lang="ko">
-    {fullscreen&&<div className="reader-fullscreen-exit"><button aria-label="전체화면 해제" title="전체화면 해제 (Esc)" onClick={()=>void exitFullscreen()}><X size={22}/></button></div>}
+    {fullscreen&&<button ref={drawerHandleRef} className="reader-drawer-handle" data-no-flip aria-label="독서 메뉴" aria-expanded={drawerOpen} aria-controls="reader-drawer" onPointerDown={startDrawerDrag} onPointerMove={moveDrawerDrag} onPointerUp={endDrawerDrag} onPointerCancel={event=>{suppressHandleClick.current=true;endDrawerDrag(event);}} onLostPointerCapture={()=>{drawerDrag.current=null;}} onClick={()=>{if(suppressHandleClick.current){suppressHandleClick.current=false;return;}if(drawerOpen)closeDrawer();else setDrawerOpen(true);}}><span/></button>}
+    {fullscreen&&drawerOpen&&<button className="reader-drawer-backdrop" aria-label="독서 메뉴 닫기" onClick={closeDrawer} tabIndex={-1}/>}
+    <div id="reader-drawer" className="reader-drawer" hidden={fullscreen&&!drawerOpen}>
     <header className="reader-toolbar">
       <button className="reader-back" onClick={()=>requestCloseRef.current()} aria-label="책을 닫고 서재로 돌아가기" title="서재로 돌아가기" disabled={editing||saving}><ChevronLeft size={19} /><span>서재</span></button>
       <div className="reader-toolbar-title"><span>{book.title}</span><small>{book.author || readerCopy.unknownAuthor}</small></div>
       <div className="reader-tools">
-        {onSaveBook&&<button className={`reader-icon-button ${editing?'reader-active':''}`} aria-label="본문 편집" title="페이지에서 편집" aria-pressed={editing} disabled={saving} onClick={()=>{if(editing){cancelEditing();return;}setPanel(null);draftsRef.current.clear();setEditError('');setEditing(true);}}><Pencil size={18}/></button>}
+        {onSaveBook&&<button className={`reader-icon-button ${editing?'reader-active':''}`} aria-label="본문 편집" title="페이지에서 편집" aria-pressed={editing} disabled={saving} onClick={()=>{if(editing){cancelEditing();return;}setPanel(null);draftsRef.current.clear();setEditError('');setDrawerOpen(false);setEditing(true);}}><Pencil size={18}/></button>}
         {onBookmarkChange&&<button className={`reader-icon-button ${activeBookmarked?'reader-active':''}`} aria-label={bookmarkAction} title={bookmarkAction} aria-pressed={activeBookmarked} disabled={editing||saving||bookmarkBusy||loading||(!activeBookmarked&&!bookmarkAnchor(pages,activeLeaf,contentCount))} onClick={()=>void toggleBookmark(activeLeaf)}><Bookmark size={18} fill={activeBookmarked?'currentColor':'none'}/></button>}
-        <button className="reader-icon-button" aria-label="전체화면" title="전체화면" disabled={editing} onClick={()=>void enterFullscreen()}><Maximize size={18}/></button>
+        <button ref={windowModeButtonRef} className="reader-icon-button" aria-label={fullscreen?'전체창 해제':'전체창'} title={fullscreen?'전체창 해제':'전체창'} disabled={editing} onClick={()=>fullscreen?exitFullwindow():enterFullwindow()}><Maximize size={18}/></button>
         <button ref={element => { panelButtonRefs.current.contents = element; }} className={`reader-icon-button ${panel === 'contents' ? 'reader-active' : ''}`} aria-label="목차 보기" title="목차" disabled={editing} aria-expanded={panel === 'contents'} aria-controls="reader-contents" onClick={() => togglePanel('contents')}><List size={20} /></button>
         <button ref={element => { panelButtonRefs.current.search = element; }} className={`reader-icon-button ${panel === 'search' ? 'reader-active' : ''}`} aria-label="책 속에서 검색" title="책 속 검색" disabled={editing} aria-expanded={panel === 'search'} aria-controls="reader-search" onClick={() => togglePanel('search')}><Search size={19} /></button>
         <button ref={element => { panelButtonRefs.current.appearance = element; }} className={`reader-icon-button ${panel === 'appearance' ? 'reader-active' : ''}`} aria-label="독서 화면 설정" title="독서 화면 설정" disabled={editing} aria-expanded={panel === 'appearance'} aria-controls="reader-appearance" onClick={() => togglePanel('appearance')}><Type size={21} /></button>
       </div>
     </header>
+    <footer className="reader-footer">
+      <div className="reader-progress-label"><span>{pages.length ? pageIndex>=contentCount?'끝':`전체 ${contentCount}쪽 중 ${pageIndex + 1}${Math.min(visibleEnd,contentCount) > pageIndex + 1 ? `–${Math.min(visibleEnd,contentCount)}` : ''}쪽` : '책장을 준비하고 있어요'}</span><span>{percent}% 읽음</span></div>
+      <input className="reader-progress" type="range" min={0} max={Math.max(0, pages.length - 1)} value={Math.min(pageIndex, Math.max(0, pages.length - 1))} disabled={editing || loading || pages.length < 2} onChange={event => jump(Number(event.target.value))} aria-label="읽는 위치 이동" aria-valuetext={pages.length ? `전체 ${pages.length}쪽 중 ${pageIndex + 1}쪽` : '책장을 준비하고 있어요'} style={{ '--reader-progress': `${percent}%` } as CSSProperties} />
+      <span className="reader-sr-only" aria-live="polite">{!loading && `전체 ${pages.length}쪽 중 ${pageIndex + 1}쪽`}</span>
+    </footer>
+    {fullscreen&&<button className="reader-drawer-close reader-icon-button" aria-label="메뉴 닫기" onClick={closeDrawer}><X size={18}/></button>}
+    </div>
 
     <main className="reader-main" aria-label={`${book.title} 읽기`}>
       <div className="reader-stage" ref={stageRef} aria-busy={loading} data-book-closed={pages[pageIndex]?.kind==='back-cover'}>
@@ -655,11 +699,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
 
     </main>
 
-    <footer className="reader-footer">
-      <div className="reader-progress-label"><span>{pages.length ? pageIndex>=contentCount?'끝':`전체 ${contentCount}쪽 중 ${pageIndex + 1}${Math.min(visibleEnd,contentCount) > pageIndex + 1 ? `–${Math.min(visibleEnd,contentCount)}` : ''}쪽` : '책장을 준비하고 있어요'}</span><span>{percent}% 읽음</span></div>
-      <input className="reader-progress" type="range" min={0} max={Math.max(0, pages.length - 1)} value={Math.min(pageIndex, Math.max(0, pages.length - 1))} disabled={editing || loading || pages.length < 2} onChange={event => jump(Number(event.target.value))} aria-label="읽는 위치 이동" aria-valuetext={pages.length ? `전체 ${pages.length}쪽 중 ${pageIndex + 1}쪽` : '책장을 준비하고 있어요'} style={{ '--reader-progress': `${percent}%` } as CSSProperties} />
-      <span className="reader-sr-only" aria-live="polite">{!loading && `전체 ${pages.length}쪽 중 ${pageIndex + 1}쪽`}</span>
-    </footer>
+
 
     {panel && <>
       <button className="reader-panel-backdrop" aria-label="독서 패널 닫기" onClick={() => setPanel(null)} tabIndex={-1} />

@@ -4,16 +4,14 @@
  * Risu exports {type:'risuChat'|'risuAllChats',ver:1|2,data:Chat|Chat[]}.
  * Chat.message contains {role:'user'|'char',data:string,saying?:characterId}.
  * TXT export uses --Speaker on its own line, followed by the message body.
- * HTML File uses .container > .chat and a hidden .idat containing escaped Chat
- * JSON. HTML Embed is a clipboard table (Character/Message), not an iframe.
- * Verified characters.ts blob b349d110630c6408c32c5cea76f8083fcce07b7c.
+ * Only TXT and JSON files are accepted; HTML imports/parsing are unsupported.
  * All text stays inert. Consumers MUST render it as text (or Markdown with raw
  * HTML disabled), never innerHTML. No Risu scripts/macros/assets are executed.
  */
 import {normalizeImageRules,type ImageRule} from './imageRules';
 import { legacyDisplayRules, normalizeDisplayRules, type DisplayRule } from './displayRules';
 import { jade, bronze, iris, gold } from '@radix-ui/colors';
-import { imageReferenceRanges, normalizeAssets, safeAssetSource } from './assets';
+import { normalizeAssets, safeAssetSource } from './assets';
 
 export type BookAsset = { id: string; name: string; src: string; type?: 'icon' | 'asset' };
 export type BookBookmark = { message: number; char: number; label?: string; progress?: number };
@@ -116,62 +114,8 @@ function textContent(value: unknown): string | undefined {
   return undefined;
 }
 
-/** Detached native parsing only. Disable resource-bearing tags before parsing:
- * even detached HTML documents may load images/frames in some browsers.
- * Nothing from this document is ever adopted into the application's DOM.
- */
-function inertDocument(html: string): Document {
-  if (typeof DOMParser === 'undefined') throw new LibraryError('HTML 가져오기는 DOMParser를 지원하는 브라우저에서 사용해 주세요.');
-  // Match whole tags including quoted '>' characters (notably srcdoc). Removing
-  // tags instead of renaming void elements avoids swallowing following prose.
-  // Turn images into named references before removing resource-bearing tags.
-  // Attributes are read as strings; no imported element enters a live document.
-  // Protect every reference before the HTML parser sees it, including bracket
-  // tokens whose names contain angle brackets and custom <img...> spellings.
-  // Escaping only standard <img> tags left other supported references subject
-  // to HTML repair/removal before import preprocessing could protect them.
-  const prefix = `GALPI_IMAGE_${crypto.randomUUID().replace(/-/g, '')}_`;
-  const references = imageReferenceRanges(html);
-  const originals: string[] = [];
-  let images = '', cursor = 0;
-  for (const range of references) {
-    images += html.slice(cursor, range.start) + `${prefix}${originals.length}_END`;
-    originals.push(html.slice(range.start, range.end)); cursor = range.end;
-  }
-  images += html.slice(cursor);
-  const disabled = images.replace(/<\/?(?:img|iframe|frame|frameset|link|base|object|embed|video|audio|source|track|image|use|input)\b(?:[^<>"']|"[^"]*"|'[^']*')*>/gi, '');
-  const doc = new DOMParser().parseFromString('<meta http-equiv="Content-Security-Policy" content="default-src \'none\';">' + disabled, 'text/html');
-  const walker = doc.createTreeWalker(doc, NodeFilter.SHOW_TEXT);
-  const placeholder = new RegExp(`${prefix}(\\d+)_END`, 'g');
-  let node: Node | null;
-  while ((node = walker.nextNode())) {
-    node.nodeValue = node.nodeValue!.replace(placeholder, (token, index: string) => originals[Number(index)] ?? token);
-  }
-  return doc;
-}
-
-function elementText(element: Element): string {
-  element.querySelectorAll('script,style,noscript,template,svg,math,[hidden],.idat').forEach(node => node.remove());
-  // Keep semantic emphasis as the simple Markdown understood by Reader.
-  Array.from(element.querySelectorAll('em,i,strong,b')).reverse().forEach(node => {
-    const marker = /^(strong|b)$/i.test(node.tagName) ? '**' : '*';
-    node.prepend(marker); node.append(marker);
-  });
-  element.querySelectorAll('br').forEach(node => node.replaceWith('\n'));
-  element.querySelectorAll('p,div,section,article,li,blockquote,pre,h1,h2,h3,h4,h5,h6,tr').forEach(node => node.append('\n'));
-  return (element.textContent || '').replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
-}
-
-function plainText(content: string, _assets: BookAsset[] = [],_imageRules:ImageRule[]=[]): string {
-  // Keep original image tags even when today's assets resolve them. Rewriting
-  // them here prevents a card added later from matching its original syntax.
-  return /<\/?[a-z][^>]*>/i.test(content) ? elementText(inertDocument(content).body) : content;
-}
-
-export const displayPlainText = plainText;
-
-function normalizeMessage(value: unknown, index: number, character: string, user: string, names: Map<string, string>, assets: BookAsset[] = [],imageRules:ImageRule[]=[]): Message {
-  if (typeof value === 'string') return { role: 'narrator', name: '서술', content: plainText(value, assets,imageRules), originalContent: value };
+function normalizeMessage(value: unknown, index: number, character: string, user: string, names: Map<string, string>): Message {
+  if (typeof value === 'string') return { role: 'narrator', name: '서술', content: value, originalContent: value };
   if (!record(value)) throw new LibraryError(`${index + 1}번째 메시지 형식이 올바르지 않습니다.`);
   const content = textContent(value.content) ?? textContent(value.data) ?? textContent(value.mes) ?? textContent(value.text);
   if (content === undefined) throw new LibraryError(`${index + 1}번째 메시지에 읽을 수 있는 텍스트가 없습니다.`);
@@ -184,7 +128,7 @@ function normalizeMessage(value: unknown, index: number, character: string, user
   return {
     role,
     name: string(value.name, value.speaker, speaker, role === 'user' ? user : role === 'assistant' ? character : role === 'system' ? '시스템' : '서술'),
-    content: plainText(content, assets,imageRules).replace(/\r\n?/g, '\n'),
+    content: content.replace(/\r\n?/g, '\n'),
     originalContent: typeof value.originalContent === 'string' ? value.originalContent : content,
     ...(Array.isArray(value.originalMap) ? { originalMap: value.originalMap as Message['originalMap'] } : {}),
     ...(typeof value.chapter === 'string' ? { chapter: value.chapter } : {}),
@@ -212,12 +156,12 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
     // normalize roles, trim speaker names, or change source line endings.
     if (context.preserveIds && record(row) && typeof row.role === 'string' &&
         typeof row.name === 'string' && typeof row.content === 'string') {
-      return { role: row.role, name: row.name, content: context.removeUserInputs ? plainText(row.content, assets,imageRules) : row.content,
+      return { role: row.role, name: row.name, content: row.content,
         ...(typeof row.originalContent === 'string' ? { originalContent: row.originalContent } : {}),
         ...(Array.isArray(row.originalMap) ? { originalMap: row.originalMap as Message['originalMap'] } : {}),
         ...(typeof row.chapter === 'string' ? { chapter: row.chapter } : {}) };
     }
-    return normalizeMessage(row, i, character, user, context.names, assets,imageRules);
+    return normalizeMessage(row, i, character, user, context.names);
   });
   const retained = normalized.map((message, index) => ({ message, index })).filter(({ message }) =>
     !context.removeUserInputs || ['assistant', 'char', 'character', 'bot', 'ai', 'model'].includes(message.role.toLowerCase()));
@@ -233,7 +177,7 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
     title: string(value.title, value.name, context.title, '제목 없는 대화'),
     author: string(value.author, value.creator, context.author, character !== '캐릭터' ? character : '가져온 대화'),
     description: context.removeUserInputs ? messages.find(message => message.content.trim())!.content.replace(/\s+/g, ' ').slice(0, 160)
-      : context.preserveIds && typeof value.description === 'string' ? value.description : plainText(string(value.description, value.note)) || messages.find((message) => message.content.trim())!.content.replace(/\s+/g, ' ').slice(0, 160),
+      : context.preserveIds && typeof value.description === 'string' ? value.description : string(value.description, value.note) || messages.find((message) => message.content.trim())!.content.replace(/\s+/g, ' ').slice(0, 160),
     color: typeof value.color === 'string' && /^#[\da-f]{6}$/i.test(value.color) ? value.color : BOOK_COLORS[index % BOOK_COLORS.length]!,
     createdAt,
     updatedAt: timestamp(value.updatedAt ?? value.updated_at, createdAt),
@@ -336,32 +280,10 @@ function parseJson(value: unknown, context: ImportContext): Book[] {
   return books;
 }
 
-function parseJsonl(text: string, context: ImportContext): Book[] {
-  const rows: unknown[] = [];
-  let character = context.character;
-  let user = context.user;
-  for (const [index, line] of text.split('\n').entries()) {
-    if (!line.trim()) continue;
-    let value: unknown;
-    try { value = JSON.parse(line); }
-    catch { throw new LibraryError(`JSONL ${index + 1}행을 읽을 수 없습니다. 파일 내용을 확인해 주세요.`); }
-    // Tavern/SillyTavern header is metadata, never a message. Keep first actual message.
-    if (rows.length === 0 && record(value) && !('mes' in value || 'content' in value || 'data' in value || 'text' in value) &&
-        ('user_name' in value || 'character_name' in value || 'chat_metadata' in value || 'create_date' in value)) {
-      character = string(value.character_name, character);
-      user = string(value.user_name, user);
-      continue;
-    }
-    rows.push(value);
-  }
-  return [makeBook({}, rows, { ...context, character, user }, 0)];
-}
-
-function parseText(text: string, context: ImportContext, markdown: boolean): Book[] {
+function parseText(text: string, context: ImportContext): Book[] {
   const rows: Message[] = [];
   let current: Message | undefined;
-  let fence = '';
-  let title = context.title;
+  const title = context.title;
   const risuText = /^--[^\n]+$/m.test(text);
   // TXT contains names, not roles, and groups need not alternate. The official
   // filename provides a conservative character allowlist for a single character.
@@ -370,34 +292,18 @@ function parseText(text: string, context: ImportContext, markdown: boolean): Boo
   const filenameCharacter = context.title.match(/^(.+)_\d{4}-\d{2}-\d{2}T\d{6}(?:\d{3})?Z_chat$/)?.[1];
   if (risuText && context.removeUserInputs && (!filenameCharacter ||
       !text.split('\n').some(line => line === `--${filenameCharacter}`))) {
-    throw new LibraryError('TXT에는 사용자 역할 정보가 없습니다. 원래 캐릭터명_날짜_chat 파일명을 유지하거나 역할 정보가 있는 JSON/HTML 파일로 가져와 주세요.');
+    throw new LibraryError('TXT에는 사용자 역할 정보가 없습니다. 원래 캐릭터명_날짜_chat 파일명을 유지하거나 역할 정보가 있는 JSON 파일로 가져와 주세요.');
   }
   const flush = () => { if (current) { current.content = current.content.trim(); rows.push(current); current = undefined; } };
   for (const line of text.split('\n')) {
-    const codeFence = line.match(/^\s*(`{3,}|~{3,})/);
-    if (codeFence && markdown) {
-      if (!fence) fence = codeFence[1]![0]!;
-      else if (codeFence[1]![0] === fence) fence = '';
-      if (!current) current = { role: 'narrator', name: '서술', content: '' };
-      current.content += `${line}\n`;
+    const marker = risuText ? line.match(/^--(.+?)\s*$/) : line.match(/^([^:：\n]{1,80})[:：]\s*(.*)$/);
+    if (marker) {
+      flush();
+      const name = marker[1]!.replace(/[:：]\s*$/, '').trim();
+      const role = risuText ? name === filenameCharacter ? 'assistant' : 'unknown'
+        : /^(user|human|나|사용자)$/i.test(name) ? 'user' : /^system$/i.test(name) ? 'system' : 'assistant';
+      current = { role, name, content: marker[2] ? `${marker[2]}\n` : '' };
       continue;
-    }
-    if (!fence) {
-      if (markdown && rows.length === 0 && !current && /^#\s+/.test(line)) {
-        title = line.replace(/^#\s+/, '').trim() || title;
-        continue;
-      }
-      const marker = risuText ? line.match(/^--(.+?)\s*$/) : markdown
-        ? line.match(/^#{2,6}\s+(.+?)\s*$/) ?? line.match(/^\*\*([^*\n]{1,80}?)(?:[:：])?\*\*[:：]?\s*(.*)$/) ?? line.match(/^(user|assistant|system|human|char|나|사용자|캐릭터)[:：]\s*(.*)$/i)
-        : line.match(/^([^:：\n]{1,80})[:：]\s*(.*)$/);
-      if (marker) {
-        flush();
-        const name = marker[1]!.replace(/[:：]\s*$/, '').trim();
-        const role = risuText ? name === filenameCharacter ? 'assistant' : 'unknown'
-          : /^(user|human|나|사용자)$/i.test(name) ? 'user' : /^system$/i.test(name) ? 'system' : 'assistant';
-        current = { role, name, content: marker[2] ? `${marker[2]}\n` : '' };
-        continue;
-      }
     }
     if (!current && !line.trim()) continue;
     if (!current) current = { role: 'narrator', name: '서술', content: '' };
@@ -407,51 +313,12 @@ function parseText(text: string, context: ImportContext, markdown: boolean): Boo
   return [makeBook({ title }, rows, context, 0)];
 }
 
-function parseHtml(text: string, context: ImportContext): Book[] {
-  const doc = inertDocument(text);
-  const blocks = Array.from(doc.querySelectorAll('.container > .chat'));
-  const character = blocks[0]?.querySelector('h2')?.textContent?.trim() || '';
-  const idat = doc.querySelector('.idat');
-  if (idat) {
-    let chat: unknown;
-    try { chat = JSON.parse(idat.textContent || ''); }
-    catch { throw new LibraryError('HTML의 RisuAI .idat 대화 JSON이 손상되었습니다.'); }
-    if (!record(chat) || !Array.isArray(chat.message)) throw new LibraryError('HTML의 RisuAI 메시지 목록이 올바르지 않습니다.');
-    // Visible blocks add the greeting (not stored in Chat.message) and speaker
-    // names missing from the raw Chat. Roles always come from .idat, never names.
-    const aligned = blocks.length === chat.message.length + 1;
-    const rows: unknown[] = [];
-    const greeting = aligned ? blocks[0]?.querySelector(':scope > div') : undefined;
-    if (greeting) rows.push({ role: 'char', name: character, content: elementText(greeting) });
-    chat.message.forEach((row, i) => {
-      const name = aligned ? blocks[i + 1]?.querySelector('h2')?.textContent?.trim() : undefined;
-      rows.push(record(row) ? { ...row, ...(name ? { name } : {}) } : row);
-    });
-    return [makeBook(chat, rows, { ...context, character }, 0)];
-  }
-  // The actual HTML Embed template is an ordinary two-column clipboard table.
-  const table = Array.from(doc.querySelectorAll('table')).find(table => {
-    const headers = table.querySelectorAll('tr:first-child > th');
-    return headers.length === 2 && headers[0]?.textContent?.trim() === 'Character' && headers[1]?.textContent?.trim() === 'Message';
-  });
-  if (!table) throw new LibraryError('RisuAI HTML의 .idat 또는 Character/Message 표를 찾을 수 없습니다.');
-  const entries = Array.from(table.rows).slice(1).map(row => {
-    if (row.cells.length !== 2) throw new LibraryError('RisuAI HTML 표의 메시지 행이 올바르지 않습니다.');
-    return { name: elementText(row.cells[0]!), content: elementText(row.cells[1]!) };
-  });
-  const embedCharacter = entries[0]?.name;
-  // No user IDs/roles are exported here. Only the greeting's named character
-  // can be attributed safely. Other names remain unknown when filtering is off.
-  const rows = entries.map(entry => ({ ...entry, role: embedCharacter && entry.name === embedCharacter ? 'assistant' : 'unknown' }));
-  return [makeBook({}, rows, { ...context, character: embedCharacter || '' }, 0)];
-}
-
 /** Parse only: does not persist, fetch remote assets, or execute embedded HTML. */
 export async function importChatFile(file: File, options: { removeUserInputs?: boolean } = {}): Promise<Book[]> {
   if (!file || typeof file.text !== 'function') throw new LibraryError('가져올 파일을 선택해 주세요.');
   const extension = file.name.split('.').pop()?.toLowerCase() || '';
-  if (!['json', 'jsonl', 'ndjson', 'txt', 'md', 'markdown', 'chat', 'html', 'htm'].includes(extension)) {
-    throw new LibraryError('JSON, JSONL, TXT, HTML 또는 Markdown 파일을 선택해 주세요.');
+  if (!['json', 'txt'].includes(extension)) {
+    throw new LibraryError('TXT 또는 JSON 파일을 선택해 주세요.');
   }
   let text: string;
   try { text = (await file.text()).replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim(); }
@@ -463,15 +330,14 @@ export async function importChatFile(file: File, options: { removeUserInputs?: b
     character: '', user: '나', author: '', names: new Map(), now: new Date().toISOString(), preserveIds: false,
     removeUserInputs: options.removeUserInputs === true,
   };
-  if (extension === 'html' || extension === 'htm' || (extension === 'txt' && /^\s*(?:<!doctype html|<html|<table)\b/i.test(text))) return parseHtml(text, context);
-  if (extension === 'jsonl' || extension === 'ndjson') return parseJsonl(text, context);
-  if (extension === 'json' || extension === 'chat') {
+  if (/^\s*(?:<!doctype html|<html|<table)\b/i.test(text)) throw new LibraryError('HTML 및 HTML embedded는 지원하지 않습니다. TXT 또는 JSON으로 내보내 주세요.');
+  if (extension === 'json') {
     let value: unknown;
     try { value = JSON.parse(text); }
     catch { throw new LibraryError('JSON을 읽을 수 없습니다. 파일이 손상되었거나 올바른 내보내기 형식이 아닙니다.'); }
     return parseJson(value, context);
   }
-  return parseText(text, context, extension === 'md' || extension === 'markdown');
+  return parseText(text, context);
 }
 
 function storageError(error: unknown): LibraryError {
