@@ -1,9 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, useId, type CSSProperties, type ReactNode } from 'react';
 import { ArrowDownToLine, ArrowRight, BookOpen, Bookmark, Check, ChevronDown, Ellipsis, Library, LoaderCircle, Menu, Pencil, Images, Plus, Search, Trash2, Upload, X } from 'lucide-react';
-import { loadBooks, saveBook, repackSeries, updateBookmarks, deleteBook, deleteBooks, importChatFile, BOOK_COLORS, type Book } from './lib/library';
+import { loadBooks, repackSeries, updateBookmarks, deleteBook, deleteBooks, importChatFile, BOOK_COLORS, type Book } from './lib/library';
 import { groupBooks } from './lib/volumes';
 import { prepareBooks } from './lib/prepareBooks';
-import { sampleBooks } from './lib/sample';
 import ShelfAssets from './components/ShelfAssets';
 import BookIntake,{type IntakeRequest} from './components/BookIntake';
 import ThemePicker from './components/ThemePicker';
@@ -92,8 +91,7 @@ function reuseBookReferences(book:Book,previous:Book|undefined):Book{
 
 const Reader = lazy(() => import('./components/Reader'));
 const colors = BOOK_COLORS;
-const key = 'galpi:initialized';
-const legacySampleColors:Record<string,string> = {'sample-forest-letter':'#596B55','sample-terracotta-evening':'#AD715B','sample-indigo-platform':'#5C6386','sample-ochre-bookshop':'#A68A4D'};
+const retiredDemoIds = new Set(['sample-forest-letter','sample-terracotta-evening','sample-indigo-platform','sample-ochre-bookshop']);
 function currentBookId() { try { const match = location.hash.match(/^#\/book\/([^/]+)$/); return match ? decodeURIComponent(match[1]) : null; } catch { return null; } }
 function download(name: string, data: unknown) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], {type:'application/json'}));
@@ -174,13 +172,10 @@ export default function App() {
     let active=true;
     initialLoad.current??=(async()=>{
       let data=await loadBooks();
-      for(let i=0;i<data.length;i++){
-        const previous=data[i];const sample=sampleBooks.find(book=>book.id===previous.id);
-        if(sample&&previous.color===legacySampleColors[previous.id]){data[i]={...previous,color:sample.color};await saveBook(data[i]);}
-      }
-      if(!localStorage.getItem(key)&&!data.length){for(const book of sampleBooks)await saveBook(book);data=sampleBooks;}
+      // Remove only the four app-provided demos, never user-created books.
+      const demos=data.filter(book=>retiredDemoIds.has(book.id));
+      if(demos.length){await deleteBooks(demos.map(book=>book.id));data=data.filter(book=>!retiredDemoIds.has(book.id));}
       data=await normalizeShelfBookmarks(data);
-      localStorage.setItem(key,'yes');
       return data;
     })();
     void initialLoad.current.then(data=>{if(active){latestBooks.current=data;setBooks(data);}})
