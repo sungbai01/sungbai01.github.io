@@ -11,7 +11,7 @@
  * HTML disabled), never innerHTML. No Risu scripts/macros/assets are executed.
  */
 import { jade, bronze, iris, gold } from '@radix-ui/colors';
-import { normalizeAssets, safeAssetSource } from './assets';
+import { imageReferenceNames, normalizeAssets, safeAssetSource } from './assets';
 
 export type BookAsset = { id: string; name: string; src: string; type?: 'icon' | 'asset' };
 export type BookBookmark = { message: number; char: number; label?: string };
@@ -119,15 +119,8 @@ function inertDocument(html: string): Document {
   // Turn images into named references before removing resource-bearing tags.
   // Attributes are read as strings; no imported element enters a live document.
   const images = html.replace(/<img\b(?:[^<>"']|"[^"]*"|'[^']*')*>/gi, tag => {
-    const attrs = new Map<string, string>();
-    for (const match of tag.matchAll(/([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g)) attrs.set(match[1]!.toLowerCase(), match[2] ?? match[3] ?? match[4] ?? '');
-    const src = attrs.get('src') || '';
-    const token = src.match(/\{\{(?:img|image|raw)::([^{}]+)\}\}/i);
-    let filename = src.split(/[?#]/)[0]?.split(/[\\/]/).pop() || '';
-    try { filename = decodeURIComponent(filename); } catch { /* Keep the original name. */ }
-    const name = (token?.[1] || attrs.get('data-asset-name') || attrs.get('alt') || attrs.get('title') ||
-      (!/^data:/i.test(src) ? filename : '')).trim();
-    return name && !/[{}\r\n]/.test(name) ? `{{img::${name.replace(/</g, '&lt;').replace(/>/g, '&gt;')}}` : '';
+    const name = imageReferenceNames(tag).find(name => !/[{}\r\n]/.test(name) && !/^(?:data|javascript):/i.test(name));
+    return name ? `{{img::${name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}}` : '';
   });
   const disabled = images.replace(/<\/?(?:img|iframe|frame|frameset|link|base|object|embed|video|audio|source|track|image|use|input)\b(?:[^<>"']|"[^"]*"|'[^']*')*>/gi, '');
   return new DOMParser().parseFromString('<meta http-equiv="Content-Security-Policy" content="default-src \'none\';">' + disabled, 'text/html');

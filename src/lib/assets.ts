@@ -75,6 +75,30 @@ export type AssetSegment =
   | { type: 'text'; text: string; start: number; end: number }
   | { type: 'asset'; asset: BookAsset; start: number; end: number };
 
+/** Attribute strings only: no image/document insertion and no asset requests. */
+export function imageReferenceNames(tag: string): string[] {
+  const decode = (value: string) => value.replace(/&(?:amp|quot|apos|lt|gt|#\d+|#x[\da-f]+);/gi, entity => {
+    const named: Record<string, string> = { '&amp;': '&', '&quot;': '"', '&apos;': "'", '&lt;': '<', '&gt;': '>' };
+    const known = named[entity.toLowerCase()]; if (known) return known;
+    const number = entity.toLowerCase().startsWith('&#x') ? parseInt(entity.slice(3, -1), 16) : parseInt(entity.slice(2, -1), 10);
+    return Number.isFinite(number) && number > 0 && number <= 0x10ffff ? String.fromCodePoint(number) : entity;
+  });
+  const attrs = new Map<string, string>();
+  for (const match of tag.matchAll(/([^\s=<>"']+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g)) {
+    const key = match[1]!.toLowerCase();
+    if (!attrs.has(key)) attrs.set(key, decode(match[2] ?? match[3] ?? match[4] ?? ''));
+  }
+  const src = attrs.get('src')?.trim() || '';
+  const token = src.match(/^\{\{(?:img|image|raw)::([^{}]+)\}\}$/i);
+  const candidates = [token?.[1], attrs.get('data-asset-name'), attrs.get('name'), attrs.get('alt'), attrs.get('title'), src];
+  if (src && !/^(?:data|javascript):/i.test(src)) {
+    let path = src.split(/[?#]/)[0] || '';
+    try { path = decodeURIComponent(path); } catch { /* Preserve undecodable paths. */ }
+    candidates.push(path, path.split(/[\\/]/).pop());
+  }
+  return [...new Set(candidates.filter((name): name is string => typeof name === 'string' && !!name.trim()).map(name => name.trim()))];
+}
+
 /** Half-open UTF-16 offsets into the ORIGINAL content, matching String.slice.
  * No HTML, URLs or code are evaluated. Only a known asset name resolves; an
  * unresolved token remains verbatim text. Empty content returns no segments.
@@ -82,10 +106,23 @@ export type AssetSegment =
 export function extractAssetSegments(content: string, assets: BookAsset[]): AssetSegment[] {
   const byName = new Map<string, BookAsset>();
   for (const asset of assets) if (!byName.has(asset.name) && safeAssetSource(asset.src)) byName.set(asset.name, asset);
+  const aliases = new Map<string, BookAsset | null>();
+  const addAlias = (name: string, asset: BookAsset) => {
+    const previous = aliases.get(name);
+    if (previous === undefined) aliases.set(name, asset);
+    else if (previous?.id !== asset.id) aliases.set(name, null);
+  };
+  for (const asset of byName.values()) {
+    addAlias(asset.src, asset);
+    if (/^https?:\/\//i.test(asset.src)) {
+      const url = new URL(asset.src); addAlias(url.pathname, asset);
+      try { addAlias(decodeURIComponent(url.pathname), asset); } catch { /* Keep encoded alias. */ }
+    }
+  }
   const result: AssetSegment[] = [];
   // Markdown supports ordinary/angle-bracket destinations and optional titles;
   // URL destinations are not fetched or resolved by alt text.
-  const token = /\{\{(?:img|image|raw)::([^{}\r\n]+)\}\}|!\[(?:\\.|[^\]\\])*\]\(\s*(<[^>\r\n]+>|\{\{(?:img|image|raw)::[^{}\r\n]+\}\}|(?:\\.|[^\s()])+)(?:\s+["'][^\r\n]*?["'])?\s*\)/gi;
+  const token = /<img\b(?:[^<>"']|"[^"]*"|'[^']*')*>|\{\{(?:img|image|raw)::([^{}\r\n]+)\}\}|!\[(?:\\.|[^\]\\])*\]\(\s*(<[^>\r\n]+>|\{\{(?:img|image|raw)::[^{}\r\n]+\}\}|(?:\\.|[^\s()])+)(?:\s+["'][^\r\n]*?["'])?\s*\)/gi;
   let cursor = 0;
   for (const match of content.matchAll(token)) {
     const start = match.index!;
@@ -96,7 +133,12 @@ export function extractAssetSegments(content: string, assets: BookAsset[]): Asse
     let name = (match[1] ?? match[2] ?? '').trim();
     if (name.startsWith('<') && name.endsWith('>')) name = name.slice(1, -1);
     name = name.replace(/^\{\{(?:img|image|raw)::([^{}]+)\}\}$/i, '$1').replace(/\\([\\()[\] ])/g, '$1').trim();
-    const asset = byName.get(name);
+    const candidates = /^<img\b/i.test(match[0]) ? imageReferenceNames(match[0]) : [name];
+    let asset: BookAsset | undefined;
+    for (const candidate of candidates) {
+      asset = byName.get(candidate) ?? aliases.get(candidate) ?? undefined;
+      if (asset) break;
+    }
     if (!asset) continue;
     if (start > cursor) result.push({ type: 'text', text: content.slice(cursor, start), start: cursor, end: start });
     const end = start + match[0].length;

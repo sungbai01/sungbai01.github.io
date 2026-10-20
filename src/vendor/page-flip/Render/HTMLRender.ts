@@ -78,6 +78,7 @@ export class HTMLRender extends Render {
 
     /** DOM-only reset: drawing a read frame must not schedule another frame. */
     private hideShadows(): void {
+        for (const layer of this.shadowLayers) layer.style.display = 'none';
         this.outerShadow.style.cssText = 'display: none';
         this.innerShadow.style.cssText = 'display: none';
         this.hardShadow.style.cssText = 'display: none';
@@ -88,10 +89,17 @@ export class HTMLRender extends Render {
         return page !== null && (page as HTMLPage).getElement().dataset.pageKind === 'end';
     }
 
+    private hasEndPage(): boolean {
+        return [this.leftPage, this.rightPage, this.bottomPage, this.flippingPage]
+            .some(page => this.isEndPage(page));
+    }
+
     /** The end CTA belongs to the stationary right-hand blank area. */
     private drawEndPage(page: Page): void {
         page.setOrientation(PageOrientation.RIGHT);
         page.setDrawingDensity(PageDensity.SOFT);
+        page.setAngle(0);
+        page.setHardAngle(0);
         page.simpleDraw(PageOrientation.RIGHT);
         (page as HTMLPage).getElement().style.zIndex =
             (this.getSettings().startZIndex + 3).toString(10);
@@ -115,6 +123,7 @@ export class HTMLRender extends Render {
         const clip = `polygon(${x}px ${rect.top}px, ${x + width}px ${rect.top}px,
             ${x + width}px ${rect.top + rect.height}px, ${x}px ${rect.top + rect.height}px)`;
         for (const layer of this.shadowLayers) {
+            layer.style.display = 'block';
             layer.style.clipPath = clip;
             layer.style.setProperty('-webkit-clip-path', clip);
         }
@@ -401,7 +410,10 @@ export class HTMLRender extends Render {
         // transitions; only this frame's active family may become visible again.
         this.hideShadows();
         const reading = this.app.getState() === FlippingState.READ;
-        if (reading) this.shadow = null;
+        const endVisible = this.hasEndPage();
+        // The CTA is outside the physical book. Suppress both shadow families
+        // for the whole turn, rather than relying on transformed clipping.
+        if (reading || endVisible) this.shadow = null;
         this.updateBookmarkVisibility();
         this.clear();
 
@@ -424,7 +436,7 @@ export class HTMLRender extends Render {
         }
 
         if (this.shadow != null && this.flippingPage !== null && !this.isEndPage(this.flippingPage) &&
-            this.getSettings().drawShadow && !reading &&
+            this.getSettings().drawShadow && !reading && !endVisible &&
             this.clipShadowsToPhysicalPages()) {
             if (this.flippingPage.getDrawingDensity() === PageDensity.SOFT) {
                 this.drawOuterShadow();

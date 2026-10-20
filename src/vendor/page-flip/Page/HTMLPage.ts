@@ -58,6 +58,12 @@ export class HTMLPage extends Page {
     }
 
     public draw(tempDensity?: PageDensity): void {
+        // The end CTA is not a sheet: never inherit a neighbouring cover's
+        // hard density, transform or fold clip, regardless of the calling path.
+        if (this.element.dataset.pageKind === 'end') {
+            this.simpleDraw(PageOrientation.RIGHT);
+            return;
+        }
         const density = tempDensity ? tempDensity : this.nowDrawingDensity;
 
         const pagePos = this.render.convertToGlobal(this.state.position);
@@ -135,6 +141,14 @@ export class HTMLPage extends Page {
     }
 
     public simpleDraw(orient: PageOrientation): void {
+        if (this.element.dataset.pageKind === 'end') {
+            orient = PageOrientation.RIGHT;
+            this.setOrientation(orient);
+            this.setDrawingDensity(PageDensity.SOFT);
+            this.setAngle(0);
+            this.setHardAngle(0);
+            this.setArea([]);
+        }
         const rect = this.render.getRect();
 
         const pageWidth = rect.pageWidth;
