@@ -1,6 +1,6 @@
 import type { BookAsset } from './library';
 import { Inflate } from 'fflate';
-import { jade, bronze, iris, gold } from '@radix-ui/colors';
+import { jade } from '@radix-ui/colors';
 
 /** Format references (read 2026-10-20): Risuai/src/ts/characterCards.ts
  * blob 99fad382849378dcf130706ab36438726d4c4685 and src/ts/pngChunk.ts.
@@ -380,13 +380,14 @@ async function readCharx(bytes: Uint8Array, directory: { entries: ZipEntry[]; pr
   return result;
 }
 
-/** Downsample locally to 32px, select a dominant non-transparent color bucket,
- * then choose the closest existing dark Radix book color for readable light
- * cover text. Returns Jade on decode/CORS/canvas failure; never mutates src.
+/** Sample the image's border, not its center. Transparent margins are skipped
+ * along each scanline until the real visible contour is reached. Alpha-weighted
+ * edge samples yield a trimmed mean, mildly muted in linear RGB and tone-mapped
+ * to luminance .035–.13 (white-text contrast >= 5.8:1). Returns a continuous
+ * opaque #rrggbb shade, with Jade only on decode/CORS/canvas failure.
  */
 export async function portraitPalette(src: string): Promise<string> {
-  const palette = [jade.jade12, bronze.bronze11, iris.iris12, gold.gold11];
-  const fallback = palette[0]!;
+  const fallback: string = jade.jade12;
   if (!safeAssetSource(src) || typeof document === 'undefined' || typeof Image === 'undefined') return fallback;
   const image = new Image();
   image.crossOrigin = 'anonymous'; image.referrerPolicy = 'no-referrer';
@@ -399,44 +400,72 @@ export async function portraitPalette(src: string): Promise<string> {
     });
     if (!image.naturalWidth || !image.naturalHeight) return fallback;
     const canvas = document.createElement('canvas');
-    const ratio = Math.min(32 / image.naturalWidth, 32 / image.naturalHeight, 1);
+    const ratio = Math.min(64 / image.naturalWidth, 64 / image.naturalHeight, 1);
     canvas.width = Math.max(1, Math.round(image.naturalWidth * ratio));
     canvas.height = Math.max(1, Math.round(image.naturalHeight * ratio));
     const context = canvas.getContext('2d', { willReadFrequently: true });
     if (!context) return fallback;
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
     const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-    const buckets = new Map<number, { weight: number; r: number; g: number; b: number }>();
-    for (let i = 0; i < pixels.length; i += 4) {
-      const alpha = pixels[i + 3]! / 255;
-      if (alpha < .5) continue;
-      const r = pixels[i]!, g = pixels[i + 1]!, b = pixels[i + 2]!;
-      const lightness = (Math.max(r, g, b) + Math.min(r, g, b)) / 510;
-      if (lightness < .06 || lightness > .94) continue;
-      const key = (r >> 5) * 64 + (g >> 5) * 8 + (b >> 5);
-      const bucket = buckets.get(key) ?? { weight: 0, r: 0, g: 0, b: 0 };
-      bucket.weight += alpha; bucket.r += r * alpha; bucket.g += g * alpha; bucket.b += b * alpha;
-      buckets.set(key, bucket);
-    }
-    let dominant: { weight: number; r: number; g: number; b: number } | undefined;
-    for (const bucket of buckets.values()) if (!dominant || bucket.weight > dominant.weight) dominant = bucket;
-    if (!dominant) return fallback;
-    const hue = (r: number, g: number, b: number): [number, number] => {
-      const max = Math.max(r, g, b), min = Math.min(r, g, b), delta = max - min;
-      if (!delta) return [0, 0];
-      const h = max === r ? ((g - b) / delta + 6) % 6 : max === g ? (b - r) / delta + 2 : (r - g) / delta + 4;
-      return [h / 6, delta / Math.max(1, max)];
+    type Sample = { rgb: number[]; weight: number };
+    const samples: Sample[] = [];
+    const linear = (channel: number) => {
+      const value = channel / 255;
+      return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4;
     };
-    const [targetHue, saturation] = hue(dominant.r / dominant.weight, dominant.g / dominant.weight, dominant.b / dominant.weight);
-    if (saturation < .08) return bronze.bronze11;
-    let best = fallback, bestDistance = Infinity;
-    for (const color of palette) {
-      const [h, s] = hue(parseInt(color.slice(1, 3), 16), parseInt(color.slice(3, 5), 16), parseInt(color.slice(5, 7), 16));
-      const circularDistance = Math.min(Math.abs(h - targetHue), 1 - Math.abs(h - targetHue));
-      const distance = circularDistance ** 2 + .025 * (s - saturation) ** 2;
-      if (distance < bestDistance) { best = color; bestDistance = distance; }
+    const scanEdge = (start: number, step: number, length: number) => {
+      let opacity = 0;
+      for (let position = 0; position < length && opacity < 2; position++) {
+        const offset = (start + step * position) * 4;
+        const alpha = pixels[offset + 3]! / 255;
+        if (!alpha) continue;
+        // At most two opaque pixels of optical depth from each visible edge;
+        // antialiased/translucent pixels contribute their actual alpha weight.
+        const weight = Math.min(alpha, 2 - opacity);
+        samples.push({ rgb: [linear(pixels[offset]!), linear(pixels[offset + 1]!), linear(pixels[offset + 2]!)], weight });
+        opacity += weight;
+      }
+    };
+    const width = canvas.width, height = canvas.height;
+    for (let y = 0; y < height; y++) {
+      scanEdge(y * width, 1, width);
+      scanEdge(y * width + width - 1, -1, width);
     }
-    return best;
+    for (let x = 0; x < width; x++) {
+      scanEdge(x, width, height);
+      scanEdge((height - 1) * width + x, -width, height);
+    }
+    const totalWeight = samples.reduce((sum, sample) => sum + sample.weight, 0);
+    if (!totalWeight) return fallback;
+    const median = [0, 1, 2].map(channel => {
+      const ordered = [...samples].sort((a, b) => a.rgb[channel]! - b.rgb[channel]!);
+      let weight = 0;
+      for (const sample of ordered) { weight += sample.weight; if (weight >= totalWeight / 2) return sample.rgb[channel]!; }
+      return ordered[ordered.length - 1]!.rgb[channel]!;
+    });
+    const distance = (sample: Sample) => sample.rgb.reduce((sum, value, channel) => sum + (value - median[channel]!) ** 2, 0);
+    samples.sort((a, b) => distance(a) - distance(b));
+    // Trim the most distant 15% of edge weight to reduce isolated bright
+    // highlights, stray pixels and border lettering without quantizing hue.
+    let remaining = totalWeight * .85;
+    const mean = [0, 0, 0];
+    let kept = 0;
+    for (const sample of samples) {
+      const weight = Math.min(remaining, sample.weight);
+      for (let channel = 0; channel < 3; channel++) mean[channel] += sample.rgb[channel]! * weight;
+      kept += weight; remaining -= weight;
+      if (remaining <= 0) break;
+    }
+    const rgb = mean.map(value => value / kept);
+    const luminance = rgb[0]! * .2126 + rgb[1]! * .7152 + rgb[2]! * .0722;
+    const muted = rgb.map(value => value * .82 + luminance * .18);
+    const mapped = muted.map(value => luminance > .13 ? value * .13 / luminance : value + Math.max(0, .035 - luminance));
+    const hex = mapped.map(value => {
+      const clipped = Math.max(0, Math.min(1, value));
+      const srgb = clipped <= .0031308 ? clipped * 12.92 : 1.055 * clipped ** (1 / 2.4) - .055;
+      return Math.round(srgb * 255).toString(16).padStart(2, '0');
+    });
+    return `#${hex.join('')}`;
   } catch { return fallback; }
   finally { image.onload = null; image.onerror = null; }
 }

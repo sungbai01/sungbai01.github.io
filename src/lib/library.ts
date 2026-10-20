@@ -29,6 +29,8 @@ export interface Book {
   author: string;
   description: string;
   color: string;
+  /** Optional image-derived shade; color remains the resolved display color. */
+  customColor?: string;
   /** ISO 8601 date strings. */
   createdAt: string;
   updatedAt: string;
@@ -39,8 +41,6 @@ export interface Book {
   bookmarkStyle?: 'normal' | 'character';
   assets?: BookAsset[];
   bookmarks?: BookBookmark[];
-  /** Zero-based reader page; the reader determines the page count. */
-  lastPage?: number;
   seriesId?: string;
   seriesTitle?: string;
   volumeNumber?: number;
@@ -59,12 +59,6 @@ export const BOOK_COLORS = [jade.jade12, bronze.bronze11, iris.iris12, gold.gold
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
 const DB_NAME = 'risu-bookshelf';
 const STORE = 'books';
-const PROGRESS_STORE = 'reading-progress';
-interface ReadingProgress {
-  id: string;
-  lastPage: number;
-  updatedAt: string;
-}
 type RecordValue = Record<string, unknown>;
 
 function record(value: unknown): value is RecordValue {
@@ -92,6 +86,11 @@ function timestamp(value: unknown, fallback: string): string {
 function safeCover(value: unknown): string | undefined {
   // Covers may use the same explicitly imported image references as assets.
   return safeAssetSource(value);
+}
+
+/** A concrete opaque CSS color, never CSS expressions or external references. */
+function safeCustomColor(value: unknown): string | undefined {
+  return typeof value === 'string' && /^#(?:[\da-f]{3}|[\da-f]{6})$/i.test(value.trim()) ? value.trim() : undefined;
 }
 
 function textContent(value: unknown): string | undefined {
@@ -215,6 +214,8 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
   };
   const cover = safeCover(value.cover);
   if (cover) book.cover = cover;
+  const customColor = safeCustomColor(value.customColor);
+  if (customColor) book.customColor = customColor;
   const backCover = safeAssetSource(value.backCover);
   if (backCover) book.backCover = backCover;
   const characterIcon = safeAssetSource(value.characterIcon);
@@ -231,7 +232,6 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
       return [{ message, char: entry.char, ...(typeof entry.label === 'string' ? { label: entry.label } : {}) }];
     });
   }
-  if (typeof value.lastPage === 'number' && Number.isSafeInteger(value.lastPage) && value.lastPage >= 0) book.lastPage = value.lastPage;
   if (context.preserveIds) {
     if (typeof value.seriesId === 'string') book.seriesId = value.seriesId;
     if (typeof value.seriesTitle === 'string') book.seriesTitle = value.seriesTitle;
@@ -452,11 +452,29 @@ function openDatabase(): Promise<IDBDatabase> {
     if (typeof indexedDB === 'undefined') { reject(new LibraryError('이 환경에서는 IndexedDB 저장소를 사용할 수 없습니다.')); return; }
     let request: IDBOpenDBRequest;
     let settled = false;
-    try { request = indexedDB.open(DB_NAME, 2); }
+    try { request = indexedDB.open(DB_NAME, 3); }
     catch (error) { reject(storageError(error)); return; }
     request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(STORE)) request.result.createObjectStore(STORE, { keyPath: 'id' });
-      if (!request.result.objectStoreNames.contains(PROGRESS_STORE)) request.result.createObjectStore(PROGRESS_STORE, { keyPath: 'id' });
+      const db = request.result;
+      const transaction = request.transaction!;
+      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });
+      // This schema deletion and every cursor update share the atomic upgrade
+      // transaction. An abort leaves the v2 schema and all book records intact.
+      if (db.objectStoreNames.contains('reading-progress')) db.deleteObjectStore('reading-progress');
+      const cursorRequest = transaction.objectStore(STORE).openCursor();
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result;
+        if (!cursor) return;
+        const value: unknown = cursor.value;
+        // Do not normalize/revalidate historical content during migration.
+        // Remove only the obsolete property, preserving IDs and every other
+        // field, including timestamps, message offsets and manual bookmarks.
+        if (record(value) && Object.prototype.hasOwnProperty.call(value, 'lastPage')) {
+          const { lastPage: _lastPage, ...book } = value;
+          cursor.update(book);
+        }
+        cursor.continue();
+      };
     };
     request.onerror = () => { settled = true; reject(storageError(request.error)); };
     request.onblocked = () => {
@@ -473,11 +491,11 @@ function openDatabase(): Promise<IDBDatabase> {
 }
 
 /** Resolve writes only on transaction commit, including quota/abort failures. */
-async function withStores<T>(stores: string[], mode: IDBTransactionMode, action: (transaction: IDBTransaction) => IDBRequest<T>): Promise<T> {
+async function withBooks<T>(mode: IDBTransactionMode, action: (transaction: IDBTransaction) => IDBRequest<T>): Promise<T> {
   const db = await openDatabase();
   try {
     return await new Promise<T>((resolve, reject) => {
-      const transaction = db.transaction(stores, mode);
+      const transaction = db.transaction(STORE, mode);
       let result: T;
       let failure: unknown;
       transaction.oncomplete = () => resolve(result);
@@ -507,7 +525,6 @@ function validateBook(book: Book): void {
     typeof book.updatedAt !== 'string' || !Number.isFinite(Date.parse(book.updatedAt)) || !Array.isArray(book.messages) ||
     !book.messages.every((message) => record(message) && ['role', 'name', 'content'].every((key) => typeof (message as unknown as RecordValue)[key] === 'string') &&
       (message.chapter === undefined || typeof message.chapter === 'string')) ||
-    (book.lastPage !== undefined && (!Number.isSafeInteger(book.lastPage) || book.lastPage < 0)) ||
     (book.seriesId !== undefined && typeof book.seriesId !== 'string') ||
     (book.seriesTitle !== undefined && typeof book.seriesTitle !== 'string') ||
     (book.volumeNumber !== undefined && (!Number.isSafeInteger(book.volumeNumber) || book.volumeNumber < 1)) ||
@@ -528,70 +545,47 @@ function validateBook(book: Book): void {
 
 /** The same safety rules apply to imports, persisted records and backup blobs. */
 function sanitizedBook(book: Book): Book {
-  const { cover: _cover, backCover: _backCover, characterIcon: _characterIcon, assets: _assets, bookmarks: _bookmarks, ...rest } = book;
+  // Runtime records/old backups can still have extra legacy fields even though
+  // the Book contract no longer exposes them. Never write/export lastPage.
+  const { lastPage: _lastPage, customColor: _customColor, cover: _cover, backCover: _backCover, characterIcon: _characterIcon, assets: _assets, bookmarks: _bookmarks, ...rest } = book as Book & { lastPage?: unknown };
   const cover = safeCover(book.cover);
   const backCover = safeAssetSource(book.backCover);
   const characterIcon = safeAssetSource(book.characterIcon);
+  const customColor = safeCustomColor(book.customColor);
   return { ...rest, messages: book.messages.map(message => ({ ...message })),
     ...(cover ? { cover } : {}), ...(backCover ? { backCover } : {}),
     ...(characterIcon ? { characterIcon } : {}),
+    ...(customColor ? { customColor } : {}),
     ...(book.assets === undefined ? {} : { assets: normalizeAssets(book.assets) }),
     ...(book.bookmarks === undefined ? {} : { bookmarks: book.bookmarks.map(mark => ({ ...mark })) }) };
 }
 
 export async function loadBooks(): Promise<Book[]> {
-  let progress: ReadingProgress[] = [];
-  const records = await withStores<Book[]>([STORE, PROGRESS_STORE], 'readonly', (transaction) => {
-    const request = transaction.objectStore(PROGRESS_STORE).getAll();
-    request.onsuccess = () => { progress = request.result; };
-    return transaction.objectStore(STORE).getAll();
-  });
+  const records = await withBooks<Book[]>('readonly', transaction => transaction.objectStore(STORE).getAll());
   records.forEach(validateBook);
   const books = records.map(sanitizedBook);
-  const byId = new Map(progress.filter((entry) => record(entry) && typeof entry.id === 'string' &&
-    Number.isSafeInteger(entry.lastPage) && entry.lastPage >= 0 &&
-    typeof entry.updatedAt === 'string' && Number.isFinite(Date.parse(entry.updatedAt))).map((entry) => [entry.id, entry]));
-  for (const book of books) {
-    const entry = byId.get(book.id);
-    if (entry) {
-      book.lastPage = entry.lastPage;
-      book.updatedAt = entry.updatedAt;
-    }
-  }
   return books.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
-}
-
-/** Persist only lightweight reader metadata; timestamps are caller-owned. */
-export async function saveReadingProgress(id: string, page: number, updatedAt: string): Promise<void> {
-  if (typeof id !== 'string' || !id.trim() || !Number.isSafeInteger(page) || page < 0 ||
-    typeof updatedAt !== 'string' || !Number.isFinite(Date.parse(updatedAt))) {
-    throw new LibraryError('저장할 읽기 진행 정보의 형식이 올바르지 않습니다.');
-  }
-  await withStores([PROGRESS_STORE], 'readwrite', (transaction) =>
-    transaction.objectStore(PROGRESS_STORE).put({ id, lastPage: page, updatedAt } satisfies ReadingProgress));
 }
 
 /** Upsert by id. Timestamps are caller-owned, allowing lossless backup restore. */
 export async function saveBook(book: Book): Promise<void> {
   validateBook(book);
   const stored = sanitizedBook(book);
-  await withStores([STORE, PROGRESS_STORE], 'readwrite', (transaction) => {
+  await withBooks('readwrite', (transaction) => {
     const request = transaction.objectStore(STORE).put(stored);
-    transaction.objectStore(PROGRESS_STORE).delete(book.id);
     return request;
   });
 }
 
 /** Atomically upsert the complete renumbered series, retaining the original ID.
- * All supplied books lose stale progress overrides in the same transaction.
- * No records are deleted; an abort leaves both stores unchanged.
+ * No records are deleted; an abort leaves the books store unchanged.
  */
 export async function replaceBookWithVolumes(originalId: string, volumes: Book[]): Promise<void> {
   return repackSeries(originalId, volumes, []);
 }
 
-/** Atomically replace a series and remove obsolete books and progress overrides.
- * Retained IDs win if also listed as obsolete. Failure rolls back both stores.
+/** Atomically replace a series and remove obsolete books.
+ * Retained IDs win if also listed as obsolete. Failure rolls back all writes.
  */
 export async function repackSeries(originalId: string, volumes: Book[], obsoleteIds: string[]): Promise<void> {
   if (!Array.isArray(obsoleteIds) || obsoleteIds.some(id => typeof id !== 'string' || !id.trim())) {
@@ -609,16 +603,14 @@ export async function repackSeries(originalId: string, volumes: Book[], obsolete
   });
   if (!ids.has(originalId)) throw new LibraryError('분권 목록에 원본 책 ID가 필요합니다.');
 
-  await withStores([STORE, PROGRESS_STORE], 'readwrite', (transaction) => {
+  await withBooks('readwrite', (transaction) => {
     const books = transaction.objectStore(STORE);
-    const progress = transaction.objectStore(PROGRESS_STORE);
     let request!: IDBRequest<IDBValidKey>;
     for (const book of stored) {
       request = books.put(book);
-      progress.delete(book.id);
     }
     for (const id of new Set(obsoleteIds)) {
-      if (!ids.has(id)) { books.delete(id); progress.delete(id); }
+      if (!ids.has(id)) books.delete(id);
     }
     return request;
   });
@@ -630,11 +622,10 @@ export async function deleteBooks(ids: string[]): Promise<void> {
     throw new LibraryError('삭제할 책의 ID 목록이 올바르지 않습니다.');
   }
   if (!ids.length) return;
-  await withStores([STORE, PROGRESS_STORE], 'readwrite', transaction => {
+  await withBooks('readwrite', transaction => {
     let request!: IDBRequest<undefined>;
     for (const id of new Set(ids)) {
       request = transaction.objectStore(STORE).delete(id);
-      transaction.objectStore(PROGRESS_STORE).delete(id);
     }
     return request;
   });
@@ -642,9 +633,8 @@ export async function deleteBooks(ids: string[]): Promise<void> {
 
 /** Idempotent: deleting a missing id succeeds. */
 export async function deleteAllBooks(): Promise<void> {
-  await withStores([STORE, PROGRESS_STORE], 'readwrite', transaction => {
+  await withBooks('readwrite', transaction => {
     const request=transaction.objectStore(STORE).clear();
-    transaction.objectStore(PROGRESS_STORE).clear();
     return request;
   });
 }
@@ -652,9 +642,8 @@ export async function deleteAllBooks(): Promise<void> {
 /** Idempotent: deleting a missing id succeeds. */
 export async function deleteBook(id: string): Promise<void> {
   if (typeof id !== 'string' || !id.trim()) throw new LibraryError('삭제할 책의 ID가 필요합니다.');
-  await withStores([STORE, PROGRESS_STORE], 'readwrite', (transaction) => {
+  await withBooks('readwrite', (transaction) => {
     const request = transaction.objectStore(STORE).delete(id);
-    transaction.objectStore(PROGRESS_STORE).delete(id);
     return request;
   });
 }

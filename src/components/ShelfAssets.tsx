@@ -89,7 +89,7 @@ export default function ShelfAssets({ assets, onSave, onClose }: ShelfAssetsProp
     } }}>
     <header className="shelf-assets-heading"><h2 id={titleId}>책장 이미지</h2><button type="button" className="shelf-assets-icon" aria-label="닫기" disabled={busy} onClick={onClose}><X size={20}/></button></header>
     <p className="shelf-assets-description">이 책장의 이야기에 사용할 이미지를 모아 두세요.</p>
-    <button type="button" className="shelf-assets-add" disabled={busy} onClick={() => input.current?.click()}><ImagePlus size={19}/> 이미지 · 캐릭터 카드 추가</button>
+    <div className="shelf-assets-toolbar"><button type="button" className="shelf-assets-add" disabled={busy} onClick={() => input.current?.click()}><ImagePlus size={19}/> 캐릭터 카드</button><button type="button" className="shelf-assets-defaults" disabled={busy} title="이 책장의 이미지와 초상을 비우기" onClick={()=>{setDraft([]);setError('');setNotice('');setPreviewFailures(new Set());}}>기본값으로</button></div>
     <input ref={input} type="file" className="shelf-assets-input" multiple accept=".png,.jpg,.jpeg,.webp,.gif,.avif,.json,.charx,.zip,image/png,image/jpeg,image/webp,image/gif,image/avif,application/json,application/zip,application/charx"
       aria-label="이미지 또는 캐릭터 카드 파일" disabled={busy} onChange={event => { const files = Array.from(event.target.files ?? []); event.target.value = ''; void addFiles(files); }}/>
     <p className="shelf-assets-hint">이미지, PNG·JSON·CHARX 카드, 카드 ZIP · 파일·압축 해제 합계 50MB</p>

@@ -206,3 +206,24 @@
 .reader-bookmark-options button{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;min-height:52px;border:1px solid var(--reader-line);border-radius:8px;background:var(--reader-paper);font-size:11px}
 .reader-bookmark-options button[aria-pressed='true']{outline:2px solid var(--reader-accent);outline-offset:2px}
 .reader-bookmark-options img{width:28px;height:28px;border-radius:50%;object-fit:cover}
+/* A paper bookmark belongs to its leaf and follows that leaf's transform. */
+.reader-page{contain:layout;overflow:visible}
+.reader-paper-shell{overflow:visible}
+.reader .reader-bookmark-slip{position:absolute;z-index:12;top:-18px;left:50%;width:min(96px,34%);height:min(232px,43%);min-height:150px;transform:translate(-50%,var(--bookmark-drag,0px)) rotate(-1.5deg);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;padding:24px 10px 18px;border:1px solid var(--bronze-8);border-radius:3px;background:var(--bronze-3);color:var(--bronze-12);box-shadow:1px 4px 8px #0003;touch-action:none;user-select:none;cursor:grab;opacity:1;transition:opacity .18s ease}
+.reader .reader-bookmark-slip:active{cursor:grabbing;opacity:.75}
+.reader-bookmark-punch{position:absolute;top:8px;left:calc(50% - 3px);width:6px;height:6px;border-radius:50%;background:var(--reader-paper);box-shadow:inset 0 1px 2px #0004}
+.reader-bookmark-slip img{width:62px;height:72px;max-width:100%;object-fit:cover;pointer-events:none;border-radius:1px}
+.reader-bookmark-slip strong{font:600 12px/1.65 'Gowun Batang',serif;text-align:center;max-width:100%;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.reader-bookmark-rule{width:28px;border-top:1px solid currentColor;opacity:.35}
+.reader-bookmark-slip small{font:9px/1.5 'Gowun Batang',serif;letter-spacing:.12em;opacity:.75}
+.reader .reader-bookmark-character{background:var(--reader-preview-ink);color:var(--reader-preview-paper);border-color:var(--sand-9);gap:10px}
+.reader-page:hover .reader-bookmark-slip,.reader-bookmark-slip:hover,.reader-bookmark-slip:focus-visible{opacity:.18}
+.reader-page[data-bookmark-hidden='true'] .reader-bookmark-slip{visibility:hidden}
+.reader .reader-bookmark-removing{opacity:.35}
+.reader-back-mark{font:400 clamp(16px,2.3vw,25px)/1.65 'Gowun Batang',serif;letter-spacing:.08em;width:auto;max-width:85%;padding:18px 8px 0;overflow-wrap:anywhere}
+.reader svg.reader-back-barcode{display:block;width:min(56%,180px);height:52px;min-height:42px;background:var(--reader-preview-paper);opacity:1;flex-shrink:0}
+.reader-true-back{border:4px solid color-mix(in srgb,var(--book-cover),black 22%);border-left-width:7px;border-radius:3px 6px 6px 3px;box-shadow:inset 3px 0 7px #0004,inset -2px 0 2px #fff3,0 6px 0 -2px color-mix(in srgb,var(--book-cover),black 35%),0 8px 14px #0003}
+.reader-endpaper{background:linear-gradient(90deg,#00000005,transparent 15%,transparent 90%,#00000005),var(--reader-paper)}
+.reader-leave-dialog{width:min(450px,calc(100vw - 32px))}
+.reader-leave-dialog>div{flex-wrap:wrap;gap:8px}.reader-leave-dialog button{font-size:12px;padding:10px 12px}
+@media(prefers-reduced-motion:reduce){.reader .reader-bookmark-slip{transition:none}}

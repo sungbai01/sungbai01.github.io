@@ -10,7 +10,7 @@ export default function BookEditor({book,messageIndex,onSave,onClose}:{book:Book
  useEffect(()=>{dialog.current?.showModal();return()=>dialog.current?.close();},[]);
  const message=draft.messages[index];
  function patch(value:Partial<Message>){setDraft(previous=>({...previous,messages:previous.messages.map((entry,i)=>i===index?{...entry,...value}:entry)}));}
- async function save(){setSaving(true);setError('');try{await onSave({...draft,title:draft.title.trim()||book.title,lastPage:0,updatedAt:new Date().toISOString()});onClose();}catch{setError('저장 실패. 다시 시도하세요.');}finally{setSaving(false);}}
+ async function save(){setSaving(true);setError('');try{await onSave({...draft,title:draft.title.trim()||book.title,updatedAt:new Date().toISOString()});onClose();}catch{setError('저장 실패. 다시 시도하세요.');}finally{setSaving(false);}}
  return <dialog ref={dialog} className="reader-editor" aria-label="본문 편집" onCancel={event=>{event.preventDefault();if(!saving)onClose();}}>
   <div className="reader-editor-heading"><h2>본문 편집</h2><button className="reader-icon-button" aria-label="편집 취소" title="취소" disabled={saving} onClick={onClose}><X size={20}/></button></div>
   <label className="reader-editor-field">책 제목<input aria-label="책 제목" maxLength={100} value={draft.title} onChange={event=>setDraft({...draft,title:event.target.value})}/></label>

@@ -1,6 +1,6 @@
 import { Orientation, Render } from './Render';
 import { PageFlip } from '../PageFlip';
-import { FlipDirection } from '../Flip/Flip';
+import { FlipDirection, FlippingState } from '../Flip/Flip';
 import { PageDensity, PageOrientation } from '../Page/Page';
 import type { Page } from '../Page/Page';
 import { HTMLPage } from '../Page/HTMLPage';
@@ -22,6 +22,7 @@ export class HTMLRender extends Render {
     private innerShadow: HTMLElement = null;
     private hardShadow: HTMLElement = null;
     private hardInnerShadow: HTMLElement = null;
+    private shadowLayers: HTMLElement[] = [];
 
     /**
      * @constructor
@@ -51,15 +52,73 @@ export class HTMLRender extends Render {
         this.innerShadow = this.element.querySelector('.stf__innerShadow');
         this.hardShadow = this.element.querySelector('.stf__hardShadow');
         this.hardInnerShadow = this.element.querySelector('.stf__hardInnerShadow');
+
+        // Clip in stationary book coordinates, outside each shadow's rotating
+        // coordinate system. Separate layers preserve the original stacking order.
+        this.shadowLayers = [];
+        for (const [shadow, level] of [
+            [this.outerShadow, 10], [this.innerShadow, 10],
+            [this.hardShadow, 4], [this.hardInnerShadow, 5],
+        ] as [HTMLElement, number][]) {
+            const layer = document.createElement('div');
+            layer.style.cssText = `position: absolute; inset: 0; pointer-events: none;
+                z-index: ${this.getSettings().startZIndex + level};`;
+            shadow.parentElement.insertBefore(layer, shadow);
+            layer.appendChild(shadow);
+            this.shadowLayers.push(layer);
+        }
+        this.hideShadows();
     }
 
     public clearShadow(): void {
         super.clearShadow();
 
+        this.hideShadows();
+    }
+
+    /** DOM-only reset: drawing a read frame must not schedule another frame. */
+    private hideShadows(): void {
         this.outerShadow.style.cssText = 'display: none';
         this.innerShadow.style.cssText = 'display: none';
         this.hardShadow.style.cssText = 'display: none';
         this.hardInnerShadow.style.cssText = 'display: none';
+    }
+
+    private isEndPage(page: Page): boolean {
+        return page !== null && (page as HTMLPage).getElement().dataset.pageKind === 'end';
+    }
+
+    /** The end CTA belongs to the stationary right-hand blank area. */
+    private drawEndPage(page: Page): void {
+        page.setOrientation(PageOrientation.RIGHT);
+        page.setDrawingDensity(PageDensity.SOFT);
+        page.simpleDraw(PageOrientation.RIGHT);
+        (page as HTMLPage).getElement().style.zIndex =
+            (this.getSettings().startZIndex + 3).toString(10);
+    }
+
+    private clipShadowsToPhysicalPages(): boolean {
+        const rect = this.getRect();
+        const hasPage = (page: Page): boolean => page !== null && !this.isEndPage(page);
+        const landscape = this.orientation === Orientation.LANDSCAPE;
+        const flipping = hasPage(this.flippingPage);
+        const left = landscape && (hasPage(this.leftPage) || flipping ||
+            (this.direction === FlipDirection.BACK && hasPage(this.bottomPage)));
+        // An incoming end page reserves the blank half throughout the cover
+        // turn, even while the outgoing physical sheet still occupies that side.
+        const endVisible = [this.leftPage, this.rightPage, this.bottomPage, this.flippingPage]
+            .some(page => this.isEndPage(page));
+        const right = !endVisible && (hasPage(this.rightPage) || flipping ||
+            ((!landscape || this.direction === FlipDirection.FORWARD) && hasPage(this.bottomPage)));
+        const x = rect.left + (left ? 0 : rect.pageWidth);
+        const width = (Number(left) + Number(right)) * rect.pageWidth;
+        const clip = `polygon(${x}px ${rect.top}px, ${x + width}px ${rect.top}px,
+            ${x + width}px ${rect.top + rect.height}px, ${x}px ${rect.top + rect.height}px)`;
+        for (const layer of this.shadowLayers) {
+            layer.style.clipPath = clip;
+            layer.style.setProperty('-webkit-clip-path', clip);
+        }
+        return width > 0;
     }
 
     public reload(): void {
@@ -91,6 +150,7 @@ export class HTMLRender extends Render {
                 rgba(0, 0, 0, ${(this.shadow.opacity * progress) / 100}) 5%,
                 rgba(0, 0, 0, 0) 100%);
             left: ${rect.left + rect.width / 2}px;
+            top: ${rect.top}px;
             transform-origin: 0 0;
         `;
 
@@ -124,6 +184,7 @@ export class HTMLRender extends Render {
                 this.shadow.opacity
             }) 5%, rgba(0, 0, 0, 0) 100%);
             left: ${rect.left + rect.width / 2}px;
+            top: ${rect.top}px;
             transform-origin: 0 0;
         `;
 
@@ -268,6 +329,10 @@ export class HTMLRender extends Render {
      */
     private drawLeftPage(): void {
         if (this.orientation === Orientation.PORTRAIT || this.leftPage === null) return;
+        if (this.isEndPage(this.leftPage)) {
+            this.drawEndPage(this.leftPage);
+            return;
+        }
 
         if (
             this.direction === FlipDirection.BACK &&
@@ -290,6 +355,10 @@ export class HTMLRender extends Render {
      */
     private drawRightPage(): void {
         if (this.rightPage === null) return;
+        if (this.isEndPage(this.rightPage)) {
+            this.drawEndPage(this.rightPage);
+            return;
+        }
 
         if (
             this.direction === FlipDirection.FORWARD &&
@@ -312,6 +381,10 @@ export class HTMLRender extends Render {
      */
     private drawBottomPage(): void {
         if (this.bottomPage === null) return;
+        if (this.isEndPage(this.bottomPage)) {
+            this.drawEndPage(this.bottomPage);
+            return;
+        }
 
         const tempDensity =
             this.flippingPage != null ? this.flippingPage.getDrawingDensity() : null;
@@ -324,6 +397,12 @@ export class HTMLRender extends Render {
     }
 
     protected drawFrame(): void {
+        // Clear both families on every frame, including read frames and density
+        // transitions; only this frame's active family may become visible again.
+        this.hideShadows();
+        const reading = this.app.getState() === FlippingState.READ;
+        if (reading) this.shadow = null;
+        this.updateBookmarkVisibility();
         this.clear();
 
         this.drawLeftPage();
@@ -333,20 +412,53 @@ export class HTMLRender extends Render {
         this.drawBottomPage();
 
         if (this.flippingPage != null) {
-            (this.flippingPage as HTMLPage).getElement().style.zIndex = (
-                this.getSettings().startZIndex + 5
-            ).toString(10);
+            if (this.isEndPage(this.flippingPage)) {
+                this.drawEndPage(this.flippingPage);
+            } else {
+                (this.flippingPage as HTMLPage).getElement().style.zIndex = (
+                    this.getSettings().startZIndex + 5
+                ).toString(10);
 
-            this.flippingPage.draw();
+                this.flippingPage.draw();
+            }
         }
 
-        if (this.shadow != null && this.flippingPage !== null) {
+        if (this.shadow != null && this.flippingPage !== null && !this.isEndPage(this.flippingPage) &&
+            this.getSettings().drawShadow && !reading &&
+            this.clipShadowsToPhysicalPages()) {
             if (this.flippingPage.getDrawingDensity() === PageDensity.SOFT) {
                 this.drawOuterShadow();
                 this.drawInnerShadow();
             } else {
                 this.drawHardOuterShadow();
                 this.drawHardInnerShadow();
+            }
+        }
+    }
+
+    /** Keep the ribbon on the moving clone, never on its stationary source.
+     * Include the previous visible spread so a departing source is restored too.
+     */
+    private updateBookmarkVisibility(): void {
+        const clone = this.flippingPage === null
+            ? null : (this.flippingPage as HTMLPage).getElement();
+        const cloneIndex = clone?.dataset.flipCopy === 'true'
+            ? clone.dataset.readerPageIndex : undefined;
+        const pages = new Set<Page>([
+            ...this.visiblePages,
+            this.leftPage, this.rightPage, this.bottomPage, this.flippingPage,
+        ].filter(Boolean));
+        for (const page of pages) {
+            const element = (page as HTMLPage).getElement();
+            const hide = cloneIndex !== undefined && element !== clone &&
+                element.dataset.flipCopy !== 'true' &&
+                (page === this.leftPage || page === this.rightPage) &&
+                element.dataset.readerPageIndex === cloneIndex;
+            if (hide) {
+                if (element.dataset.bookmarkHidden !== 'true') element.dataset.bookmarkHidden = 'true';
+            } else if (element.hasAttribute('data-bookmark-hidden')) {
+                // Also clear flags inherited when a temporary copy was cloned.
+                element.removeAttribute('data-bookmark-hidden');
             }
         }
     }

@@ -103,9 +103,6 @@ export function splitBookByPages(book: Book, pages: MeasuredPage[]): Book[] {
         return span ? [{ ...mark, message: span.local, char: mark.char - span.start }] : [];
       }) }),
       volumePolicy: 'chapters-100-v1',
-      ...(book.lastPage === undefined ? {} : {
-        lastPage: Math.max(0, Math.min(end - start - 1, book.lastPage - start)),
-      }),
     };
   });
   if (sourceMessage !== book.messages.length || sourceChar !== 0) {
@@ -116,7 +113,6 @@ export function splitBookByPages(book: Book, pages: MeasuredPage[]): Book[] {
 
 /** Collapse each explicitly identified series before remeasurement. Keep the
  * first volume's ID/book metadata and every message (including empty messages).
- * Progress cannot be mapped until measured again, so restart at page zero.
  * Persist via repackSeries, passing the removed sibling IDs as obsoleteIds.
  */
 export function mergeLegacyVolumes(books: Book[]): Book[] {
@@ -133,13 +129,14 @@ export function mergeLegacyVolumes(books: Book[]): Book[] {
     }
     return {
       ...first, title: first.seriesTitle ?? first.title,
-      volumeNumber: 1, volumeCount: 1, lastPage: 0,
+      volumeNumber: 1, volumeCount: 1,
       messages: siblings.flatMap(book => book.messages.map(message => ({ ...message }))),
       ...(siblings.some(book => book.assets !== undefined) ? { assets: [...assets.values()] } : {}),
       ...(siblings.some(book => book.bookmarks !== undefined) ? { bookmarks } : {}),
       ...(siblings.some(book => book.backCover !== undefined) ? { backCover: first.backCover ?? siblings.find(book => book.backCover)?.backCover } : {}),
       ...(siblings.some(book => book.characterIcon !== undefined) ? { characterIcon: first.characterIcon ?? siblings.find(book => book.characterIcon)?.characterIcon } : {}),
       ...(siblings.some(book => book.bookmarkStyle !== undefined) ? { bookmarkStyle: first.bookmarkStyle ?? siblings.find(book => book.bookmarkStyle)?.bookmarkStyle } : {}),
+      ...(siblings.some(book => book.customColor !== undefined) ? { customColor: first.customColor ?? siblings.find(book => book.customColor)?.customColor } : {}),
     };
   });
 }
