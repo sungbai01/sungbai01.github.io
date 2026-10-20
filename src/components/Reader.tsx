@@ -10,6 +10,7 @@ import { ArrowRight, BookOpen, Bookmark, Check, ChevronLeft, List, Maximize, Min
 import { extractAssetSegments } from '../lib/assets';
 import type { Book, BookAsset } from '../lib/library';
 import { MAX_VOLUME_PAGES, splitBookByPages } from '../lib/volumes';
+import { readerPageCount, readReaderViewport } from '../lib/readerLayout';
 import BackBarcode from './BackBarcode';
 import './reader.css';
 
@@ -215,7 +216,8 @@ export function Reader({ book, onClose, initialBookmark, onSplit, onNextVolume, 
   const [pageIndex, setPageIndex] = useState(0);
   const [pages, setPages] = useState<PaperPage[]>([]);
   const [contentCount,setContentCount]=useState(0);
-  const [spread, setSpread] = useState(2);
+  const [spread, setSpread] = useState(1);
+  const [viewport, setViewport] = useState(readReaderViewport);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -250,6 +252,32 @@ export function Reader({ book, onClose, initialBookmark, onSplit, onNextVolume, 
   // Stable content dependencies prevent a parent's progress update rebuilding the book.
   const contentKey = useMemo(() => ({ title: book.title, author: book.author, messages: book.messages,assets:book.assets }),
     [book.title, book.author, book.messages,book.assets]);
+
+  useEffect(() => {
+    const pointer = window.matchMedia('(pointer: coarse)');
+    const segments = window.matchMedia('(horizontal-viewport-segments: 2)');
+    let frame = 0;
+    const refresh = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (blockedRef.current) return;
+        const next = readReaderViewport();
+        setViewport(previous => previous.width === next.width && previous.height === next.height &&
+          previous.touch === next.touch && previous.horizontalSegments === next.horizontalSegments ? previous : next);
+      });
+    };
+    window.addEventListener('resize', refresh);
+    window.addEventListener('orientationchange', refresh);
+    pointer.addEventListener('change', refresh);
+    segments.addEventListener('change', refresh);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('resize', refresh);
+      window.removeEventListener('orientationchange', refresh);
+      pointer.removeEventListener('change', refresh);
+      segments.removeEventListener('change', refresh);
+    };
+  }, []);
 
   useEffect(() => {
     try {
@@ -327,13 +355,15 @@ export function Reader({ book, onClose, initialBookmark, onSplit, onNextVolume, 
         activeMessagesRef.current=currentBook.messages;
         splitFailureRef.current=false;
       }
-      const count = dimensions.width >= 760 ? 2 : 1;
+      const count = readerPageCount(dimensions.width, viewport);
       const width = Math.max(120, Math.min(fullscreen?Infinity:540, Math.floor((dimensions.width - 16) / count)));
-      const height = Math.max(300, Math.min(fullscreen?Infinity:790, dimensions.height - 56));
+      const height = Math.max(100, Math.min(fullscreen?Infinity:790, dimensions.height - Math.min(56, dimensions.height * .12)));
       const padding = width < 350 ? 22 : width < 440 ? 32 : 46;
+      const contentTop = height < 300 ? 22 : 36;
+      const contentBottom = height < 300 ? 32 : 56;
       const measure = measureRef.current;
       measure.style.width = `${width - padding * 2}px`;
-      measure.style.height = `${height - 92}px`;
+      measure.style.height = `${Math.max(1,height - contentTop - contentBottom)}px`;
       measure.style.fontSize = `${fontSize}px`;
       const nextPages = paginate(currentBook, measure);
       const bodyCount=nextPages.length;
@@ -363,6 +393,8 @@ export function Reader({ book, onClose, initialBookmark, onSplit, onNextVolume, 
       host.style.height = `${height}px`;
       host.style.setProperty('--reader-page-padding', `${padding}px`);
       host.style.setProperty('--reader-font-size', `${fontSize}px`);
+      host.style.setProperty('--reader-content-top', `${contentTop}px`);
+      host.style.setProperty('--reader-content-bottom', `${contentBottom}px`);
       mountRef.current.append(host);
       const nodes = nextPages.map((page, index) => {
         const element = document.createElement('div');
@@ -455,7 +487,7 @@ export function Reader({ book, onClose, initialBookmark, onSplit, onNextVolume, 
         host?.remove();
       });
     };
-  }, [book.id, contentKey, dimensions.width, dimensions.height, fontSize, fontRevision,splitRevision,fullscreen]);
+  }, [book.id, contentKey, dimensions.width, dimensions.height, fontSize, fontRevision,splitRevision,fullscreen,viewport]);
 
   // Highlighting does not repaginate: marks have exactly the same font metrics.
   useEffect(() => {
@@ -571,7 +603,7 @@ export function Reader({ book, onClose, initialBookmark, onSplit, onNextVolume, 
     // Reapplying false cancels a gesture; only update on an actual transition.
     if(flip&&flip.isInteractionEnabled()!==enabled)flip.setInteractionEnabled(enabled);
   },[editing,nextConfirm,leaveConfirm,loading,panel]);
-  useEffect(()=>{if(!editing){const stage=stageRef.current;if(stage){const box=stage.getBoundingClientRect();setDimensions(previous=>{const next={width:Math.floor(box.width),height:Math.floor(box.height)};return previous.width===next.width&&previous.height===next.height?previous:next;});}}},[editing]);
+  useEffect(()=>{if(!editing&&!nextConfirm&&!leaveConfirm){setViewport(previous=>{const next=readReaderViewport();return previous.width===next.width&&previous.height===next.height&&previous.touch===next.touch&&previous.horizontalSegments===next.horizontalSegments?previous:next;});const stage=stageRef.current;if(stage){const box=stage.getBoundingClientRect();setDimensions(previous=>{const next={width:Math.floor(box.width),height:Math.floor(box.height)};return previous.width===next.width&&previous.height===next.height?previous:next;});}}},[editing,nextConfirm,leaveConfirm]);
   const onEdit:EditFragment=(fragment,text)=>{draftsRef.current.set(`${fragment.message}:${fragment.char}`,text);};
   useEffect(()=>{
     setSelectedBookmarkStyle(shelfBookmark ? shelfBookmark.style ?? 'normal' : bookmarkStyle ?? book.bookmarkStyle ?? 'normal');
@@ -635,7 +667,7 @@ export function Reader({ book, onClose, initialBookmark, onSplit, onNextVolume, 
   const percent = !pages.length?0:pageIndex>=contentCount?100:Math.round(Math.min(1,pageIndex/Math.max(1,contentCount-1))*100);
   const style = { '--reader-font-size': `${fontSize}px` } as CSSProperties;
 
-  return <div ref={readerRef} className={`reader reader-theme-${theme}${theme === 'dark' ? ' dark' : ''}${fullscreen?' reader-fullscreen':''}${editing?' reader-is-editing':''}`} style={style} lang="ko">
+  return <div ref={readerRef} className={`reader reader-theme-${theme}${theme === 'dark' ? ' dark' : ''}${fullscreen?' reader-fullscreen':''}${editing?' reader-is-editing':''}`} data-page-layout={spread===2?'spread':'single'} style={style} lang="ko">
     {fullscreen&&<div className="reader-fullscreen-exit"><button aria-label="전체화면 해제" title="전체화면 해제 (Esc)" onClick={()=>void exitFullscreen()}><X size={22}/></button></div>}
     <header className="reader-toolbar">
       <button className="reader-back" onClick={()=>requestCloseRef.current()} aria-label="책을 닫고 서재로 돌아가기" title="서재로 돌아가기" disabled={editing||saving}><ChevronLeft size={19} /><span>서재</span></button>

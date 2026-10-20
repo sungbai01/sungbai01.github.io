@@ -227,3 +227,18 @@
 .reader-leave-dialog{width:min(450px,calc(100vw - 32px))}
 .reader-leave-dialog>div{flex-wrap:wrap;gap:8px}.reader-leave-dialog button{font-size:12px;padding:10px 12px}
 @media(prefers-reduced-motion:reduce){.reader .reader-bookmark-slip{transition:none}}
+/* Each page uses the same vertical bounds as its pagination measurement. */
+.reader-page-content{top:var(--reader-content-top,36px);bottom:var(--reader-content-bottom,56px)}
+@media (pointer:coarse) and (max-height:500px){
+ .reader:not(.reader-fullscreen) .reader-toolbar{min-height:44px;padding:5px 10px;grid-template-columns:auto minmax(0,1fr) auto;gap:8px}
+ .reader:not(.reader-fullscreen) .reader-tools{grid-column:auto;gap:0}
+ .reader:not(.reader-fullscreen) .reader-toolbar-title>span{font-size:12px}
+ .reader:not(.reader-fullscreen) .reader-toolbar-title small{display:none}
+ .reader .reader-tools .reader-icon-button{width:29px!important;height:30px}
+ .reader:not(.reader-fullscreen) .reader-main{padding:2px 8px 0}
+ .reader .reader-footer{padding-top:5px;padding-bottom:max(6px,env(safe-area-inset-bottom))}
+ .reader .reader-page-number{bottom:10px}
+ .reader .reader-panel{top:50px;max-height:calc(100% - 58px)}
+}
+.reader[data-page-layout='single'] .reader-back-imprint{gap:10px;padding:24px 18px 30px}
+.reader[data-page-layout='single'] .reader-end-action{max-width:100%;white-space:normal}

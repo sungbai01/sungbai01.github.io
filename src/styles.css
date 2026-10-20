@@ -141,7 +141,7 @@ button:disabled{cursor:default;opacity:.45}
 .book-cover.cover-small .cover-portrait{display:flex}
 .book-cover.cover-small .cover-ornament{display:block;font-size:15px}
 .book-spine{gap:0;padding:16px 5px 9px}
-.book-spine .spine-title{writing-mode:horizontal-tb;text-orientation:mixed;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;max-height:3.2em;width:100%;margin:auto 0;font-family:var(--font-serif);font-size:11px;line-height:1.6;font-weight:400;letter-spacing:.2px;text-align:center;overflow-wrap:anywhere}
+.book-spine .spine-title{writing-mode:horizontal-tb;text-orientation:mixed;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;max-height:3.2em;width:100%;margin:auto 0;font-family:var(--font-serif);font-size:11px;line-height:1.6;font-weight:400;letter-spacing:.2px;text-align:left;overflow-wrap:anywhere}
 .book-spine .spine-volume{flex-shrink:0;width:100%;height:35px;padding-top:12px;margin-top:13px;border-top:1px solid color-mix(in srgb,var(--sand-3),transparent 50%);font-family:Georgia,serif;font-size:16px;line-height:1;letter-spacing:1px;text-align:center;color:var(--sand-3)}
 .spine-item:first-child:before,.spine-item:last-child:after{display:none}
 .shelf-bookstop{display:block;align-self:flex-end;flex:0 0 12px;width:12px;height:112px;margin-bottom:32px;background:linear-gradient(90deg,var(--bronze-8),var(--bronze-6) 35%,var(--bronze-9));border:1px solid var(--bronze-8);border-bottom-width:6px;border-radius:4px 3px 1px 1px;box-shadow:2px 1px 3px color-mix(in srgb,var(--sand-12),transparent 65%);pointer-events:none}
@@ -166,7 +166,7 @@ button:disabled{cursor:default;opacity:.45}
 .book-cover.cover-small .cover-content{grid-template-rows:18px minmax(0,1fr) 13px;gap:2px;padding:5px 5px 4px 8px}
 .book-cover.cover-small .cover-portrait{max-width:30px;max-height:35px}
 .spine-title-zone{position:relative;display:block;flex:1;min-height:0;width:100%;overflow:hidden}
-.book-spine .spine-title{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(90deg);width:154px;max-width:none;margin:0;font-size:11px;line-height:1.5;max-height:3em;-webkit-line-clamp:2;letter-spacing:.2px;text-align:center}
+.book-spine .spine-title{position:absolute;left:calc(50% + 16px);top:8px;transform:rotate(90deg);transform-origin:top left;width:154px;max-width:none;margin:0;font-size:11px;line-height:1.5;max-height:3em;-webkit-line-clamp:2;letter-spacing:.2px;text-align:left}
 .resume-section{margin:6px 0 26px}
 .resume-section h2{margin:0 0 10px;font-size:12px;font-weight:500;color:var(--sand-11)}
 .resume-list{display:flex;flex-wrap:wrap;gap:8px}
