@@ -131,6 +131,7 @@ export class HTMLRender extends Render {
     }
 
     public reload(): void {
+        for (const page of this.visiblePages) (page as HTMLPage).clearBookmarkFoldLayer();
         const testShadow = this.element.querySelector('.stf__outerShadow');
 
         if (!testShadow) {
@@ -462,6 +463,7 @@ export class HTMLRender extends Render {
         ].filter(Boolean));
         for (const page of pages) {
             const element = (page as HTMLPage).getElement();
+            if (this.flippingPage === null) (page as HTMLPage).clearBookmarkFoldLayer();
             const hide = cloneIndex !== undefined && element !== clone &&
                 element.dataset.flipCopy !== 'true' &&
                 (page === this.leftPage || page === this.rightPage) &&
@@ -483,6 +485,7 @@ export class HTMLRender extends Render {
         );
         for (const page of new Set([...this.visiblePages, ...current])) {
             if (!current.has(page)) {
+                (page as HTMLPage).clearBookmarkFoldLayer();
                 (page as HTMLPage).getElement().style.cssText = 'display: none';
             }
 

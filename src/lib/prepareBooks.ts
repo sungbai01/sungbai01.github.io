@@ -55,7 +55,9 @@ export async function prepareBooks(books: Book[], options: { removeEmoji?: boole
   Object.assign(host.style, { position: 'fixed', inset: 'auto', top: '0', left: '-100000px', width: '400px', height: '650px',
     visibility: 'hidden', pointerEvents: 'none', display: 'block', overflow: 'hidden' });
   host.style.setProperty('--reader-font-size', '18px'); host.style.setProperty('--reader-page-padding', '32px');
+  host.style.setProperty('--paper-height', '650px');
   const measure = document.createElement('div'); measure.className = 'reader-measure reader-page-content';
+  measure.style.setProperty('--paper-height', '650px');
   Object.assign(measure.style, { width: '336px', height: '558px', fontSize: '18px', padding: '0', boxSizing: 'content-box' });
   host.append(measure); document.body.append(host);
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -73,7 +75,7 @@ export async function prepareBooks(books: Book[], options: { removeEmoji?: boole
       // again. Backup restores must bypass this API to preserve all content.
       if (source.volumePolicy === 'chapters-100-v1') { result.push(source); continue; }
       const book = preprocessBook(source, options.removeEmoji !== false);
-      result.push(...splitBookByPages(book, paginate(book, measure)).map(volume => ({ ...volume, volumePolicy: 'chapters-100-v1' as const })));
+      result.push(...splitBookByPages(book, paginate(book, measure, { pageHeight: IMPORT_PAGE_LAYOUT.height, contentTop: 36 })).map(volume => ({ ...volume, volumePolicy: 'chapters-100-v1' as const })));
       await new Promise<void>(resolve => setTimeout(resolve, 0));
     }
     return result;

@@ -3,3 +3,5 @@
 .book-intake:has(.intake-tabs [aria-selected=true][id$="-text"]) .intake-panel{min-height:0}
 
 .intake-author{margin-bottom:16px}
+
+.intake-title{margin-bottom:14px}

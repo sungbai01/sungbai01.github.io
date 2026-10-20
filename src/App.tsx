@@ -248,7 +248,7 @@ export default function App() {
     let incoming:Book[]=[];
     if(request.mode==='file'){
       const failures:string[]=[];
-      for(const file of request.files){try{incoming.push(...(await importChatFile(file,{removeUserInputs:request.removeUserInputs})).map(book=>({...book,author:request.author.trim()})));}catch(cause){failures.push(`${file.name}: ${cause instanceof Error?cause.message:'파일을 읽지 못했어요.'}`);}}
+      for(const file of request.files){try{incoming.push(...(await importChatFile(file,{removeUserInputs:request.removeUserInputs})).map(book=>({...book,author:request.author.trim(),...(request.title.trim()?{title:book.seriesId?`${request.title.trim()} · ${book.volumeNumber??1}권`:request.title.trim(),...(book.seriesId||book.seriesTitle?{seriesTitle:request.title.trim()}:{})}:{})})));}catch(cause){failures.push(`${file.name}: ${cause instanceof Error?cause.message:'파일을 읽지 못했어요.'}`);}}
       if(failures.length)throw new Error(failures.join('\n'));
     }else{
       const now=new Date().toISOString();

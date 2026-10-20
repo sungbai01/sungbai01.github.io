@@ -12,6 +12,8 @@ export class HTMLPage extends Page {
     private copiedElement: HTMLElement = null;
 
     private temporaryCopy: Page = null;
+    private bookmarkFoldLayer: HTMLElement = null;
+    private bookmarkFoldSource: HTMLElement = null;
 
     private isLoad = false;
 
@@ -32,6 +34,7 @@ export class HTMLPage extends Page {
         if (this.temporaryCopy === null) {
             this.copiedElement = this.element.cloneNode(true) as HTMLElement;
             this.copiedElement.dataset.flipCopy = 'true';
+            this.copiedElement.removeAttribute('data-bookmark-folding');
             this.copiedElement.setAttribute('aria-hidden', 'true');
             this.element.parentElement.appendChild(this.copiedElement);
 
@@ -51,6 +54,7 @@ export class HTMLPage extends Page {
 
     public hideTemporaryCopy(): void {
         if (this.temporaryCopy !== null) {
+            (this.temporaryCopy as HTMLPage).clearBookmarkFoldLayer();
             this.copiedElement.remove();
             this.copiedElement = null;
             this.temporaryCopy = null;
@@ -84,6 +88,60 @@ export class HTMLPage extends Page {
         density === PageDensity.HARD
             ? this.drawHard(commonStyle)
             : this.drawSoft(pagePos, commonStyle);
+        this.drawBookmarkFoldLayer();
+    }
+
+    /** A sibling follows the exact rendered sheet transform without its clip.
+     * Only the ribbon is cloned; page contents and event handlers stay in place.
+     */
+    private drawBookmarkFoldLayer(): void {
+        const slip = this.element.querySelector<HTMLElement>('.reader-bookmark-slip');
+        if (!slip || this.element.dataset.bookmarkHidden === 'true' ||
+            !this.element.parentElement) {
+            this.clearBookmarkFoldLayer();
+            return;
+        }
+        if (this.bookmarkFoldSource !== slip || !this.bookmarkFoldLayer?.isConnected) {
+            this.clearBookmarkFoldLayer();
+            const layer = document.createElement('div');
+            layer.setAttribute('aria-hidden', 'true');
+            layer.setAttribute('inert', '');
+            const ribbon = slip.cloneNode(true) as HTMLElement;
+            for (const node of [ribbon, ...Array.from(ribbon.querySelectorAll('[id]'))]) {
+                node.removeAttribute('id');
+            }
+            ribbon.style.pointerEvents = 'none';
+            layer.appendChild(ribbon);
+            this.element.parentElement.appendChild(layer);
+            this.bookmarkFoldLayer = layer;
+            this.bookmarkFoldSource = slip;
+        }
+        const layer = this.bookmarkFoldLayer;
+        layer.className = 'reader-bookmark-fold-layer';
+        for (const side of ['reader-page-left', 'reader-page-right']) {
+            if (this.element.classList.contains(side)) layer.classList.add(side);
+        }
+        // Copy the inline result of drawSoft/drawHard, not computed layout or a
+        // second animation. Keep only this sibling's ribbon outside the fold clip.
+        layer.style.cssText = this.element.style.cssText;
+        layer.style.position = 'absolute';
+        layer.style.clipPath = 'none';
+        layer.style.setProperty('-webkit-clip-path', 'none');
+        layer.style.overflow = 'visible';
+        layer.style.contain = 'none';
+        layer.style.pointerEvents = 'none';
+        layer.style.transition = 'none';
+        layer.style.animation = 'none';
+        layer.style.transformStyle = 'preserve-3d';
+        layer.style.zIndex = String((Number(this.element.style.zIndex) || 0) + 1);
+        this.element.dataset.bookmarkFolding = 'true';
+    }
+
+    public clearBookmarkFoldLayer(): void {
+        this.bookmarkFoldLayer?.remove();
+        this.bookmarkFoldLayer = null;
+        this.bookmarkFoldSource = null;
+        this.element.removeAttribute('data-bookmark-folding');
     }
 
     private drawHard(commonStyle = ''): void {
@@ -141,6 +199,7 @@ export class HTMLPage extends Page {
     }
 
     public simpleDraw(orient: PageOrientation): void {
+        this.clearBookmarkFoldLayer();
         if (this.element.dataset.pageKind === 'end') {
             orient = PageOrientation.RIGHT;
             this.setOrientation(orient);

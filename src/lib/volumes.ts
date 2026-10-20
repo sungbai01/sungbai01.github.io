@@ -1,4 +1,5 @@
 import type { Book } from './library';
+import { startsChapter } from './pagination';
 
 export const MAX_VOLUME_PAGES = 100;
 
@@ -10,13 +11,9 @@ export type ChapterStart = { message: number; char: number };
 /** Source offsets, including headings inside a message; speakers are irrelevant. */
 export function chapterStarts(book: Book): ChapterStart[] {
   const starts: ChapterStart[] = [];
-  let previousChapter: string | undefined;
   book.messages.forEach((message, index) => {
     const offsets = new Set<number>();
-    if (message.chapter?.trim()) {
-      if (message.chapter !== previousChapter) offsets.add(0);
-      previousChapter = message.chapter;
-    }
+    if (startsChapter(book, index)) offsets.add(0);
     const headings = /^(?:#{1,3}[ \t]+\S[^\r\n]*|제[ \t]*[0-9０-９]+[ \t]*장[^\r\n]*|Chapter[ \t]+[0-9]+\b[^\r\n]*)/gim;
     for (const match of message.content.matchAll(headings)) offsets.add(match.index!);
     for (const char of [...offsets].sort((a, b) => a - b)) starts.push({ message: index, char });
