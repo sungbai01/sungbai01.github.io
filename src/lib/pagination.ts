@@ -8,6 +8,15 @@ export type PaperPage = { fragments: Fragment[]; intro: boolean; asset?: BookAss
 
 export const CHAPTER_HEADER_RATIO = .25;
 
+/** Two extra lines above/below prose; keep room for short mobile chapters. */
+export function pageTextInsets(height: number, fontSize: number): { top: number; bottom: number } {
+  const top = height < 300 ? 22 : 36;
+  const bottom = height < 300 ? 32 : 56;
+  const line = fontSize * 1.75;
+  const extra = Math.max(0, Math.min(line * 2, (height * (1 - CHAPTER_HEADER_RATIO) - top - bottom - line * 2) / 2));
+  return { top: top + extra, bottom: bottom + extra };
+}
+
 /** Only contiguous, nonblank explicit chapter IDs group messages together. */
 export function startsChapter(book: Book, index: number): boolean {
   if (index < 0 || index >= book.messages.length) return false;
@@ -40,7 +49,9 @@ export function speakerName(message: Book['messages'][number]): string {
 
 /** Render the same small Markdown subset as Reader, via text nodes only. */
 function measureText(target: HTMLElement, text: string): void {
-  const parts = visibleProse(text).split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|_[^_\n]+_|“[^”]+”|「[^」]+」)/g);
+  const prose = visibleProse(text);
+  const visible = target.classList.contains('reader-chapter-opening') ? prose.trimStart() : prose;
+  const parts = visible.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|_[^_\n]+_|“[^”]+”|「[^」]+」)/g);
   target.replaceChildren();
   for (const part of parts) {
     if (part.startsWith('**') && part.endsWith('**')) {
@@ -129,7 +140,9 @@ export function paginate(book: Book, measure: HTMLDivElement, options: Paginatio
         const heading = pendingHeading;
         if (heading) { current.chapter = number; measure.style.height = `${chapterHeight}px`; }
         const section = document.createElement('section'); section.className = 'reader-fragment';
-        const paragraph = document.createElement('p'); paragraph.className = 'reader-prose'; section.append(paragraph); measure.append(section);
+        const paragraph = document.createElement('p'); paragraph.className = heading ? 'reader-prose reader-chapter-opening' : 'reader-prose';
+        if (heading) paragraph.style.textIndent = '1em';
+        section.append(paragraph); measure.append(section);
         const fits = (end: number) => { measureText(paragraph, content.slice(offset, end)); return measure.scrollHeight <= measure.clientHeight; };
         let low = offset, high = Math.min(segment.end, offset + 256), upperFits = fits(high);
         while (upperFits && high < segment.end) { low = high; high = Math.min(segment.end, offset + (high - offset) * 2); upperFits = fits(high); }

@@ -11,7 +11,7 @@
  * HTML disabled), never innerHTML. No Risu scripts/macros/assets are executed.
  */
 import {normalizeImageRules,type ImageRule} from './imageRules';
-import { normalizeDisplayRules, type DisplayRule } from './displayRules';
+import { legacyDisplayRules, normalizeDisplayRules, type DisplayRule } from './displayRules';
 import { jade, bronze, iris, gold } from '@radix-ui/colors';
 import { extractAssetSegments, normalizeAssets, safeAssetSource } from './assets';
 
@@ -53,7 +53,7 @@ export interface Book {
   seriesTitle?: string;
   volumeNumber?: number;
   volumeCount?: number;
-  volumePolicy?: 'chapters-100-v1';
+  volumePolicy?: 'chapters-100-v1' | 'chapters-200-v1';
 }
 
 export class LibraryError extends Error {
@@ -237,7 +237,9 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
   if (value.bookmarkStyle === 'normal' || value.bookmarkStyle === 'character') book.bookmarkStyle = value.bookmarkStyle;
   if (Array.isArray(value.assets)) book.assets = assets;
   if (Array.isArray(value.imageRules)) book.imageRules=imageRules;
-  if (Array.isArray(value.displayRules)) book.displayRules=normalizeDisplayRules(value.displayRules);
+  if (Array.isArray(value.displayRules)) book.displayRules = !value.displayRules.length && imageRules.length && !messages.some(message => message.originalContent !== undefined)
+    ? legacyDisplayRules(imageRules) : normalizeDisplayRules(value.displayRules);
+  else if (imageRules.length) book.displayRules=legacyDisplayRules(imageRules);
   if (Array.isArray(value.bookmarks)) {
     const indices = new Map(retained.map(({ index }, destination) => [index, destination]));
     book.bookmarks = value.bookmarks.flatMap(entry => {
@@ -255,7 +257,7 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
     if (typeof value.seriesTitle === 'string') book.seriesTitle = value.seriesTitle;
     if (typeof value.volumeNumber === 'number' && Number.isSafeInteger(value.volumeNumber) && value.volumeNumber > 0) book.volumeNumber = value.volumeNumber;
     if (typeof value.volumeCount === 'number' && Number.isSafeInteger(value.volumeCount) && value.volumeCount > 0) book.volumeCount = value.volumeCount;
-    if (value.volumePolicy === 'chapters-100-v1') book.volumePolicy = value.volumePolicy;
+    if (value.volumePolicy === 'chapters-100-v1' || value.volumePolicy === 'chapters-200-v1') book.volumePolicy = value.volumePolicy;
   }
   return book;
 }
@@ -583,7 +585,9 @@ function sanitizedBook(book: Book): Book {
     ...(characterIcon ? { characterIcon } : {}),
     ...(customColor ? { customColor } : {}),
     ...(book.imageRules === undefined ? {} : {imageRules:normalizeImageRules(book.imageRules)}),
-    ...(book.displayRules === undefined ? {} : {displayRules:normalizeDisplayRules(book.displayRules)}),
+    ...(book.displayRules === undefined || (!book.displayRules.length && !book.messages.some(message => message.originalContent !== undefined))
+      ? (book.imageRules?.length ? { displayRules: legacyDisplayRules(book.imageRules) } : book.displayRules === undefined ? {} : { displayRules: [] })
+      : { displayRules: normalizeDisplayRules(book.displayRules) }),
     ...(book.assets === undefined ? {} : { assets: normalizeAssets(book.assets) }),
     ...(book.bookmarks === undefined ? {} : { bookmarks: book.bookmarks.map(mark => ({ ...mark })) }) };
 }
@@ -603,6 +607,71 @@ export async function saveBook(book: Book): Promise<void> {
     const request = transaction.objectStore(STORE).put(stored);
     return request;
   });
+}
+
+export type BookmarkUpdate = Pick<Book, 'id' | 'bookmarks' | 'bookmarkStyle'> & { updatedAt?: string };
+
+/** Atomic patches against the latest stored records. Only supplied IDs are
+ * read/written; assets, original maps and all other live fields are untouched.
+ * Omitted fields stay unchanged. Explicit undefined deletes that field;
+ * bookmarks: [] clears markers. Omit updatedAt to preserve the book's date.
+ * For one shelf bookmark, clear the old book and set the new book in one call.
+ * Any missing ID, invalid anchor or write failure aborts the complete batch.
+ */
+export async function updateBookmarks(updates: BookmarkUpdate[]): Promise<void> {
+  if (!Array.isArray(updates)) throw new LibraryError('책갈피 변경 목록이 올바르지 않습니다.');
+  const has = (value: object, key: string) => Object.prototype.hasOwnProperty.call(value, key);
+  const seen = new Set<string>();
+  const patches = updates.map(update => {
+    if (!record(update) || typeof update.id !== 'string' || !update.id.trim() || seen.has(update.id)) throw new LibraryError('책갈피 변경에 유효하고 중복되지 않은 책 ID가 필요합니다.');
+    seen.add(update.id);
+    if (has(update, 'bookmarkStyle') && update.bookmarkStyle !== undefined && update.bookmarkStyle !== 'normal' && update.bookmarkStyle !== 'character') throw new LibraryError('책갈피 모양이 올바르지 않습니다.');
+    if (has(update, 'updatedAt') && update.updatedAt !== undefined && (typeof update.updatedAt !== 'string' || !Number.isFinite(Date.parse(update.updatedAt)))) throw new LibraryError('책갈피 변경 시각이 올바르지 않습니다.');
+    if (update.bookmarks !== undefined && (!Array.isArray(update.bookmarks) || !update.bookmarks.every(mark => record(mark) &&
+      Number.isSafeInteger(mark.message) && mark.message >= 0 && Number.isSafeInteger(mark.char) && mark.char >= 0 &&
+      (mark.label === undefined || typeof mark.label === 'string') &&
+      (mark.progress === undefined || (typeof mark.progress === 'number' && Number.isFinite(mark.progress) && mark.progress >= 0 && mark.progress <= 1))))) throw new LibraryError('책갈피 위치 또는 진행률이 올바르지 않습니다.');
+    return { id: update.id,
+      ...(has(update, 'bookmarks') ? { bookmarks: update.bookmarks?.map(mark => ({ message: mark.message, char: mark.char,
+        ...(mark.label === undefined ? {} : { label: mark.label }), ...(mark.progress === undefined ? {} : { progress: mark.progress }) })) } : {}),
+      ...(has(update, 'bookmarkStyle') ? { bookmarkStyle: update.bookmarkStyle } : {}),
+      ...(update.updatedAt === undefined ? {} : { updatedAt: update.updatedAt }) };
+  });
+  if (!patches.length) return;
+  const db = await openDatabase();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(STORE, 'readwrite');
+      const books = transaction.objectStore(STORE);
+      let failure: unknown;
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => { failure ??= transaction.error; };
+      transaction.onabort = () => reject(failure instanceof LibraryError ? failure : storageError(failure ?? transaction.error));
+      const abort = (cause: unknown) => { failure = cause; transaction.abort(); };
+      for (const patch of patches) {
+        const request = books.get(patch.id);
+        request.onerror = () => { failure = request.error; };
+        request.onsuccess = () => {
+          try {
+            const current: unknown = request.result;
+            if (!record(current) || current.id !== patch.id) throw new LibraryError(`책갈피를 저장할 책을 찾지 못했습니다: ${patch.id}`);
+            for (const mark of patch.bookmarks ?? []) {
+              const message = Array.isArray(current.messages) ? current.messages[mark.message] : undefined;
+              if (!record(message) || typeof message.content !== 'string' || mark.char > message.content.length) throw new LibraryError('책의 현재 본문과 책갈피 위치가 맞지 않습니다.');
+            }
+            const next = { ...current };
+            for (const key of ['bookmarks', 'bookmarkStyle'] as const) if (has(patch, key)) {
+              if (patch[key] === undefined) delete next[key]; else next[key] = patch[key];
+            }
+            if (patch.updatedAt !== undefined) next.updatedAt = patch.updatedAt;
+            const write = books.put(next);
+            write.onerror = () => { failure = write.error; };
+          } catch (cause) { abort(cause); }
+        };
+      }
+    });
+  } catch (cause) { throw cause instanceof LibraryError ? cause : storageError(cause); }
+  finally { db.close(); }
 }
 
 /** Atomically upsert the complete renumbered series, retaining the original ID.

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, useId, type CSSProperties, type ReactNode } from 'react';
 import { ArrowDownToLine, ArrowRight, BookOpen, Bookmark, Check, ChevronDown, Ellipsis, Library, LoaderCircle, Menu, Pencil, Images, Plus, Search, Trash2, Upload, X } from 'lucide-react';
-import { loadBooks, saveBook, repackSeries, deleteBook, deleteBooks, importChatFile, BOOK_COLORS, type Book } from './lib/library';
+import { loadBooks, saveBook, repackSeries, updateBookmarks, deleteBook, deleteBooks, importChatFile, BOOK_COLORS, type Book } from './lib/library';
 import { groupBooks } from './lib/volumes';
 import { prepareBooks } from './lib/prepareBooks';
 import { sampleBooks } from './lib/sample';
@@ -9,7 +9,7 @@ import BookIntake,{type IntakeRequest} from './components/BookIntake';
 import ThemePicker from './components/ThemePicker';
 import AuthorPicker from './components/AuthorPicker';
 import BookRibbon from './components/BookRibbon';
-import SpineTitle from './components/SpineTitle';
+import SpineTitle,{CoverTitle} from './components/SpineTitle';
 import {readTheme,saveTheme,THEME_EVENT,type Theme} from './lib/appearance';
 import { portraitPalette } from './lib/assets';
 import type {ImageRule} from './lib/imageRules';
@@ -132,7 +132,7 @@ function Cover({book, small=false}: {book:Book;small?:boolean}) {
   const icon=portrait(book);
   return <div className={`book-cover ${small?'cover-small':''}`} style={{'--cover':book.color || colors[0]} as CSSProperties}>
     {book.cover && <img className="cover-image" src={book.cover} alt=""/>}
-    <div className="cover-content"><h3>{displayBookTitle(book)}</h3><div className="cover-portrait">{icon?<img src={icon} alt={`${book.author||'캐릭터'} 초상`}/>:<span className="cover-ornament" aria-hidden="true">✳</span>}</div><span className="cover-volume">{String(book.volumeNumber??1).padStart(2,'0')}</span></div>
+    <div className="cover-content"><CoverTitle title={displayBookTitle(book)} small={small}/><div className="cover-portrait">{icon?<img src={icon} alt={`${book.author||'캐릭터'} 초상`}/>:<span className="cover-ornament" aria-hidden="true">✳</span>}</div><span className="cover-volume">{String(book.volumeNumber??1).padStart(2,'0')}</span></div>
   </div>;
 }
 
@@ -231,8 +231,8 @@ export default function App() {
     });
   };
   async function changeBookmark(book:Book,anchor:BookmarkAnchor|null,style?:'normal'|'character'){
-    const shelf=bookShelf(book);const ids=shelfBooks(latestBooks.current,shelf).map(item=>item.id);
-    await commitBooks(ids,current=>{
+    const shelf=bookShelf(book);
+    await commitBookmarkFields(current=>{
       const siblings=shelfBooks(current,shelf);if(!siblings.some(item=>item.id===book.id))throw new Error('책을 찾지 못했어요.');
       const chosenStyle=style??canonicalBookmark(siblings)?.style??book.bookmarkStyle??'normal';
       return siblings.map(item=>({...item,bookmarks:anchor&&item.id===book.id?[anchor]:[],bookmarkStyle:chosenStyle,...(anchor&&item.id===book.id?{updatedAt:new Date().toISOString()}:{})}));
@@ -240,10 +240,27 @@ export default function App() {
   }
   async function changeBookmarkStyle(book:Book,style:'normal'|'character'){
     const shelf=bookShelf(book);
-    await commitBooks(shelfBooks(latestBooks.current,shelf).map(item=>item.id),current=>{
+    await commitBookmarkFields(current=>{
       const siblings=shelfBooks(current,shelf);const mark=canonicalBookmark(siblings);
       return siblings.map(item=>({...item,bookmarkStyle:style,bookmarks:mark&&item.id===mark.bookId?[{message:mark.message,char:mark.char,...(mark.label!==undefined?{label:mark.label}:{}),...(mark.progress!==undefined?{progress:mark.progress}:{})}]:[]}));
     });
+  }
+  async function commitBookmarkFields(make:(current:Book[])=>Book[]){
+    if(deletingRef.current||editingShelf.current||preparingAssets.current||splittingBooks.current.size>0)throw new Error('책을 저장 중이에요. 잠시 후 다시 시도해 주세요.');
+    editingShelf.current=true;
+    try{
+      const current=latestBooks.current;
+      const updated=make(current);
+      const currentById=new Map(current.map(book=>[book.id,book]));
+      const changed=updated.filter(book=>{const previous=currentById.get(book.id);return !previous||(book.bookmarkStyle??'normal')!==(previous.bookmarkStyle??'normal')||book.updatedAt!==previous.updatedAt||JSON.stringify(book.bookmarks??[])!==JSON.stringify(previous.bookmarks??[]);});
+      if(!changed.length)return;
+      await updateBookmarks(changed.map(({id,bookmarks,bookmarkStyle,updatedAt})=>({id,bookmarks,bookmarkStyle,updatedAt})));
+      // Keep the existing text, assets and source maps by reference. A bookmark
+      // change must never reload or paginate the book's body.
+      const byId=new Map(changed.map(book=>[book.id,book]));
+      const next=latestBooks.current.map(book=>{const changedBook=byId.get(book.id);return changedBook?{...book,bookmarks:changedBook.bookmarks,bookmarkStyle:changedBook.bookmarkStyle,updatedAt:changedBook.updatedAt}:book;});
+      latestBooks.current=next;setBooks(next);
+    }finally{editingShelf.current=false;}
   }
   const decorateBook=async(draft:Book,reset:boolean)=>{
     if(!canEdit)return;
@@ -314,7 +331,7 @@ export default function App() {
 
     const targetIds=new Set(clearConfirm.ids);
     const persisted=(await loadBooks()).filter(book=>targetIds.has(book.id));
-    download(clearConfirm.title+'-'+new Date().toISOString().slice(0,10)+'.json',{format:'galpi-backup',version:1,volumePolicy:'chapters-100-v1',books:persisted});
+    download(clearConfirm.title+'-'+new Date().toISOString().slice(0,10)+'.json',{format:'galpi-backup',version:1,volumePolicy:'chapters-200-v1',books:persisted});
     setToast('백업 완료');
   }
   async function clearBooks(){
@@ -352,7 +369,7 @@ export default function App() {
   return <div className="app-shell">
     <header className="site-header" inert={deleting}><button className="drawer-trigger" aria-label="서재 메뉴 열기" title="내 서재" aria-expanded={drawerOpen} aria-controls="library-drawer" onClick={()=>setDrawerOpen(true)}><Menu size={20}/></button><a href="#/" className="brand" aria-label="갈피 서재"><span className="brand-mark"><BookOpen size={23} strokeWidth={1.4}/><span/></span><span>갈피<span className="brand-en">galpi</span></span></a></header>
     <div className="workspace" inert={deleting}>
-      {drawerOpen&&<LibraryDrawer onClose={()=>setDrawerOpen(false)}><nav aria-label="서재 메뉴"><button className="nav-item active" onClick={()=>{setDrawerOpen(false);setQuery('');}}><Library size={18}/><span>내 서재</span><small>{groupBooks(books).length}</small></button><button className="nav-item" aria-expanded={backupOpen} aria-controls="drawer-backup" onClick={()=>setBackupOpen(value=>!value)}><ArrowDownToLine size={18}/><span>백업·복원</span><ChevronDown size={14}/></button>{backupOpen&&<div id="drawer-backup" className="drawer-backup"><button className="secondary-btn" disabled={busy||loading} onClick={async()=>{try{download('갈피-책장-'+new Date().toISOString().slice(0,10)+'.json',{format:'galpi-backup',version:1,volumePolicy:'chapters-100-v1',books:await loadBooks()});setToast('백업 완료');}catch{setToast('백업하지 못했어요.');}}}><ArrowDownToLine size={15}/>백업</button><button className="secondary-btn" disabled={busy} onClick={()=>restore.current?.click()}><Upload size={15}/>복원</button></div>}</nav><section className="drawer-appearance" aria-label="화면 설정"><h2>화면</h2><ThemePicker value={theme} onChange={changeTheme}/></section>{error&&<p className="error-message" role="alert">{error}</p>}</LibraryDrawer>}
+      {drawerOpen&&<LibraryDrawer onClose={()=>setDrawerOpen(false)}><nav aria-label="서재 메뉴"><button className="nav-item active" onClick={()=>{setDrawerOpen(false);setQuery('');}}><Library size={18}/><span>내 서재</span><small>{groupBooks(books).length}</small></button><button className="nav-item" aria-expanded={backupOpen} aria-controls="drawer-backup" onClick={()=>setBackupOpen(value=>!value)}><ArrowDownToLine size={18}/><span>백업·복원</span><ChevronDown size={14}/></button>{backupOpen&&<div id="drawer-backup" className="drawer-backup"><button className="secondary-btn" disabled={busy||loading} onClick={async()=>{try{download('갈피-책장-'+new Date().toISOString().slice(0,10)+'.json',{format:'galpi-backup',version:1,volumePolicy:'chapters-200-v1',books:await loadBooks()});setToast('백업 완료');}catch{setToast('백업하지 못했어요.');}}}><ArrowDownToLine size={15}/>백업</button><button className="secondary-btn" disabled={busy} onClick={()=>restore.current?.click()}><Upload size={15}/>복원</button></div>}</nav><section className="drawer-appearance" aria-label="화면 설정"><h2>화면</h2><ThemePicker value={theme} onChange={changeTheme}/></section>{error&&<p className="error-message" role="alert">{error}</p>}</LibraryDrawer>}
 
       <main className="main-content">
         <section className="library-intro"><h1>내 서재</h1>{canEdit&&<button className="primary-btn" title="로그 가져오기" onClick={()=>{setError('');setIntakeMode('file');setCreating(null);setImporting(true);}}><Upload size={17}/>로그 가져오기</button>}</section>
@@ -367,7 +384,7 @@ export default function App() {
             <div className={view==='covers'?'bookshelf-grid':'spines-shelf'}>{view==='spines'&&<span className="shelf-bookstop shelf-bookstop-start" aria-hidden="true"/>}{shelf.books.map((book,index)=><article key={book.id} className={`book-item ${view==='spines'?'spine-item':''} ${mark?.bookId===book.id?'book-has-bookmark':''}`} data-bookmarked={mark?.bookId===book.id||undefined} style={{'--cover':book.color,'--delay':`${Math.min(index,8)*60}ms`} as CSSProperties}>
               <button className="book-read" aria-label={`${book.title} 읽기`} title={`${book.title} 읽기`} onClick={()=>openBook(book)}>
                 <div className="book-stage"><div className="book-open">{mark?.bookId===book.id&&<BookRibbon book={book} mark={mark} view={view}/>}{view==='covers'?<Cover book={book}/>:<div className="book-spine"><SpineTitle title={displayBookTitle(book)}/><span className="spine-volume">{String(book.volumeNumber??1).padStart(2,'0')}</span></div>}</div></div>
-                <div className="book-caption"><div><span className="book-title">{book.title}</span><p>{book.author || '나의 이야기'}</p></div></div>
+                <div className="book-caption"><div><span className="book-title">{book.title}</span><p>{book.author || '저자 모델 미상'}</p></div></div>
                 <div className="book-meta"><span>{book.messages.length.toLocaleString()}개의 대화</span><span>{mark?.bookId===book.id?'책갈피':''}</span></div>
               </button>
               {canEdit&&<div className={`book-menu-wrap ${menu===book.id?'menu-open':''}`}><button className="icon-btn" title="책 관리" aria-label={`${book.title} 관리`} aria-expanded={menu===book.id} onClick={e=>{e.stopPropagation();setMenu(menu===book.id?null:book.id);}}><Ellipsis size={19}/></button>{menu===book.id&&<div className="dropdown"><button onClick={()=>setEdit(book)}>꾸미기</button><button onClick={()=>download(`${book.title}.json`,[book])}>내보내기</button><button className="danger-text" onClick={()=>setRemove(book)}>삭제</button></div>}</div>}

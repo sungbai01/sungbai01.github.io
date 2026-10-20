@@ -88,16 +88,56 @@ export class HTMLPage extends Page {
         density === PageDensity.HARD
             ? this.drawHard(commonStyle)
             : this.drawSoft(pagePos, commonStyle);
-        this.drawBookmarkFoldLayer();
+        this.drawBookmarkFoldLayer(density);
+    }
+
+    /** The full rotated rectangle includes an invisible reverse-face region.
+     * A ribbon may follow that face only when its gutter attachment is on the
+     * actual clipped sheet; otherwise its transform can carry it off the book.
+     */
+    public hasVisibleBookmarkFold(density = this.nowDrawingDensity): boolean {
+        const slip = this.element.querySelector<HTMLElement>('.reader-bookmark-slip');
+        if (!slip) return false;
+        if (density === PageDensity.HARD) return true;
+        // A new temporary face is display:none until its first draw. Its zero
+        // offsets are not its gutter; use the same resting layout for that frame.
+        const spread = this.element.closest<HTMLElement>('[data-page-layout]')?.dataset.pageLayout === 'spread';
+        const initialX = spread
+            ? (this.element.classList.contains('reader-page-left') ? this.render.getRect().pageWidth : 0)
+            : this.render.getRect().pageWidth / 2;
+        const anchor = { x: this.element.offsetWidth > 0 ? slip.offsetLeft : initialX, y: 0 };
+        const polygon = this.state.area.filter(p => p !== null).map(p =>
+            Helper.GetRotatedPoint({
+                x: this.render.getDirection() === FlipDirection.BACK
+                    ? this.state.position.x - p.x : p.x - this.state.position.x,
+                y: p.y - this.state.position.y,
+            }, { x: 0, y: 0 }, this.state.angle));
+        if (polygon.length < 3) return false;
+        let area = 0;
+        let positive = false;
+        let negative = false;
+        for (let i = 0; i < polygon.length; i++) {
+            const a = polygon[i];
+            const b = polygon[(i + 1) % polygon.length];
+            area += a.x * b.y - b.x * a.y;
+            const length = Math.hypot(b.x - a.x, b.y - a.y);
+            if (length < 1e-7) continue;
+            const distance = ((b.x - a.x) * (anchor.y - a.y) -
+                (b.y - a.y) * (anchor.x - a.x)) / length;
+            // Allow numerical noise on the page's top/gutter boundary.
+            if (distance > 0.5) positive = true;
+            if (distance < -0.5) negative = true;
+        }
+        return Math.abs(area) > 1e-6 && !(positive && negative);
     }
 
     /** A sibling follows the exact rendered sheet transform without its clip.
      * Only the ribbon is cloned; page contents and event handlers stay in place.
      */
-    private drawBookmarkFoldLayer(): void {
+    private drawBookmarkFoldLayer(density: PageDensity): void {
         const slip = this.element.querySelector<HTMLElement>('.reader-bookmark-slip');
         if (!slip || this.element.dataset.bookmarkHidden === 'true' ||
-            !this.element.parentElement) {
+            !this.element.parentElement || !this.hasVisibleBookmarkFold(density)) {
             this.clearBookmarkFoldLayer();
             return;
         }
@@ -134,6 +174,18 @@ export class HTMLPage extends Page {
         layer.style.animation = 'none';
         layer.style.transformStyle = 'preserve-3d';
         layer.style.zIndex = String((Number(this.element.style.zIndex) || 0) + 1);
+        // offset values are untransformed, page-local dimensions. Do not use a
+        // viewport bounding rectangle, or resolve percentages in a new parent.
+        const ribbon = layer.firstElementChild as HTMLElement;
+        ribbon.style.left = `${slip.offsetLeft}px`;
+        ribbon.style.top = `${slip.offsetTop}px`;
+        ribbon.style.width = `${slip.offsetWidth}px`;
+        ribbon.style.height = `${slip.offsetHeight}px`;
+        ribbon.style.boxSizing = 'border-box';
+        ribbon.style.minWidth = '0';
+        ribbon.style.minHeight = '0';
+        ribbon.style.maxWidth = 'none';
+        ribbon.style.maxHeight = 'none';
         this.element.dataset.bookmarkFolding = 'true';
     }
 

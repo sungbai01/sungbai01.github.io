@@ -8,7 +8,7 @@ import { SizeType } from '../vendor/page-flip/Settings';
 import { FlipCorner } from '../vendor/page-flip/Flip/Flip';
 import { ArrowRight, BookOpen, Bookmark, Check, ChevronLeft, List, Maximize, Minus, Pencil, Plus, Search, Type, X } from 'lucide-react';
 import type { Book } from '../lib/library';
-import { paginate, cleanText, startsChapter, chapterNumber } from '../lib/pagination';
+import { paginate, cleanText, startsChapter, chapterNumber, pageTextInsets } from '../lib/pagination';
 import type { Anchor, Fragment, PaperPage } from '../lib/pagination';
 import { readerPageCount, readReaderViewport } from '../lib/readerLayout';
 import BackBarcode from './BackBarcode';
@@ -40,7 +40,7 @@ type ReaderPreferences = { theme: Theme; fontSize: number };
 
 const PREFERENCES_KEY = 'galpi.reader.appearance.v1';
 const readerCopy = {
-  unknownAuthor: '지은이 미상',
+  unknownAuthor: '저자 모델 미상',
 };
 
 function readReaderPreferences(): ReaderPreferences {
@@ -113,12 +113,12 @@ function RisuText({text,query}:{text:string;query:string}){
 type EditFragment=(fragment:Fragment,text:string)=>void;
 function EditablePassage({fragment,onEdit,draft}:{fragment:Fragment;onEdit:EditFragment;draft?:string}){
  const ref=useRef<HTMLParagraphElement>(null);
- useEffect(()=>{if(ref.current)ref.current.textContent=draft??visibleProse(fragment.text);},[]);
- return <p ref={ref} className="reader-prose reader-live-passage" role="textbox" aria-label="페이지 본문 편집" contentEditable suppressContentEditableWarning data-no-flip onInput={e=>onEdit(fragment,e.currentTarget.innerText)} onPaste={e=>{e.preventDefault();document.execCommand('insertText',false,e.clipboardData.getData('text/plain'));}}/>;
+ useEffect(()=>{if(ref.current){const text=visibleProse(fragment.text);ref.current.textContent=draft??(fragment.chapter!==undefined?text.trimStart():text);}},[]);
+ return <p ref={ref} className={`reader-prose reader-live-passage${fragment.chapter!==undefined?' reader-chapter-opening':''}`} role="textbox" aria-label="페이지 본문 편집" contentEditable suppressContentEditableWarning data-no-flip onInput={e=>onEdit(fragment,e.currentTarget.innerText)} onPaste={e=>{e.preventDefault();document.execCommand('insertText',false,e.clipboardData.getData('text/plain'));}}/>;
 }
 function PageContent({page,query,editing,onEdit,drafts}:{page:PaperPage;query:string;editing:boolean;onEdit:EditFragment;drafts:Map<string,string>}){
  return <>{page.fragments.filter(fragment=>!fragment.hidden).map(fragment=><section className="reader-fragment" data-message={fragment.message} data-char={fragment.char} key={`${fragment.message}:${fragment.char}`}>
- {editing?<EditablePassage fragment={fragment} onEdit={onEdit} draft={drafts.get(`${fragment.message}:${fragment.char}`)}/>:<p className="reader-prose"><RisuText text={fragment.text} query={query}/></p>}
+ {editing?<EditablePassage fragment={fragment} onEdit={onEdit} draft={drafts.get(`${fragment.message}:${fragment.char}`)}/>:<p className={`reader-prose${fragment.chapter!==undefined?' reader-chapter-opening':''}`}><RisuText text={fragment.chapter!==undefined?visibleProse(fragment.text).trimStart():fragment.text} query={query}/></p>}
  </section>)}</>;
 }
 type BookmarkSlipProps={style:BookmarkStyle;icon?:string;title:string;color:string;side?:'before'|'after'};
@@ -322,8 +322,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
       const width = Math.max(120, Math.min(fullscreen?Infinity:540, Math.floor((dimensions.width - 16) / count)));
       const height = Math.max(100, Math.min(fullscreen?Infinity:790, dimensions.height - Math.min(56, dimensions.height * .12)));
       const padding = width < 350 ? 22 : width < 440 ? 32 : 46;
-      const contentTop = height < 300 ? 22 : 36;
-      const contentBottom = height < 300 ? 32 : 56;
+      const {top:contentTop,bottom:contentBottom} = pageTextInsets(height,fontSize);
       const measure = measureRef.current;
       measure.style.width = `${width - padding * 2}px`;
       measure.style.height = `${Math.max(1,height - contentTop - contentBottom)}px`;

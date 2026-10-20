@@ -2,10 +2,21 @@ import type { Book } from './library';
 import { displayPlainText } from './library';
 import { imageReferenceRanges } from './assets';
 import { systemRanges } from './prose';
+import { normalizeImageRules } from './imageRules';
 
 export type DisplayRule = { pattern: string; replacement: string; flags: string; type?: 'editinput' | 'editoutput' | 'editdisplay' | 'editprocess' };
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 const modes = ['editinput', 'editoutput', 'editdisplay', 'editprocess'];
+
+/** Legacy shelves retained only image templates. Recover their image rewrite
+ * without fabricating the original card's discarded HTML/CBS or other rules.
+ * An explicitly stored [] means rules were removed and must stay removed.
+ */
+export function legacyDisplayRules(imageRules: unknown): DisplayRule[] {
+  return normalizeImageRules(imageRules).map(rule => ({ pattern: rule.pattern,
+    replacement: rule.assetTemplates.map(name => `{{img::${name}}}`).join('\n'),
+    flags: `g${rule.flags ?? ''}`, type: 'editdisplay' }));
+}
 
 /** Shape-only normalization: compilation/matching happens solely in the worker.
  * Repeated rules remain repeated, preserving intentional sequential card order.
@@ -13,10 +24,16 @@ const modes = ['editinput', 'editoutput', 'editdisplay', 'editprocess'];
 export function normalizeDisplayRules(value: unknown): DisplayRule[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((entry): DisplayRule[] => {
-    if (!record(entry) || typeof entry.pattern !== 'string' || typeof entry.replacement !== 'string' ||
-        typeof entry.flags !== 'string' || !/^[dgimsuvy]*$/.test(entry.flags) || new Set(entry.flags).size !== entry.flags.length ||
+    if (!record(entry)) return [];
+    const pattern = typeof entry.pattern === 'string' ? entry.pattern : typeof entry.in === 'string' ? entry.in : undefined;
+    const replacement = typeof entry.replacement === 'string' ? entry.replacement : typeof entry.out === 'string'
+      ? entry.out.replace(/\$n/g, '\n').replace(/\{\{data\}\}/g, () => '$&') : undefined;
+    const flags = typeof entry.pattern === 'string'
+      ? (typeof entry.flags === 'string' ? entry.flags : 'g')
+      : entry.ableFlag === true ? String(entry.flag || entry.flags || 'g') : 'g';
+    if (pattern === undefined || replacement === undefined || !/^[dgimsuvy]*$/.test(flags) || new Set(flags).size !== flags.length ||
         (entry.type !== undefined && !modes.includes(String(entry.type)))) return [];
-    return [{ pattern: entry.pattern, replacement: entry.replacement, flags: entry.flags,
+    return [{ pattern, replacement, flags,
       ...(entry.type === undefined ? {} : { type: entry.type as DisplayRule['type'] }) }];
   });
 }
@@ -31,7 +48,7 @@ export function extractDisplayRules(value: unknown, warnings?: string[]): Displa
     if (typeof node.pattern === 'string' && typeof node.replacement === 'string') found.push(node);
     else if (typeof node.in === 'string' && typeof node.out === 'string' && (!node.type || modes.includes(String(node.type)))) {
       // Risu defaults to global replacement when custom flags are disabled.
-      const flags = node.ableFlag === true ? String(node.flag ?? node.flags ?? 'g') : 'g';
+      const flags = node.ableFlag === true ? String(node.flag || node.flags || 'g') : 'g';
       found.push({ pattern: node.in, replacement: node.out.replace(/\$n/g, '\n').replace(/\{\{data\}\}/g, () => '$&'), flags,
         ...(node.type ? { type: node.type } : {}) });
     }
@@ -123,8 +140,8 @@ function renderOutput(raw: string, book: Book, end = raw.length): string {
   let value = '', cursor = 0;
   for (const range of hidden) { if (range.start >= end) break; value += raw.slice(cursor, Math.min(end, range.start)); cursor = Math.min(end, range.end); }
   value += raw.slice(cursor, end);
-  // Only literal image macros survive; surrounding conditional CBS is dropped.
-  // Unknown conditions are not interpreted, so both branch prose may remain.
+  // Unsupported conditional expressions select no branch; imported code is
+  // never interpreted. Supported asset checks use the current shelf library.
   return displayPlainText(value, book.assets ?? [], book.imageRules ?? []);
 }
 
@@ -138,6 +155,7 @@ export async function applyBookDisplayRules(book: Book, rules: DisplayRule[]): P
   const normalized = normalizeDisplayRules(rules);
   if (normalized.length !== rules.length) throw new Error('정규식 규칙의 형식 또는 플래그가 올바르지 않습니다.');
   if (!normalized.length) return { ...book, displayRules: [], messages: book.messages.map(message => ({ ...message,
+    originalContent: message.originalContent ?? message.content,
     content: message.originalContent === undefined ? message.content : displayPlainText(message.originalContent, book.assets ?? [], book.imageRules ?? []),
     originalMap: message.originalContent === undefined ? message.originalMap : [{ source: 0, output: 0 }, { source: message.originalContent.length, output: displayPlainText(message.originalContent, book.assets ?? [], book.imageRules ?? []).length }] })),
     ...(book.bookmarks ? { bookmarks: book.bookmarks.map(mark => {

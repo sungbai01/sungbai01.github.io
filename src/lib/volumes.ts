@@ -2,7 +2,8 @@ import type { Book } from './library';
 import { startsChapter } from './pagination';
 import { originalOffset } from './displayRules';
 
-export const MAX_VOLUME_PAGES = 100;
+export const MAX_VOLUME_PAGES = 200;
+export const CURRENT_VOLUME_POLICY = 'chapters-200-v1' as const;
 
 /** Storage/import must wait for actual pagination before splitting. */
 export function splitBookForStorage(book: Book): Book[] { return [book]; }
@@ -27,9 +28,9 @@ type MeasuredPage = {
   intro: boolean;
 };
 
-/** Prefer the last chapter-start page within 100 measured pages. A chapter
+/** Prefer the last chapter-start page within 200 measured pages. A chapter
  * beginning inside a page moves that whole page to the next volume, preserving
- * every source offset. Long chapters fall back to exactly 100 measured pages.
+ * every source offset. Long chapters fall back to exactly 200 measured pages.
  */
 export function splitBookByPages(book: Book, pages: MeasuredPage[]): Book[] {
   if (pages.length <= MAX_VOLUME_PAGES) return [book];
@@ -110,7 +111,7 @@ export function splitBookByPages(book: Book, pages: MeasuredPage[]): Book[] {
         const { progress: _progress, ...anchor } = mark;
         return span ? [{ ...anchor, message: span.local, char: mark.char - span.start }] : [];
       }) }),
-      volumePolicy: 'chapters-100-v1',
+      volumePolicy: CURRENT_VOLUME_POLICY,
     };
   });
   if (sourceMessage !== book.messages.length || sourceChar !== 0) {

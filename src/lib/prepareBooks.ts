@@ -1,13 +1,13 @@
 import type { Book } from './library';
-import { cleanText, paginate } from './pagination';
-import { splitBookByPages } from './volumes';
+import { cleanText, paginate, pageTextInsets } from './pagination';
+import { CURRENT_VOLUME_POLICY, splitBookByPages } from './volumes';
 import { imageReferenceRanges,extractAssetSegments } from './assets';
 import { systemRanges, visibleProse } from './prose';
 import { applyBookDisplayRules } from './displayRules';
 import '../components/reader.css';
 
 /** Fixed import layout; reader font/viewport changes never regroup volumes. */
-export const IMPORT_PAGE_LAYOUT = { width: 400, height: 650, padding: 32, contentWidth: 336, contentHeight: 558, fontSize: 18 } as const;
+export const IMPORT_PAGE_LAYOUT = { width: 400, height: 650, padding: 32, contentWidth: 336, contentHeight: 432, fontSize: 18 } as const;
 
 function preprocessBook(book: Book, removeEmoji: boolean): Book {
   // Known image references are identifiers, not prose. Keep their original
@@ -59,9 +59,12 @@ export async function prepareBooks(books: Book[], options: { removeEmoji?: boole
     visibility: 'hidden', pointerEvents: 'none', display: 'block', overflow: 'hidden' });
   host.style.setProperty('--reader-font-size', '18px'); host.style.setProperty('--reader-page-padding', '32px');
   host.style.setProperty('--paper-height', '650px');
+  const insets = pageTextInsets(IMPORT_PAGE_LAYOUT.height, IMPORT_PAGE_LAYOUT.fontSize);
+  host.style.setProperty('--reader-content-top', `${insets.top}px`);
+  host.style.setProperty('--reader-content-bottom', `${insets.bottom}px`);
   const measure = document.createElement('div'); measure.className = 'reader-measure reader-page-content';
   measure.style.setProperty('--paper-height', '650px');
-  Object.assign(measure.style, { width: '336px', height: '558px', fontSize: '18px', padding: '0', boxSizing: 'content-box' });
+  Object.assign(measure.style, { width: '336px', height: `${IMPORT_PAGE_LAYOUT.height - insets.top - insets.bottom}px`, fontSize: '18px', padding: '0', boxSizing: 'content-box' });
   host.append(measure); document.body.append(host);
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -77,9 +80,9 @@ export async function prepareBooks(books: Book[], options: { removeEmoji?: boole
       // Already prepared volumes keep their grouping if a caller submits them
       // again. Backup restores must bypass this API to preserve all content.
       const ruled = source.displayRules?.length ? await applyBookDisplayRules(source, source.displayRules) : source;
-      if (source.volumePolicy === 'chapters-100-v1') { result.push(ruled); continue; }
+      if (source.volumePolicy === 'chapters-100-v1' || source.volumePolicy === CURRENT_VOLUME_POLICY) { result.push(ruled); continue; }
       const book = preprocessBook(ruled, options.removeEmoji !== false);
-      result.push(...splitBookByPages(book, paginate(book, measure, { pageHeight: IMPORT_PAGE_LAYOUT.height, contentTop: 36 })).map(volume => ({ ...volume, volumePolicy: 'chapters-100-v1' as const })));
+      result.push(...splitBookByPages(book, paginate(book, measure, { pageHeight: IMPORT_PAGE_LAYOUT.height, contentTop: insets.top })).map(volume => ({ ...volume, volumePolicy: CURRENT_VOLUME_POLICY })));
       await new Promise<void>(resolve => setTimeout(resolve, 0));
     }
     return result;

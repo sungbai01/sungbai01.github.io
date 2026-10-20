@@ -455,7 +455,8 @@ export class HTMLRender extends Render {
     private updateBookmarkVisibility(): void {
         const clone = this.flippingPage === null
             ? null : (this.flippingPage as HTMLPage).getElement();
-        const cloneIndex = clone?.dataset.flipCopy === 'true'
+        const cloneIndex = clone?.dataset.flipCopy === 'true' &&
+            (this.flippingPage as HTMLPage).hasVisibleBookmarkFold()
             ? clone.dataset.readerPageIndex : undefined;
         const pages = new Set<Page>([
             ...this.visiblePages,

@@ -437,6 +437,9 @@ async function readCharx(bytes: Uint8Array, directory: { entries: ZipEntry[]; pr
       if (imageRules.length) result.imageRules = imageRules;
     } catch { result.warnings.push('module.risum의 이미지 규칙을 읽지 못했습니다. 카드 이미지는 가져왔습니다.'); }
   }
+  if (result.displayRules?.some(rule => rule.replacement.includes('{{assetlist}}')) && !result.assets.some(asset => asset.type !== 'icon')) {
+    result.warnings.push('이 카드에는 초상 외 장면 이미지가 없습니다. 에셋 목록을 확인하는 출력 규칙은 해당 이름의 이미지를 책장에 추가해야 이미지 분기를 표시합니다.');
+  }
   if (portrait && !result.assets.some(asset => asset.type === 'icon')) {
     result.assets.unshift({ id: id(), name: typeof card.data.name === 'string' ? card.data.name : '캐릭터', src: portrait, type: 'icon' });
   }

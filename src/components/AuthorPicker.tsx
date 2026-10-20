@@ -2,8 +2,8 @@ import {useEffect,useId,useRef,useState,type KeyboardEvent} from 'react';
 import {Check,ChevronDown} from 'lucide-react';
 import './author-picker.css';
 
-// First public release order (oldest first); previews count as releases.
-export const AUTHOR_CHOICES=['GPT 5.1','Opus 4.6','GPT 5.4','Kimi 2.6','GPT 5.5','Deepseek V4 Pro','Fable','GLM 5.2','GPT 5.6-Sol','Gemini 3.7 Flash','Gemini 3.8 Flash','Opus 5.5','Gemini 4 Argon'] as const;
+// Display the current catalog in reverse order, newest first.
+export const AUTHOR_CHOICES=['Gemini 4 Argon','Opus 5.5','Gemini 3.8 Flash','Gemini 3.7 Flash','GPT 5.6-Sol','GLM 5.2','Fable','Deepseek V4 Pro','GPT 5.5','Kimi 2.6','GPT 5.4','Opus 4.6','GPT 5.1'] as const;
 const known=(value:string)=>AUTHOR_CHOICES.some(choice=>choice===value);
 export default function AuthorPicker({value,onChange,disabled=false}:{value:string;onChange:(value:string)=>void;disabled?:boolean}){
  const [open,setOpen]=useState(false);const [custom,setCustom]=useState(!!value&&!known(value));const root=useRef<HTMLDivElement>(null);const trigger=useRef<HTMLButtonElement>(null);const input=useRef<HTMLInputElement>(null);const id=useId();
