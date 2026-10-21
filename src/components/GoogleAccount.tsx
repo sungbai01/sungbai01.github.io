@@ -65,7 +65,8 @@ export function GoogleAccount({ className = '', disabled = false, syncStatus, on
   className?: string;
   disabled?: boolean;
   syncStatus?: CloudStatus;
-  onSyncRetry?: () => void;
+  /** Reloads API metadata only; historical prop name retained for App integration. */
+  onSyncRetry?: () => void | Promise<unknown>;
   onImportGuest?: () => Promise<void>;
 }) {
   const titleId = useId();
@@ -78,6 +79,8 @@ export function GoogleAccount({ className = '', disabled = false, syncStatus, on
   const [message, setMessage] = useState('');
   const [importBusy, setImportBusy] = useState(false);
   const [importError, setImportError] = useState('');
+  const [reloadBusy, setReloadBusy] = useState(false);
+  const [reloadError, setReloadError] = useState('');
   const disabledRef = useRef(disabled);
   disabledRef.current = disabled;
 
@@ -208,8 +211,16 @@ export function GoogleAccount({ className = '', disabled = false, syncStatus, on
     if (!onImportGuest || disabledRef.current || importBusy) return;
     setImportBusy(true);setImportError('');
     try { await onImportGuest(); }
-    catch { setImportError('책을 가져오지 못했어요. 다시 시도해 주세요.'); }
+    catch (error) { setImportError(error instanceof Error ? error.message : '책을 가져오지 못했어요. 다시 시도해 주세요.'); }
     finally { setImportBusy(false); }
+  }
+
+  async function reloadLibrary() {
+    if (!onSyncRetry || reloadBusy || importBusy || syncStatus?.phase === 'loading' || syncStatus?.phase === 'saving') return;
+    setReloadBusy(true);setReloadError('');
+    try { await onSyncRetry(); }
+    catch(error) { setReloadError(error instanceof Error ? error.message : '서재 목록을 불러오지 못했어요.'); }
+    finally { setReloadBusy(false); }
   }
 
   const busy = phase === 'loading' || phase === 'verifying';
@@ -236,15 +247,16 @@ export function GoogleAccount({ className = '', disabled = false, syncStatus, on
         {phase === 'ready' && <button type="button" disabled={disabled} className="google-account-retry" onClick={() => void startLogin()}>로그인 버튼 다시 불러오기</button>}
       </>}
     </div>
-    {session ? <div className="google-account-sync">
-      <p className="google-account-description">책과 책갈피를 동기화해요. 이미지는 이 기기에만 보관해요.</p>
-      {syncStatus && <p className="google-account-sync-status" role="status" aria-live="polite">{syncStatus.message}</p>}
-      {onSyncRetry && <button type="button" className="google-account-retry" disabled={disabled||importBusy||syncStatus?.phase==='syncing'} onClick={onSyncRetry}>동기화 다시 시도</button>}
+    {session ? <div className="google-account-library">
+      <p className="google-account-description">책과 책갈피는 서버에 저장해요. 이미지는 이 기기에만 보관해요.</p>
+      {syncStatus && <p className="google-account-library-status" role="status" aria-live="polite">{syncStatus.message}</p>}
+      {onSyncRetry && <button type="button" className="google-account-retry" disabled={(disabled&&syncStatus?.phase!=='error')||importBusy||reloadBusy||syncStatus?.phase==='loading'||syncStatus?.phase==='saving'} onClick={()=>void reloadLibrary()}>{reloadBusy?'목록 불러오는 중…':'서재 목록 다시 불러오기'}</button>}
       {onImportGuest && <div className="google-account-guest-import">
         <button type="button" className="google-account-button" disabled={disabled||importBusy} onClick={()=>void importGuest()}>{importBusy?<LoaderCircle className="google-account-spinner" size={14} aria-hidden="true"/>:null}이 기기 책 가져오기</button>
         <p>로그인 전 서재의 책을 이 계정에 복사해요.</p>
       </div>}
       {importError && <p className="google-account-message" role="alert">{importError}</p>}
+      {reloadError && <p className="google-account-message" role="alert">{reloadError}</p>}
     </div> : <p className="google-account-description">로그인 없이도 이 기기의 서재를 이용할 수 있어요.</p>}
     <p className="google-account-privacy">이메일·이름은 저장하지 않아요. <a href="/privacy.html" target="_blank" rel="noopener noreferrer">개인정보 안내</a></p>
     <p className="google-account-message" role={phase === 'error' ? 'alert' : 'status'} aria-live="polite">{message || (phase === 'ready' ? 'Google 버튼을 눌러 로그인해 주세요.' : '')}</p>
