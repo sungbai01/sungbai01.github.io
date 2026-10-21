@@ -71,6 +71,14 @@ export class LibraryError extends Error {
 
 export const BOOK_COLORS = [jade.jade12, bronze.bronze11, iris.iris12, gold.gold11];
 const DB_NAME = 'risu-bookshelf';
+let activeDatabase=DB_NAME;
+let libraryGeneration=0;
+export function setLibraryAccount(owner:string|null){
+ if(owner!==null&&!/^u_[A-Za-z0-9_-]{43}$/.test(owner))throw new LibraryError('계정 식별자가 올바르지 않습니다.');
+ const name=owner?`${DB_NAME}-account-${owner}`:DB_NAME;
+ if(activeDatabase!==name){activeDatabase=name;libraryGeneration++;}
+}
+export function getLibraryGeneration(){return libraryGeneration;}
 const STORE = 'books';
 const MARKS='book-marks';
 type StoredMark={id:string;bookmarks?:BookBookmark[];bookmarkStyle?:Book['bookmarkStyle'];updatedAt?:string;messageLengths:number[]};
@@ -368,12 +376,12 @@ function storageError(error: unknown): LibraryError {
     : '브라우저 책장 저장소에 접근하지 못했습니다. 저장 권한과 비공개 모드 설정을 확인해 주세요.');
 }
 
-function openDatabase(): Promise<IDBDatabase> {
+function openDatabase(name=activeDatabase): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === 'undefined') { reject(new LibraryError('이 환경에서는 IndexedDB 저장소를 사용할 수 없습니다.')); return; }
     let request: IDBOpenDBRequest;
     let settled = false;
-    try { request = indexedDB.open(DB_NAME, 4); }
+    try { request = indexedDB.open(name, 4); }
     catch (error) { reject(storageError(error)); return; }
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -416,8 +424,10 @@ function openDatabase(): Promise<IDBDatabase> {
 
 /** Resolve writes only on transaction commit, including quota/abort failures. */
 async function withBooks<T>(mode: IDBTransactionMode, action: (transaction: IDBTransaction) => IDBRequest<T>): Promise<T> {
+  const generation=libraryGeneration;
   const db = await openDatabase();
   try {
+    if(generation!==libraryGeneration)throw new LibraryError('계정이 변경되어 저장을 중단했습니다.');
     return await new Promise<T>((resolve, reject) => {
       const transaction = db.transaction([STORE,MARKS], mode);
       let result: T;
@@ -505,8 +515,10 @@ function sanitizedBook(book: Book): Book {
     ...(book.bookmarks === undefined ? {} : { bookmarks: book.bookmarks.map(mark => ({ ...mark })) }) };
 }
 
-export async function loadBooks(): Promise<Book[]> {
-  const db=await openDatabase();
+export async function loadBooks(): Promise<Book[]> {return readBooks(activeDatabase);}
+export async function loadGuestBooks():Promise<Book[]>{return readBooks(DB_NAME);}
+async function readBooks(database:string): Promise<Book[]> {
+  const db=await openDatabase(database);
   let records:Book[]=[];
   try{records=await new Promise<Book[]>((resolve,reject)=>{
     const transaction=db.transaction([STORE,MARKS],'readonly');let books:Book[]=[],marks:StoredMark[]=[];
@@ -560,8 +572,10 @@ export async function updateBookmarks(updates: BookmarkUpdate[]): Promise<void> 
       ...(update.updatedAt === undefined ? {} : { updatedAt: update.updatedAt }) };
   });
   if (!patches.length) return;
+  const generation=libraryGeneration;
   const db = await openDatabase();
   try {
+    if(generation!==libraryGeneration)throw new LibraryError('계정이 변경되어 저장을 중단했습니다.');
     await new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(MARKS, 'readwrite');
       const books = transaction.objectStore(MARKS);

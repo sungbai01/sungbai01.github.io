@@ -1,10 +1,21 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "galpi-bookshelf-auth",
-  "main": "src/index.ts",
-  "compatibility_date": "2026-10-21",
-  "workers_dev": true,
-  "preview_urls": false,
-  "observability": {"enabled": false},
-  "vars": {"ALLOWED_ORIGINS": "https://sungbai01.github.io"}
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "galpi-bookshelf-auth",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-10-21",
+	"workers_dev": true,
+	"preview_urls": false,
+	"observability": {
+		"enabled": false
+	},
+	"vars": {
+		"ALLOWED_ORIGINS": "https://sungbai01.github.io"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "galpi-bookshelf-text",
+			"database_id": "a87ba9f9-fce9-4024-b71b-1ef38038cad7"
+		}
+	]
 }
