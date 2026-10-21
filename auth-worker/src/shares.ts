@@ -1,6 +1,7 @@
 import {cloudBook} from '../../shared/cloudBook';
 import type {Book} from '../../src/lib/library';
 import type {TextDatabase} from './cloud';
+import {allowShareAction} from './shareLimits';
 
 type Reply=(body:unknown,status:number,origin:string)=>Response;
 const tokenPattern=/^[A-Za-z0-9_-]{43}$/;
@@ -60,6 +61,7 @@ export async function manageShare(request:Request,db:TextDatabase,owner:string,b
  // Copy the authenticated owner's already validated D1 book only.
  const source=await db.prepare('SELECT body FROM books WHERE owner_id = ?1 AND book_id = ?2 AND deleted = 0').bind(owner,bookId).first<{body:string}>();
  if(!source)return reply({error:'서버에 저장된 책을 찾을 수 없어요.'},404,origin);
+ if(!await allowShareAction(db,owner,'publish'))return reply({error:'공유 생성·갱신은 1분에 한 번, 하루 30회까지 가능해요. 잠시 후 다시 시도해 주세요.'},429,origin);
  const book=cloudBook(JSON.parse(source.body) as Book);
  try{await canonicalImages(request,book);}catch{return reply({error:'이미지 참조를 확인하지 못했어요.'},400,origin);}
  delete book.bookmarks;delete book.seriesId;delete book.pageLayoutVersion;

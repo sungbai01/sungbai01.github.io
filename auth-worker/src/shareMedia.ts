@@ -1,4 +1,5 @@
 import type {TextDatabase} from './cloud';
+import {allowShareAction} from './shareLimits';
 type MediaObject={body:ReadableStream<Uint8Array>};
 export type ShareBucket={put:(key:string,value:ArrayBuffer,options:{httpMetadata:{contentType:string};customMetadata:{share:string}})=>Promise<unknown>;get:(key:string)=>Promise<MediaObject|null>};
 type Reply=(body:unknown,status:number,origin:string)=>Response;
@@ -27,6 +28,9 @@ export async function uploadShareImage(request:Request,db:TextDatabase,bucket:Sh
  const role=request.headers.get('X-Image-Role')??'';
  let name='';try{name=decodeURIComponent(request.headers.get('X-Image-Name')??'');}catch{return reply({error:'이미지 이름이 올바르지 않아요.'},400,origin);}
  if(!['asset','icon','card'].includes(role)||!name.trim()||name.length>500||/[\u0000-\u001f]/.test(name))return reply({error:'이미지 형식이 올바르지 않아요.'},400,origin);
+ if(!await allowShareAction(db,owner,role==='card'?'card':'image'))return reply({error:role==='card'?'카드 업로드는 1분에 한 번, 하루 30회까지 가능해요.':'이미지를 너무 빠르게 올리고 있어요. 잠시 후 다시 시도해 주세요.'},429,origin);
+ const declaredSize=Number(request.headers.get('Content-Length'));
+ if(Number.isFinite(declaredSize)&&declaredSize>maxImage)return reply({error:'공유 이미지는 한 장당 2MB 이하여야 해요.'},413,origin);
  const reader=request.body?.getReader();if(!reader)return reply({error:'이미지가 없어요.'},400,origin);
  let size=0;const chunks:Uint8Array[]=[];
  try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>maxImage){await reader.cancel();return reply({error:'공유 이미지는 2MB 이하여야 해요.'},413,origin);}chunks.push(value);}}finally{reader.releaseLock();}
