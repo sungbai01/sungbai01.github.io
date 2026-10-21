@@ -19,6 +19,7 @@ import {imageReferenceRanges} from '../lib/assets';
 import {chapterLabel,editedMessages,fragmentKey} from '../lib/bookEditing';
 import type {ChapterDraft,ChapterInsertion} from '../lib/bookEditing';
 import BookmarkTitle from './BookmarkTitle';
+import AssetImage from './AssetImage';
 import {squareAssetCrop} from '../lib/assetCrop';
 import './reader.css';
 
@@ -87,22 +88,25 @@ function pageForAnchor(pages: PaperPage[], anchor: Anchor) {
   // End-of-message bookmarks still belong to their last text leaf, not the cover.
   for(let index=pages.length-1;index>=0;index--)if(pages[index].fragments.some(fragment=>fragment.message===anchor.message&&fragment.end<=anchor.char))return index;
   for(let index=pages.length-1;index>=0;index--)if(pages[index].fragments.length)return index;
-  return 0;
+  return bodyStart(pages);
 }
 
+function bodyStart(pages:PaperPage[]){return pages[0]?.kind==='front-endpaper'?2:pages[0]?.kind==='front-cover'?1:0;}
 // Physical page numbers start at one; bookmark leaves are always 2, 4, 6…
 function evenBookmarkLeaf(pages:PaperPage[],index:number){
- const next=index%2===0?index+1:index;
- return next<pages.length?next:Math.max(1,index-1);
+ const start=bodyStart(pages);if(index<start)return -1;
+ const next=(index-start)%2===0?index+1:index;
+ return next<pages.length?next:Math.max(start+1,index-1);
 }
 function bookmarkPage(pages:PaperPage[],anchor:Anchor){return evenBookmarkLeaf(pages,pageForAnchor(pages,anchor));}
 function bookmarkAnchor(pages:PaperPage[],index:number,contentCount:number){
  if(!pages.length)return null;
- const target=evenBookmarkLeaf(pages,index),page=pages[target];
+ const target=evenBookmarkLeaf(pages,index),page=pages[target];if(target<0)return null;
+ const start=bodyStart(pages);
  const fragment=page?.fragments.find(fragment=>!fragment.hidden)??page?.fragments[0];
- if(fragment)return {message:fragment.message,char:fragment.char,progress:Math.min(1,target/Math.max(1,contentCount-1)),label:page.asset?.name??fragment.asset?.name??visibleProse(fragment.text).slice(0,60)};
+ if(fragment)return {message:fragment.message,char:fragment.char,progress:Math.min(1,(target-start)/Math.max(1,contentCount-1)),label:page.asset?.name??fragment.asset?.name??visibleProse(fragment.text).slice(0,60)};
  // An even blank endpaper still belongs to the preceding text's anchor.
- for(let cursor=target-1;cursor>=0;cursor--){const prior=pages[cursor];const first=prior.fragments[0];if(first)return {message:first.message,char:first.char,progress:Math.min(1,target/Math.max(1,contentCount-1)),label:'책갈피'};}
+ for(let cursor=target-1;cursor>=0;cursor--){const prior=pages[cursor];const first=prior.fragments[0];if(first)return {message:first.message,char:first.char,progress:Math.min(1,(target-start)/Math.max(1,contentCount-1)),label:'책갈피'};}
  return null;
 }
 
@@ -231,7 +235,7 @@ function BookmarkSlip({style,icon,image,title,color,side='after',disabled,onActi
  onClick={event=>{event.stopPropagation();event.preventDefault();if(suppressClick.current){suppressClick.current=false;return;}if(allowed())actions.current.onActivate?.();}}
  onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.stopPropagation();event.preventDefault();if(!event.repeat&&allowed())actions.current.onActivate?.();}}}
  onDragStart={event=>event.preventDefault()}>
- {(style==='image'||style==='character')&&(image||icon)&&<img className="reader-bookmark-image-fill" src={image||icon} alt="" draggable={false}/>}<span className="reader-bookmark-punch"/><span className="reader-bookmark-string"/>{(style==='image'||style==='character')&&<BookmarkTitle className="reader-bookmark-title" title={cleanText(title).replace(/\s*·\s*\d+권\s*$/,'')}/>}
+ {(style==='image'||style==='character')&&(image||icon)&&<AssetImage className="reader-bookmark-image-fill" src={(image||icon)!} alt=""/>}<span className="reader-bookmark-punch"/><span className="reader-bookmark-string"/>{(style==='image'||style==='character')&&<BookmarkTitle className="reader-bookmark-title" title={cleanText(title).replace(/\s*·\s*\d+권\s*$/,'')}/>}
  </span>;
 }
 
@@ -247,11 +251,17 @@ function PageLeaf({page,book,query,index,onNext,onClose,mobile,editing,onEdit,dr
  const showChapter=page.chapter!==undefined&&chapterDraft?.chapterStart!==false;
  const heading=editing&&chapterMessage!==undefined?chapterTools?.headings.get(chapterMessage):undefined;
  const chapterTitle=chapterLabel(heading?.number??page.chapter??1,heading?.title??page.chapterTitle);
+ const coverTitle=cleanText(book.title).replace(/\s*·\s*\d+권\s*$/,'');
+ const icon=book.characterIcon??book.assets?.find(asset=>asset.type==='icon')?.src;
+ const date=(value:string)=>{const parsed=new Date(value);return Number.isNaN(parsed.getTime())?'—':parsed.toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit'});};
  const action=<button className="reader-end-action" data-no-flip disabled={editing} onClick={onNext??onClose}>{onNext?'다음 권 읽기':'서재로'}<ArrowRight size={18}/></button>;
+ if(page.kind==='front-cover')return <div className="reader-front-cover" style={{'--book-cover':book.color} as CSSProperties}><div className="reader-front-cover-title">{coverTitle}</div><div className="reader-front-cover-portrait">{icon&&<AssetImage src={icon} alt=""/>}</div><span className="reader-front-cover-volume">{String(book.volumeNumber??1).padStart(2,'0')}</span></div>;
+ if(page.kind==='colophon')return <div className="reader-paper-shell reader-colophon" style={{'--book-cover':book.color} as CSSProperties}>{bookmark&&<BookmarkSlip {...bookmark}/>}<dl><div><dt>업로드 날짜</dt><dd>{date(book.uploadedAt??book.createdAt)}</dd></div><div><dt>수정 날짜</dt><dd>{date(book.updatedAt)}</dd></div><div><dt>모델 이름</dt><dd>{book.author?.trim()||book.aiModel?.trim()||readerCopy.unknownAuthor}</dd></div><div><dt>책 이름</dt><dd>{coverTitle}</dd></div></dl></div>;
  if(page.kind==='back-cover')return <div className="reader-back-cover reader-true-back" style={{'--book-cover':book.color} as CSSProperties}><div className="reader-back-imprint"><span className="reader-back-colophon">{cleanText(book.author)}</span><span className="reader-back-mark">{cleanText(book.title).replace(/\s*·\s*\d+권\s*$/,'')}</span><span className="reader-back-volume">{book.volumeNumber?String(book.volumeNumber).padStart(2,'0'):''}</span><BackBarcode/>{mobile&&action}</div></div>;
+ if(page.kind==='front-endpaper')return <div className="reader-front-outside"/>;
  if(page.kind==='end')return <div className="reader-end-half">{action}</div>;
  if(page.kind==='padding'||page.kind==='endpaper')return <div className={`reader-paper-shell${page.kind==='endpaper'?' reader-endpaper':''}`}>{bookmark&&<BookmarkSlip {...bookmark}/>}</div>;
- return <div className="reader-paper-shell">{bookmark&&<BookmarkSlip {...bookmark}/>} {showChapter&&<div className="reader-chapter-heading">{editing&&chapterMessage!==undefined?<ChapterHeading message={chapterMessage} title={chapterTitle} draft={chapterDraft} onChange={onChapterEdit}/>:chapterTitle}</div>}<div className={`reader-page-content${showChapter?' reader-page-chapter-content':''}${editing?' reader-page-content-editing':''}`}><PageContent page={page} query={query} editing={editing} onEdit={onEdit} drafts={drafts} onPreview={onPreview}/></div><div className="reader-page-number">{index+1}</div></div>;
+ return <div className="reader-paper-shell">{bookmark&&<BookmarkSlip {...bookmark}/>} {showChapter&&<div className="reader-chapter-heading">{editing&&chapterMessage!==undefined?<ChapterHeading message={chapterMessage} title={chapterTitle} draft={chapterDraft} onChange={onChapterEdit}/>:chapterTitle}</div>}<div className={`reader-page-content${showChapter?' reader-page-chapter-content':''}${editing?' reader-page-content-editing':''}`}><PageContent page={page} query={query} editing={editing} onEdit={onEdit} drafts={drafts} onPreview={onPreview}/></div><div className="reader-page-number">{page.pageNumber??index+1}</div></div>;
 }
 
 function LeaveDialog({moving,busy,error,onCancel,onLeave,onSave}:{moving:boolean;busy:boolean;error:string;onCancel:()=>void;onLeave:()=>void;onSave:()=>void}){
@@ -322,6 +332,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
   const [pageIndex, setPageIndex] = useState(0);
   const [pages, setPages] = useState<PaperPage[]>([]);
   const [contentCount,setContentCount]=useState(0);
+  const frontRequestedRef=useRef(false);
   const [spread, setSpread] = useState(1);
   const [viewport, setViewport] = useState(readReaderViewport);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
@@ -461,7 +472,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
       if (cancelled || !mountRef.current || !measureRef.current) return;
       const currentBook = bookRef.current;
       if (activeBookRef.current !== currentBook.id || activeMessagesRef.current!==currentBook.messages) {
-        anchorRef.current = null;
+        anchorRef.current = null;frontRequestedRef.current=false;
         activeBookRef.current = currentBook.id;
         activeMessagesRef.current=currentBook.messages;
       }
@@ -480,15 +491,18 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
       measure.style.height = `${Math.max(1,height - contentTop - contentBottom)}px`;
       measure.style.fontSize = `${fontSize}px`;
       measure.style.setProperty('--paper-height',`${height}px`);
-      const nextPages = paginate(currentBook, measure,{pageHeight:height,contentTop});
-      const bodyCount=nextPages.length;
-      nextPages.push({fragments:[],intro:false,kind:'endpaper'});
+      const body=paginate(currentBook, measure,{pageHeight:height,contentTop});
+      body.forEach((page,index)=>{page.pageNumber=index+1;});
+      const bodyCount=body.length;
+      const prefix:PaperPage[]=count===2?[{fragments:[],intro:false,kind:'front-endpaper'},{fragments:[],intro:false,kind:'front-cover'}]:[{fragments:[],intro:false,kind:'front-cover'}];
+      const nextPages:PaperPage[]=[...prefix,...body,{fragments:[],intro:false,kind:'endpaper'}];
       if(count===2&&nextPages.length%2)nextPages.push({fragments:[],intro:false,kind:'endpaper'});
+      nextPages[nextPages.length-1]!.kind='colophon';
       nextPages.push({fragments:[],intro:false,kind:'back-cover'});
       if(count===2)nextPages.push({fragments:[],intro:false,kind:'end'});
       pagesRef.current = nextPages;
-      const target = anchorRef.current ? pageForAnchor(nextPages, anchorRef.current)
-        : initialBookmarkRef.current ? bookmarkPage(nextPages,initialBookmarkRef.current) : 0;
+      const target = frontRequestedRef.current?0:anchorRef.current ? pageForAnchor(nextPages, anchorRef.current)
+        : initialBookmarkRef.current ? bookmarkPage(nextPages,initialBookmarkRef.current) : prefix.length;
       host = document.createElement('div');
       host.className = 'reader-flip-host';
       host.style.width = `${width * count}px`;
@@ -507,9 +521,9 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
         element.className = `reader-page ${index % 2 === 0 ? 'reader-page-left' : 'reader-page-right'}`;
         element.dataset.pageKind=page.kind??'paper';
         element.dataset.readerPageIndex=String(index);
-        element.setAttribute('data-density', page.kind==='back-cover'?'hard':'soft');
+        element.setAttribute('data-density', page.kind==='back-cover'||page.kind==='front-cover'?'hard':'soft');
         element.setAttribute('role', 'article');
-        element.setAttribute('aria-label', `${index + 1}쪽`);
+        element.setAttribute('aria-label', page.pageNumber?`${page.pageNumber}쪽`:page.kind==='front-cover'?'앞표지':page.kind==='back-cover'?'뒷표지':page.kind==='colophon'?'책 정보':'속표지');
         element.setAttribute('lang', 'ko');
         host!.append(element);
         return element;
@@ -540,7 +554,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
         setPageIndex(safe);
         setSelectedLeaf(null);
         renderWindow(safe);
-        if (saveAnchor) anchorRef.current = nextPages[safe].fragments[0] ?? nextPages[Math.min(safe,bodyCount-1)].fragments[0] ?? null;
+        if(saveAnchor){frontRequestedRef.current=safe<prefix.length;anchorRef.current=frontRequestedRef.current?null:nextPages[safe].fragments[0]??body[bodyCount-1]?.fragments[0]??null;}
 
       };
       try {
@@ -833,7 +847,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
   requestCloseRef.current=()=>{
     if(editing||saving||bookmarkBusy)return;
     const marked=shelfBookmark?.bookId===bookRef.current.id?bookmarkPage(pagesRef.current,shelfBookmark):-1;
-    if(pagesRef.current.slice(pageIndex,pageIndex+spread).some(page=>page.kind==='back-cover'||page.kind==='end')||!onBookmarkChange||!currentAnchor()||(marked>=pageIndex&&marked<pageIndex+spread)){closeRef.current();return;}
+    if(pagesRef.current.slice(pageIndex,pageIndex+spread).some(page=>page.kind==='back-cover'||page.kind==='end'||page.kind==='front-cover'||page.kind==='front-endpaper')||!onBookmarkChange||!currentAnchor()||(marked>=pageIndex&&marked<pageIndex+spread)){closeRef.current();return;}
     flipRef.current?.cancelUserTouch();queuedTurnRef.current=null;setLeaveError('');setLeaveConfirm(true);
   };
   async function saveBeforeLeaving(){
@@ -847,8 +861,12 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
   const peekBookmark=markedPage>=0&&(markedPage<pageIndex||markedPage>=pageIndex+spread);
   const bookmarkAction=activeBookmarked?'책갈피 제거':shelfBookmark?'현재 위치로 책갈피 옮기기':'현재 위치에 책갈피';
   const togglePanel = (next: Exclude<Panel, null>) => setPanel(value => value === next ? null : next);
-  const visibleEnd = Math.min(pages.length, pageIndex + spread);
-  const percent = !pages.length?0:pageIndex>=contentCount?100:Math.round(Math.min(1,pageIndex/Math.max(1,contentCount-1))*100);
+  const proseStart=bodyStart(pages);
+  const visibleEnd = Math.min(contentCount,pageIndex+spread-proseStart);
+  const bodyPosition=Math.max(0,pageIndex-proseStart);
+  const atFront=pageIndex<proseStart,atEnd=pageIndex>=proseStart+contentCount;
+  const percent = !pages.length||atFront?0:atEnd?100:Math.round(Math.min(1,bodyPosition/Math.max(1,contentCount-1))*100);
+  const positionLabel=!pages.length?'책장을 준비하고 있어요':atFront?'표지':atEnd?'끝':`전체 ${contentCount}쪽 중 ${bodyPosition+1}${visibleEnd>bodyPosition+1?`–${visibleEnd}`:''}쪽`;
   const style = { '--reader-font-size': `${fontSize}px` } as CSSProperties;
 
   return <div ref={readerRef} className={`reader reader-theme-${theme}${theme === 'dark' ? ' dark' : ''}${fullscreen?' reader-fullscreen':''}${editing?' reader-is-editing':''}`} data-page-layout={spread===2?'spread':'single'} data-bookmark-current={markedPage>=pageIndex&&markedPage<pageIndex+spread||undefined} style={style} lang="ko">
@@ -872,7 +890,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
     </div>
 
     <main className="reader-main" aria-label={`${book.title} 읽기`}>
-      <div className="reader-stage" ref={stageRef} aria-busy={loading} data-book-closed={pages[pageIndex]?.kind==='back-cover'}>
+      <div className="reader-stage" ref={stageRef} aria-busy={loading} data-book-closed={pages.slice(pageIndex,pageIndex+spread).some(page=>page.kind==='back-cover'||page.kind==='front-cover')}>
         <div className="reader-book-mount" ref={mountRef} onPointerDownCapture={event=>{const page=(event.target as HTMLElement).closest<HTMLElement>('[data-reader-page-index]');if(page&&!page.dataset.flipCopy)setSelectedLeaf(Number(page.dataset.readerPageIndex));}}/>
         {!loading&&peekBookmark&&shelfBookmark&&<div className={`reader-bookmark-peek reader-bookmark-peek-${markedPage<pageIndex?'before':'after'}`} aria-label="페이지 사이 책갈피"><BookmarkSlip {...bookmarkInteraction} style={ribbonStyle} icon={ribbonIcon} image={ribbonImage} title={shelfBookmark.title} color={book.color} side={markedPage<pageIndex?'before':'after'}/></div>}
       {editing&&<div className="reader-edit-navigation" data-no-flip><button type="button" aria-label="편집 이전 페이지" disabled={saving||loading||pageIndex===0} onClick={()=>jump(Math.max(0,pageIndex-spread))}><span aria-hidden="true">&lt;</span></button><button type="button" aria-label="편집 다음 페이지" disabled={saving||loading||pageIndex+spread>=pages.length} onClick={()=>jump(Math.min(pages.length-1,pageIndex+spread))}><span aria-hidden="true">&gt;</span></button></div>}
@@ -886,9 +904,9 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
     </main>
 
     <footer className={`reader-footer${fullscreen&&!drawerOpen&&!editing?' reader-footer-concealed':''}`} inert={fullscreen&&!drawerOpen&&!editing} aria-hidden={fullscreen&&!drawerOpen&&!editing||undefined}>
-      <div className="reader-progress-label"><span>{pages.length ? pageIndex>=contentCount?'끝':`전체 ${contentCount}쪽 중 ${pageIndex + 1}${Math.min(visibleEnd,contentCount) > pageIndex + 1 ? `–${Math.min(visibleEnd,contentCount)}` : ''}쪽` : '책장을 준비하고 있어요'}</span><span>{percent}% 읽음</span></div>
-      <input className="reader-progress" type="range" min={0} max={Math.max(0, pages.length - 1)} value={Math.min(pageIndex, Math.max(0, pages.length - 1))} disabled={saving || loading || pages.length < 2} onChange={event => jump(Number(event.target.value))} aria-label="읽는 위치 이동" aria-valuetext={pages.length ? `전체 ${pages.length}쪽 중 ${pageIndex + 1}쪽` : '책장을 준비하고 있어요'} style={{ '--reader-progress': `${pages.length>1?Math.min(pageIndex,pages.length-1)/(pages.length-1)*100:0}%` } as CSSProperties} />
-      <span className="reader-sr-only" aria-live="polite">{!loading && `전체 ${pages.length}쪽 중 ${pageIndex + 1}쪽`}</span>
+      <div className="reader-progress-label"><span>{positionLabel}</span><span>{percent}% 읽음</span></div>
+      <input className="reader-progress" type="range" min={0} max={Math.max(0, pages.length - 1)} value={Math.min(pageIndex, Math.max(0, pages.length - 1))} disabled={saving || loading || pages.length < 2} onChange={event => jump(Number(event.target.value))} aria-label="읽는 위치 이동" aria-valuetext={positionLabel} style={{ '--reader-progress': `${pages.length>1?Math.min(pageIndex,pages.length-1)/(pages.length-1)*100:0}%` } as CSSProperties} />
+      <span className="reader-sr-only" aria-live="polite">{!loading&&positionLabel}</span>
     </footer>
 
 
@@ -898,13 +916,13 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
       <div className={`reader-panel reader-panel-${panel}`} ref={panelRef} tabIndex={-1} role="region" aria-labelledby="reader-panel-title" id={`reader-${panel}`}>
         <div className="reader-panel-heading"><h2 id="reader-panel-title">{panel === 'contents' ? '목차' : panel === 'search' ? '책 속 검색' : '독서 설정'}</h2><button className="reader-icon-button" aria-label="패널 닫기" onClick={() => { setPanel(null); panelButtonRefs.current[panel]?.focus(); }}><X size={18} /></button></div>
         {panel === 'contents' && <>
-          <p className="reader-panel-description">챕터 {chapterEntries.length}개 · 전체 {pages.length}쪽</p>
+          <p className="reader-panel-description">챕터 {chapterEntries.length}개 · 전체 {contentCount}쪽</p>
           <nav className="reader-contents-list" aria-label="이야기 목차">
             <button className="reader-contents-item" onClick={() => { jump(0); setPanel(null); }}><span className="reader-contents-number"><BookOpen size={16} /></span><span><strong>{book.title}</strong><small>책의 처음으로</small></span><span className="reader-contents-page">1</span></button>
             {chapterEntries.map(({message,index,number},chapterIndex) => {
               const page = pageForAnchor(pages, { message: index, char: 0 });
               return <button className={`reader-contents-item ${page <= pageIndex && pageIndex < (chapterIndex+1<chapterEntries.length?pageForAnchor(pages,{message:chapterEntries[chapterIndex+1].index,char:0}):pages.length) ? 'reader-current-passage' : ''}`} key={index} onClick={() => goToAnchor({ message: index, char: 0 })}>
-                <span className="reader-contents-number">{String(number).padStart(2, '0')}</span><span><strong>{chapterLabel(number,message.chapterTitle)}</strong><small>{visibleProse(message.content).slice(0, 95) || '아직 내용이 없어요'}</small></span><span className="reader-contents-page">{page + 1}</span>
+                <span className="reader-contents-number">{String(number).padStart(2, '0')}</span><span><strong>{chapterLabel(number,message.chapterTitle)}</strong><small>{visibleProse(message.content).slice(0, 95) || '아직 내용이 없어요'}</small></span><span className="reader-contents-page">{Math.max(1,page-proseStart+1)}</span>
               </button>;
             })}
           </nav>
@@ -912,7 +930,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
         {panel === 'search' && <>
           <div className="reader-search-field"><Search size={17} /><input ref={searchRef} value={query} onChange={event => setQuery(event.target.value)} placeholder="기억에 남은 단어나 문장을 찾아보세요" aria-label="검색할 단어나 문장" type="search" /><button className="reader-icon-button" aria-label="검색어 지우기" disabled={!query} onClick={() => { setQuery(''); searchRef.current?.focus(); }}><X size={15} /></button></div>
           <p className="reader-panel-description" role="status">{!deferredQuery ? '책 전체에서 단어나 문장을 찾아보세요.' : hits.length ? `검색 결과 ${hits.length}개${hits.length === 200 ? ' 이상 · 처음 200개만 표시해요' : ''}` : '검색 결과가 없어요. 다른 단어로 찾아보세요.'}</p>
-          <div className="reader-search-results">{hits.map(hit => <button className="reader-search-result" key={`${hit.message}:${hit.char}`} onClick={() => goToAnchor(hit)}><span>{hit.name} <small>· {pageForAnchor(pages, hit) + 1}쪽</small></span><p><Highlight text={hit.excerpt} query={deferredQuery} /></p></button>)}</div>
+          <div className="reader-search-results">{hits.map(hit => <button className="reader-search-result" key={`${hit.message}:${hit.char}`} onClick={() => goToAnchor(hit)}><span>{hit.name} <small>· {Math.max(1,pageForAnchor(pages,hit)-proseStart+1)}쪽</small></span><p><Highlight text={hit.excerpt} query={deferredQuery} /></p></button>)}</div>
         </>}
         {panel === 'appearance' && <>
           <div className="reader-setting-label"><span>책갈피</span></div>

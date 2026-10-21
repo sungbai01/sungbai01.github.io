@@ -5,6 +5,7 @@ import { groupBooks } from './lib/volumes';
 import { prepareBooks,measureBookPageCount } from './lib/prepareBooks';
 import {PAGE_LAYOUT_VERSION} from './lib/pagination';
 import ShelfAssets from './components/ShelfAssets';
+import AssetImage from './components/AssetImage';
 import BookIntake,{type IntakeRequest} from './components/BookIntake';
 import ThemePicker from './components/ThemePicker';
 import AuthorPicker from './components/AuthorPicker';
@@ -147,8 +148,8 @@ function LibraryDrawer({children,onClose}:{children:ReactNode;onClose:()=>void})
 function Cover({book, small=false}: {book:Book;small?:boolean}) {
   const icon=portrait(book);
   return <div className={`book-cover ${small?'cover-small':''}`} style={{'--cover':book.color || colors[0]} as CSSProperties}>
-    {book.cover && <img className="cover-image" src={book.cover} alt=""/>}
-    <div className="cover-content"><CoverTitle title={displayBookTitle(book)} small={small}/><div className="cover-portrait">{icon?<img src={icon} alt={`${book.author||'캐릭터'} 초상`}/>:<span className="cover-ornament" aria-hidden="true">✳</span>}</div><span className="cover-volume">{String(book.volumeNumber??1).padStart(2,'0')}</span></div>
+    {book.cover && <AssetImage className="cover-image" src={book.cover} alt=""/>}
+    <div className="cover-content"><CoverTitle title={displayBookTitle(book)} small={small}/><div className="cover-portrait">{icon?<AssetImage src={icon} alt={`${book.author||'캐릭터'} 초상`}/>:<span className="cover-ornament" aria-hidden="true">✳</span>}</div><span className="cover-volume">{String(book.volumeNumber??1).padStart(2,'0')}</span></div>
   </div>;
 }
 
@@ -327,13 +328,14 @@ export default function App() {
       }));
     }
     // Parse every staged file first. Preparation happens once, before any write.
-    const prepared=await prepareBooks(incoming,{removeEmoji:request.removeEmoji,removeSquareBrackets:request.removeSquareBrackets,removeAngleBrackets:request.removeAngleBrackets,removeDollarLines:request.removeDollarLines});
+    const prepared=await prepareBooks(incoming,{removeEmoji:request.removeEmoji,removeSquareBrackets:request.removeSquareBrackets,removeAngleBrackets:request.removeAngleBrackets,removeDollarLines:request.removeDollarLines,removeHashLines:request.removeHashLines});
     if(!prepared.length)throw new Error('추가할 본문이 없어요.');
     let createdBook:Book|undefined;
     await commitBooks(siblings.map(book=>book.id),current=>{
       const occupied=new Set(current.map(book=>book.id));const remap=new Map<string,string>();
       for(const book of prepared){let id=book.id;while(occupied.has(id))id=crypto.randomUUID();occupied.add(id);remap.set(book.id,id);}
-      const fresh=prepared.map(book=>({...book,id:remap.get(book.id)!,...(book.seriesId?{seriesId:remap.get(book.seriesId)??book.seriesId}:{})}));
+      const uploadedAt=new Date().toISOString();
+      const fresh=prepared.map(book=>({...book,uploadedAt,id:remap.get(book.id)!,...(book.seriesId?{seriesId:remap.get(book.seriesId)??book.seriesId}:{})}));
       if(!target||target.ungrouped){createdBook=fresh[0];return fresh;}
       const fullSiblings=shelfBooks(current,target);if(!fullSiblings.length)throw new Error('대상 책장을 찾지 못했어요.');
       const count=fullSiblings.length+fresh.length;

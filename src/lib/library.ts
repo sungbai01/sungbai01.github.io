@@ -39,6 +39,7 @@ export interface Book {
   customColor?: string;
   /** ISO 8601 date strings. */
   createdAt: string;
+  uploadedAt?:string;
   updatedAt: string;
   messages: Message[];
   cover?: string;
@@ -198,6 +199,7 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
   if (typeof value.aiModel === 'string') book.aiModel = value.aiModel;
   const backCover = safeAssetSource(value.backCover);
   if (backCover) book.backCover = backCover;
+  if(typeof value.uploadedAt==='string'&&Number.isFinite(Date.parse(value.uploadedAt)))book.uploadedAt=value.uploadedAt;
   const characterIcon = safeAssetSource(value.characterIcon);
   if (characterIcon) book.characterIcon = characterIcon;
   if (value.bookmarkStyle === 'normal' || value.bookmarkStyle === 'character' || value.bookmarkStyle === 'image') book.bookmarkStyle = value.bookmarkStyle;
@@ -453,6 +455,7 @@ function validateBook(book: Book): void {
     (book.bookmarkStyle !== undefined && book.bookmarkStyle !== 'normal' && book.bookmarkStyle !== 'character' && book.bookmarkStyle !== 'image') ||
     (book.bookmarkAssetId !== undefined && typeof book.bookmarkAssetId !== 'string') ||
     (book.aiModel !== undefined && typeof book.aiModel !== 'string') ||
+    (book.uploadedAt!==undefined&&(typeof book.uploadedAt!=='string'||!Number.isFinite(Date.parse(book.uploadedAt)))) ||
     (book.assets !== undefined && (!Array.isArray(book.assets) || !book.assets.every(asset => record(asset) &&
       typeof asset.id === 'string' && !!asset.id.trim() && typeof asset.name === 'string' && !!asset.name.trim() && typeof asset.src === 'string' &&
       (asset.type === undefined || asset.type === 'icon' || asset.type === 'asset')))) ||

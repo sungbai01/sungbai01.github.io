@@ -1,6 +1,6 @@
 import type { BookAsset } from './library';
 import { extractImageRules, imageRuleCandidates, normalizeImageRules, type ImageRule } from './imageRules';
-import { readModuleData } from './rpack';
+import { readModuleData,readModuleBundle } from './rpack';
 import { extractDisplayRules, type DisplayRule } from './displayRules';
 import { Inflate } from 'fflate';
 import { jade } from '@radix-ui/colors';
@@ -550,11 +550,17 @@ export async function importAssetFile(file: File): Promise<AssetImportResult> {
   if (/\.(?:risup|risupreset)$/i.test(file.name)) throw new Error('RISUP은 RisuAI 프리셋 파일입니다. 이미지나 PNG·JSON 캐릭터 카드를 선택해 주세요.');
   if (/\.risupack$/i.test(file.name)) throw new Error('RISUPACK은 지원하지 않습니다. 이미지 또는 PNG·JSON·CHARX 카드를 사용해 주세요.');
   if (/\.risum$/i.test(file.name)) {
-    const module = readModuleData(new Uint8Array(await file.arrayBuffer()));
-    const warnings: string[] = ['모듈의 정규식 규칙만 가져왔습니다. 모듈 내 에셋·스크립트는 실행하거나 가져오지 않습니다.'];
-    const imageRules = extractImageRules(module), displayRules = extractDisplayRules(module, warnings);
-    if (!imageRules.length && !displayRules.length) throw new Error('모듈에서 정규식 규칙을 찾지 못했습니다.');
-    return { assets: [], warnings, imageRules, displayRules };
+    const {module,assets:payloads}=readModuleBundle(new Uint8Array(await file.arrayBuffer()));
+    const warnings:string[]=[];
+    const imageRules=extractImageRules(module),displayRules=extractDisplayRules(module,warnings);
+    const metadata=Array.isArray(module.assets)?module.assets:[];
+    const assets:BookAsset[]=payloads.flatMap((bytes,index)=>{
+      const src=imageData(bytes);if(!src){warnings.push(`에셋 ${index+1}의 이미지 형식을 읽지 못했습니다.`);return [];}
+      const row=metadata[index],name=Array.isArray(row)&&typeof row[0]==='string'&&row[0].trim()?row[0].trim():`에셋 ${index+1}`;
+      return [{id:id(),name,src,type:'asset' as const}];
+    });
+    if(!assets.length&&!imageRules.length&&!displayRules.length)throw new Error('모듈에서 이미지 에셋이나 이미지 규칙을 찾지 못했습니다.');
+    return {assets:normalizeAssets(assets),warnings,imageRules,displayRules};
   }
   if (!file.size) throw new Error('파일이 비어 있습니다.');
   const basename = file.name.replace(/\.[^.]+$/, '') || '이미지';
