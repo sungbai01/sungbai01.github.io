@@ -177,9 +177,11 @@ export function GoogleAccount({ className = '', disabled = false, compact=false,
         },
       });
       if (!googleButton.current) return;
+      // Measure the laid-out host, not a hidden element or the wider modal.
+      const buttonWidth = Math.floor(googleButton.current.getBoundingClientRect().width);
       identity.renderButton(googleButton.current, {
         type: 'standard', theme: 'outline', size: 'large', text: 'signin_with', locale: 'ko',
-        width: Math.min(320, Math.max(200, googleButton.current.parentElement?.clientWidth ?? 320)),
+        width: Math.max(1, buttonWidth),
       });
       setPhase('ready');
     } catch {
@@ -266,7 +268,7 @@ export function GoogleAccount({ className = '', disabled = false, compact=false,
       <div className="modal-header"><h2>Google 로그인</h2><button type="button" className="icon-btn" aria-label="닫기" onClick={closeLogin}><X size={19}/></button></div>
       <div className="google-login-slot" aria-busy={busy}>
         {(phase==='idle'||busy)&&<div className="google-login-progress" role="status"><LoaderCircle size={20} className="google-account-spinner"/><span>{phase==='verifying'?'로그인 확인 중…':'연결 중…'}</span></div>}
-        <div ref={googleButton} className="google-account-provider" hidden={phase!=='ready'} inert={disabled}/>
+        <div ref={googleButton} className="google-account-provider" data-ready={phase==='ready'} aria-hidden={phase!=='ready'} inert={disabled||phase!=='ready'}/>
         {(phase==='error'||phase==='pending')&&<button type="button" className="google-account-button" disabled={disabled} onClick={()=>void startLogin()}>다시 시도</button>}
       </div>
       <p className="google-account-message" role={phase==='error'?'alert':'status'} aria-live="polite">{message}</p>
