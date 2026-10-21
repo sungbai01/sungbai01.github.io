@@ -17,7 +17,7 @@ function date(value:unknown){text(value,40);if(!Number.isFinite(Date.parse(value
 function validate(value:unknown,id:string):Book{
  if(!object(value))fail();
  const b=value as Record<string,unknown>;
- keys(b,['id','title','author','description','color','createdAt','uploadedAt','updatedAt','messages','aiModel','customColor','seriesId','seriesTitle','volumeNumber','volumeCount','volumePolicy','bookmarks','bookmarkStyle']);
+ keys(b,['id','title','author','description','color','createdAt','uploadedAt','updatedAt','messages','aiModel','customColor','seriesId','seriesTitle','volumeNumber','volumeCount','volumePolicy','bookmarks','bookmarkStyle','pageCount','pageLayoutVersion']);
  if(b.id!==id)fail();
  text(b.title,2000);text(b.author,2000);text(b.description,10000);date(b.createdAt);date(b.updatedAt);
  if(typeof b.color!=='string'||!/^#(?:[a-f\d]{3}|[a-f\d]{6})$/i.test(b.color))fail();
@@ -25,7 +25,7 @@ function validate(value:unknown,id:string):Book{
  if(b.uploadedAt!==undefined)date(b.uploadedAt);
  for(const key of ['aiModel','seriesTitle'])if(b[key]!==undefined)text(b[key],2000);
  if(b.seriesId!==undefined&&!idValid(b.seriesId))fail();
- for(const key of ['volumeNumber','volumeCount'])if(b[key]!==undefined&&(!Number.isSafeInteger(b[key])||(b[key] as number)<1||(b[key] as number)>100000))fail();
+ for(const key of ['volumeNumber','volumeCount','pageCount','pageLayoutVersion'])if(b[key]!==undefined&&(!Number.isSafeInteger(b[key])||(b[key] as number)<1||(b[key] as number)>100000))fail();
  if(b.volumePolicy!==undefined&&!['chapters-100-v1','chapters-200-v1'].includes(b.volumePolicy as string))fail();
  if(b.bookmarkStyle!==undefined&&b.bookmarkStyle!=='normal')fail();
  if(!Array.isArray(b.messages)||b.messages.length>20000)fail();
@@ -51,6 +51,15 @@ function validate(value:unknown,id:string):Book{
  }
  return cloudBook(b as unknown as Book);
 }
+function bookMetadata(book:Book){
+ const {messages,description,...metadata}=book;
+ const marks=metadata.bookmarks?.map(mark=>{
+  const total=messages.reduce((sum,message)=>sum+message.content.length+1,0);
+  const offset=messages.slice(0,mark.message).reduce((sum,message)=>sum+message.content.length+1,0)+mark.char;
+  return {...mark,progress:mark.progress??Math.min(1,offset/Math.max(1,total))};
+ });
+ return {...metadata,description:description.slice(0,160),messages:[],...(marks?{bookmarks:marks}:{})};
+}
 async function jsonBody(request:Request){
  if(request.headers.get('Content-Type')?.split(';')[0].trim()!=='application/json')throw new ApiError(415,'JSON 요청만 사용할 수 있어요.');
  const reader=request.body?.getReader();if(!reader)fail();let size=0;const chunks:Uint8Array[]=[];
@@ -64,8 +73,10 @@ export async function libraryApi(request:Request,db:TextDatabase,owner:string,or
  try{
   const path=new URL(request.url).pathname;
   if(path==='/library/books'&&request.method==='GET'){
-   const {results}=await db.prepare('SELECT book_id AS id, revision, deleted, updated_at AS updatedAt FROM books WHERE owner_id = ?1 ORDER BY book_id').bind(owner).all<{id:string;revision:number;deleted:number;updatedAt:number}>();
-   return reply({books:results.map(row=>({...row,deleted:!!row.deleted}))},200,origin);
+   const cursor=new URL(request.url).searchParams.get('cursor')??'';if(cursor&&!idValid(cursor))fail();
+   const {results}=await db.prepare('SELECT book_id AS id, revision, updated_at AS updatedAt, metadata FROM books WHERE owner_id = ?1 AND deleted = 0 AND book_id > ?2 ORDER BY book_id LIMIT 51').bind(owner,cursor).all<{id:string;revision:number;updatedAt:number;metadata:string}>();
+   const page=results.slice(0,50);
+   return reply({books:page.map(row=>({id:row.id,revision:row.revision,updatedAt:row.updatedAt,deleted:false,book:JSON.parse(row.metadata)})),nextCursor:results.length>50?page.at(-1)!.id:null},200,origin);
   }
   const match=/^\/library\/books\/([^/]+)$/.exec(path);if(!match)return reply({error:'찾을 수 없어요.'},404,origin);
   let id:string;try{id=decodeURIComponent(match[1]);}catch{fail();}if(!idValid(id!))fail();
@@ -79,18 +90,19 @@ export async function libraryApi(request:Request,db:TextDatabase,owner:string,or
   const base=input.baseRevision;if(!Number.isSafeInteger(base)||(base as number)<0)fail();
   const now=Date.now();
   if(request.method==='DELETE'){
-   const result=await db.prepare('UPDATE books SET body = NULL, bytes = 0, deleted = 1, revision = revision + 1, updated_at = ?1 WHERE owner_id = ?2 AND book_id = ?3 AND revision = ?4').bind(now,owner,id!,base).run();
+   const result=await db.prepare("UPDATE books SET body = NULL, metadata = '{}', bytes = 0, deleted = 1, revision = revision + 1, updated_at = ?1 WHERE owner_id = ?2 AND book_id = ?3 AND revision = ?4").bind(now,owner,id!,base).run();
    if(!result.meta.changes)return reply({error:'다른 기기에서 변경된 책이에요.'},409,origin);
    return reply({revision:(base as number)+1,updatedAt:now},200,origin);
   }
   const book=validate(input.book,id!),body=JSON.stringify(book),bytes=new TextEncoder().encode(body).byteLength;
   if(bytes>maxBytes)throw new ApiError(413,'책의 텍스트 용량이 너무 커요.');
   // Both CAS revision and storage quotas are enforced atomically inside the write.
+  const metadata=JSON.stringify(bookMetadata(book));
   const quota='(SELECT COALESCE(SUM(bytes),0) FROM books WHERE owner_id = ?1 AND book_id != ?2) + ?4 <= 100000000 AND (SELECT COUNT(*) FROM books WHERE owner_id = ?1 AND deleted = 0 AND book_id != ?2) < 1000';
   const query=base===0
-   ?`INSERT INTO books(owner_id, book_id, body, bytes, revision, updated_at, deleted) SELECT ?1, ?2, ?3, ?4, 1, ?5, 0 WHERE ${quota} AND (SELECT COUNT(*) FROM books WHERE owner_id = ?1) < 5000 ON CONFLICT(owner_id,book_id) DO NOTHING`
-   :`UPDATE books SET body = ?3, bytes = ?4, revision = revision + 1, updated_at = ?5, deleted = 0 WHERE owner_id = ?1 AND book_id = ?2 AND revision = ?6 AND ${quota}`;
-  const statement=db.prepare(query);const args=[owner,id!,body,bytes,now,...(base===0?[]:[base])];
+   ?`INSERT INTO books(owner_id, book_id, body, bytes, revision, updated_at, deleted, metadata) SELECT ?1, ?2, ?3, ?4, 1, ?5, 0, ?6 WHERE ${quota} AND (SELECT COUNT(*) FROM books WHERE owner_id = ?1) < 5000 ON CONFLICT(owner_id,book_id) DO NOTHING`
+   :`UPDATE books SET body = ?3, bytes = ?4, revision = revision + 1, updated_at = ?5, deleted = 0, metadata = ?6 WHERE owner_id = ?1 AND book_id = ?2 AND revision = ?7 AND ${quota}`;
+  const statement=db.prepare(query);const args=[owner,id!,body,bytes,now,metadata,...(base===0?[]:[base])];
   const result=await statement.bind(...args).run();
   if(!result.meta.changes){
    const usage=await db.prepare('SELECT COALESCE(SUM(bytes),0) AS bytes, SUM(CASE WHEN deleted=0 THEN 1 ELSE 0 END) AS count, COUNT(*) AS records FROM books WHERE owner_id = ?1').bind(owner).first<{bytes:number;count:number;records:number}>();

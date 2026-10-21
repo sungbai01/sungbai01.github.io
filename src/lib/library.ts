@@ -74,8 +74,8 @@ const DB_NAME = 'risu-bookshelf';
 let activeDatabase=DB_NAME;
 let libraryGeneration=0;
 export function setLibraryAccount(owner:string|null){
- if(owner!==null&&!/^u_[A-Za-z0-9_-]{43}$/.test(owner))throw new LibraryError('계정 식별자가 올바르지 않습니다.');
- const name=owner?`${DB_NAME}-account-${owner}`:DB_NAME;
+ if(owner!==null)throw new LibraryError('로그인한 책은 서버 API로만 저장합니다.');
+ const name=DB_NAME;
  if(activeDatabase!==name){activeDatabase=name;libraryGeneration++;}
 }
 export function getLibraryGeneration(){return libraryGeneration;}

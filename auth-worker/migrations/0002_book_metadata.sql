@@ -1,0 +1,1 @@
+ALTER TABLE books ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}';
