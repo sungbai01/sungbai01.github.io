@@ -21,7 +21,7 @@ type ShelfBookmark=BookmarkAnchor&{bookId:string;title:string;style?:Book['bookm
 function bookShelf(book:Book):ShelfTarget{return {id:book.seriesId??'ungrouped',title:book.seriesTitle??'단권',ungrouped:!book.seriesId};}
 function displayBookTitle(book:Book){return book.title.replace(/\s*·\s*\d+권\s*$/, '').trim()||book.title;}
 function portrait(book:Book){return book.characterIcon??book.assets?.find(asset=>asset.type==='icon')?.src;}
-function bookmarkImage(book:Book){return book.assets?.find(asset=>asset.id===book.bookmarkAssetId)?.src;}
+function bookmarkImage(book:Book){return book.assets?.find(asset=>asset.id===book.bookmarkAssetId)?.src??portrait(book);}
 function canonicalBookmark(books:Book[]):ShelfBookmark|undefined{
   let selected:Book|undefined;
   for(const book of books)if(book.bookmarks?.length&&(!selected||book.updatedAt>selected.updatedAt||(book.updatedAt===selected.updatedAt&&book.id>selected.id)))selected=book;

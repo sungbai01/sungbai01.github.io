@@ -2,7 +2,7 @@
 .book-open>.book-cover,.book-open>.book-spine{position:relative;z-index:1}
 .shelf-ribbon{position:absolute;top:-18px;left:12px;z-index:0;display:flex;align-items:center;flex-direction:column;gap:8px;height:33.3333%;aspect-ratio:2/5;border:0;border-radius:1px;background:var(--ribbon-color);color:white;pointer-events:none;box-shadow:1px 1px 3px #0003;padding:20px 3px 5px}
 .shelf-ribbon-hole{position:absolute;top:4px;left:calc(50% - 3px);width:6px;height:6px;border-radius:50%;background:var(--sand-1);box-shadow:none}
-.shelf-ribbon-cord{position:absolute;top:-15px;left:calc(50% - 1px);width:2px;height:24px;border-radius:2px;background:#c5ac83;transform:rotate(-9deg);transform-origin:bottom}
+.shelf-ribbon-cord{position:absolute;top:-15px;left:calc(50% - 1.5px);width:3px;height:24px;border-radius:2px;background:#c5ac83;transform:rotate(-9deg);transform-origin:bottom}
 .shelf-ribbon-cord:after{content:'';position:absolute;bottom:-1px;left:-2px;width:5px;height:4px;border:1px solid #c5ac83;border-radius:50%}
 .shelf-ribbon img{width:100%;aspect-ratio:1;object-fit:cover;object-position:top}
 .shelf-ribbon-title{font:7px/1.4 var(--font-serif);max-height:5.6em;overflow:hidden}
@@ -12,3 +12,5 @@
 .shelf-ribbon-spines .shelf-ribbon-hole,.shelf-ribbon-spines img,.shelf-ribbon-spines .shelf-ribbon-title{display:none}
 .shelf-ribbon-spines .shelf-ribbon-cord{width:2px;left:0;height:20px;top:-10px}
 @media(max-width:560px){.shelf-ribbon-covers{left:10px}}
+
+.shelf-ribbon-image .shelf-ribbon-title{position:absolute;z-index:2;left:2px;bottom:3px;max-height:50%;max-width:2.8em;writing-mode:vertical-rl;text-align:start;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;color:white;background:#0006;text-shadow:0 1px 2px #000;padding:1px}

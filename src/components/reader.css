@@ -206,8 +206,8 @@
 .reader[data-page-layout='spread'] .reader-page-right .reader-bookmark-slip{left:0}
 .reader-flip-host[data-flip-state='read'] .reader-page-left:has(.reader-bookmark-slip){z-index:2!important}
 .reader-bookmark-punch{position:absolute;top:8px;left:calc(50% - 8px);width:16px;height:16px;border-radius:50%;background:var(--reader-paper);box-shadow:none}
-.reader-bookmark-string{position:absolute;top:-24px;left:calc(50% - 2px);width:4px;height:42px;background:#c5ac83;border-radius:4px;box-shadow:1px 0 1px #0004;transform:rotate(-9deg);transform-origin:bottom}
-.reader-bookmark-string:after{content:'';position:absolute;bottom:-3px;left:-3px;width:10px;height:8px;border:2px solid #c5ac83;border-radius:50%;transform:rotate(24deg)}
+.reader-bookmark-string{position:absolute;top:-24px;left:calc(50% - 4px);width:8px;height:42px;background:#c5ac83;border-radius:4px;box-shadow:1px 0 1px #0004;transform:rotate(-9deg);transform-origin:bottom}
+.reader-bookmark-string:after{content:'';position:absolute;bottom:-3px;left:-3px;width:14px;height:10px;border:3px solid #c5ac83;border-radius:50%;transform:rotate(24deg)}
 .reader-bookmark-slip img{width:100%;height:auto;aspect-ratio:1;object-fit:cover;object-position:top;pointer-events:none;border-radius:1px}
 .reader-bookmark-slip strong{font:600 12px/1.65 'Gowun Batang',serif;text-align:center;max-width:100%;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
 .reader .reader-bookmark-character{color:white;text-shadow:0 1px 2px #0008}
@@ -314,11 +314,16 @@
 .reader-inline-asset{max-width:100%;padding:0;position:relative}
 .reader-inline-asset-body{position:relative;width:100%;height:100%;margin:0;padding:0}
 .reader .reader-inline-asset-open{display:block;width:100%;height:100%;margin:0;padding:0;border:0;border-radius:3px;background:transparent;cursor:zoom-in;touch-action:pan-y}
-.reader-inline-asset-open img{display:block;width:100%;height:100%;object-fit:contain;object-position:center;pointer-events:none}
+.reader-inline-asset-open img{display:block;width:100%;height:100%;object-fit:cover;object-position:top center;pointer-events:none}
 .reader .reader-inline-asset-remove{position:absolute;top:4px;right:4px;display:grid;place-items:center;width:28px;height:28px;padding:0;border:1px solid var(--reader-line);border-radius:50%;background:var(--reader-panel-bg);color:var(--reader-ink)}
 .reader .reader-inline-asset-undo{display:grid;place-items:center;width:100%;height:100%;padding:4px;border:1px dashed var(--reader-line);border-radius:3px;background:var(--reader-paper);color:var(--reader-muted);font-family:inherit;font-size:12px;line-height:1.4}
-.reader-asset-preview{position:fixed;inset:0;z-index:18;display:grid;place-items:center;padding:24px;pointer-events:none}
-.reader-asset-preview>img{display:block;width:auto;height:auto;max-width:calc(100vw - 48px);max-height:calc(100dvh - 48px);object-fit:contain;box-shadow:0 8px 38px #0004;background:var(--reader-paper);border-radius:4px;pointer-events:none}
-.reader-asset-preview-pinned{pointer-events:auto;background:#0003;touch-action:pan-y}
-.reader-asset-preview-pinned>img{pointer-events:auto}
-.reader-asset-preview>button{position:absolute;top:max(12px,env(safe-area-inset-top));right:12px;display:grid;place-items:center;width:36px;height:36px;border:1px solid var(--reader-line);border-radius:50%;background:var(--reader-panel-bg);color:var(--reader-ink)}
+.reader-asset-preview{position:fixed;inset:0;z-index:18;pointer-events:none}
+.reader-asset-preview-expand{position:absolute;overflow:hidden;border-radius:3px;background:var(--reader-paper);box-shadow:0 5px 22px #0004;animation:reader-asset-unfold .24s ease-out both}
+.reader-asset-preview-expand>img{display:block;width:100%;height:100%;object-fit:cover;object-position:top center;pointer-events:none}
+.reader-asset-preview-pinned{pointer-events:auto;background:#0002;touch-action:pan-y}
+.reader-asset-preview-pinned .reader-asset-preview-expand{pointer-events:auto}
+.reader-asset-preview-expand>button{position:absolute;top:4px;right:4px;display:grid;place-items:center;width:28px;height:28px;border:0;border-radius:50%;background:var(--reader-panel-bg);color:var(--reader-ink)}
+@keyframes reader-asset-unfold{from{width:var(--preview-start);height:var(--preview-start)}to{width:var(--preview-width);height:var(--preview-end)}}
+@media(prefers-reduced-motion:reduce){.reader-asset-preview-expand{animation:none}}
+.reader .reader-bookmark-image strong,.reader .reader-bookmark-character strong{position:absolute;z-index:2;left:6px;bottom:8px;max-height:50%;max-width:2.8em;writing-mode:vertical-rl;text-orientation:mixed;text-align:start;font:600 12px/1.4 'Gowun Batang',serif;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;color:#fff;text-shadow:0 1px 3px #000,1px 0 2px #000,-1px 0 2px #000;background:#0006;border-radius:2px;padding:3px 2px}
+.reader-bookmark-slip[data-bookmark-side='before']>.reader-bookmark-image-fill{transform:scaleX(-1)}
