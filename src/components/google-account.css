@@ -17,6 +17,9 @@
 .google-account-message{margin:7px 0 0;color:var(--jade-11);font-size:11px;line-height:1.7;overflow-wrap:anywhere}
 .google-account-message:empty{display:none}
 .google-account-message[role=alert]{color:var(--bronze-11)}
+.google-account-sync-status{margin:8px 0 4px;color:var(--jade-11);font-size:11px;line-height:1.7;word-break:keep-all}
+.google-account-guest-import{margin-top:14px}
+.google-account-guest-import p{margin:7px 0 0;font-size:10px;color:var(--sand-11);line-height:1.7}
 .google-account-spinner{animation:google-account-spin 1s linear infinite}
 @keyframes google-account-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.google-account-spinner{animation:none}}

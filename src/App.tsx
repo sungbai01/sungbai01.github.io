@@ -1,6 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, useId, type CSSProperties, type ReactNode } from 'react';
 import { ArrowDownToLine, ArrowRight, BookOpen, Bookmark, Check, ChevronDown, Ellipsis, Library, LoaderCircle, Menu, Pencil, Images, Plus, RotateCcw, Search, Trash2, Upload, X } from 'lucide-react';
-import { loadBooks, repackSeries, updateBookmarks, deleteBook, deleteBooks, importChatFile, BOOK_COLORS, type Book } from './lib/library';
+import { getLibraryGeneration, importChatFile, BOOK_COLORS, type Book } from './lib/library';
+import { CloudLibrary, stopCloudLibrary, type AccountStore, type CloudStatus } from './lib/cloudLibrary';
+import { getAuthSession, subscribeAuthSession } from './lib/auth';
 import { groupBooks } from './lib/volumes';
 import { prepareBooks,measureBookPageCount } from './lib/prepareBooks';
 import {PAGE_LAYOUT_VERSION} from './lib/pagination';
@@ -58,7 +60,7 @@ function collapseShelfBookmarks(siblings:Book[]):Book[]{
     return bookmarks.length===book.bookmarks.length?book:{...book,bookmarks};
   });
 }
-async function normalizeShelfBookmarks(books:Book[]):Promise<Book[]>{
+async function normalizeShelfBookmarks(books:Book[],store:AccountStore):Promise<Book[]>{
   const shelves=new Map<string,Book[]>();
   for(const book of books){
     const shelf=bookShelf(book);const key=shelf.ungrouped?'singletons':`series:${shelf.id}`;
@@ -69,7 +71,7 @@ async function normalizeShelfBookmarks(books:Book[]):Promise<Book[]>{
     const normalized=collapseShelfBookmarks(siblings);
     if(normalized===siblings)continue;
     // Persist one mark across the full shelf without changing its content or metadata.
-    await repackSeries(normalized[0]!.id,normalized,[]);
+    await store.repackSeries(normalized[0]!.id,normalized,[]);
     for(const book of normalized)replacements.set(book.id,book);
   }
   return replacements.size?books.map(book=>replacements.get(book.id)??book):books;
@@ -102,11 +104,11 @@ function download(name: string, data: unknown) {
   const a = document.createElement('a'); a.href=url; a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 
-async function storeBooks(incoming:Book[],existing:Book[]){
-  for(let index=0;index<incoming.length;index++){const book=incoming[index]!;if(book.pageCount!==undefined&&book.pageLayoutVersion===PAGE_LAYOUT_VERSION)continue;incoming[index]={...book,pageCount:await measureBookPageCount(book),pageLayoutVersion:PAGE_LAYOUT_VERSION};await new Promise<void>(resolve=>setTimeout(resolve,0));}
-  if(incoming.length)await repackSeries(incoming[0]!.id,incoming,[]);
+async function storeBooks(incoming:Book[],existing:Book[],store:AccountStore,assertAccount:()=>void){
+  for(let index=0;index<incoming.length;index++){const book=incoming[index]!;if(book.pageCount!==undefined&&book.pageLayoutVersion===PAGE_LAYOUT_VERSION)continue;incoming[index]={...book,pageCount:await measureBookPageCount(book),pageLayoutVersion:PAGE_LAYOUT_VERSION};assertAccount();await new Promise<void>(resolve=>setTimeout(resolve,0));assertAccount();}
+  assertAccount();if(incoming.length)await store.repackSeries(incoming[0]!.id,incoming,[]);
   const byId=new Map(incoming.map(book=>[book.id,book]));const existingIds=new Set(existing.map(book=>book.id));
-  return normalizeShelfBookmarks([...existing.map(book=>byId.get(book.id)??book),...incoming.filter(book=>!existingIds.has(book.id))]);
+  return normalizeShelfBookmarks([...existing.map(book=>byId.get(book.id)??book),...incoming.filter(book=>!existingIds.has(book.id))],store);
 }
 
 function Modal({title, children, onClose, wide=false, locked=false,headerAction}: {title:string; children:ReactNode; onClose:()=>void; wide?:boolean; locked?:boolean;headerAction?:ReactNode}) {
@@ -168,58 +170,89 @@ function styleBook(book:Book,draft:Book,reset:boolean):Book{
 
 
 export default function App() {
+  const [account,setAccount]=useState(()=>({owner:getAuthSession()?.user.id??null,version:0}));
+  const ownerRef=useRef(account.owner);
+  useEffect(()=>{
+    const change=()=>{
+      const owner=getAuthSession()?.user.id??null;
+      if(owner===ownerRef.current)return;
+      ownerRef.current=owner;
+      stopCloudLibrary();
+      history.replaceState(history.state,'',`${location.pathname}${location.search}#/`);
+      setAccount(previous=>({owner,version:previous.version+1}));
+    };
+    const unsubscribe=subscribeAuthSession(change);change();return unsubscribe;
+  },[]);
+  // Unmount every reader/editor and discard old callbacks/state on an account change.
+  return <AccountApp key={`${account.owner??'guest'}:${account.version}`} owner={account.owner}/>;
+}
+
+function AccountApp({owner}:{owner:string|null}) {
+  const [library]=useState(()=>new CloudLibrary(owner));
+  const [accountReady,setAccountReady]=useState(false);
+  const [syncStatus,setSyncStatus]=useState<CloudStatus>({phase:'loading',message:'서재를 열고 있어요.'});
+  const loadBooks=()=>library.loadBooks();
+  function accountGuard(){const generation=getLibraryGeneration();library.assertCurrent();return()=>{library.assertCurrent();if(generation!==getLibraryGeneration())throw new DOMException('계정이 변경되었어요.','AbortError');};}
   const [books,setBooks]=useState<Book[]>([]); const [loading,setLoading]=useState(true);const [error,setError]=useState(''); const [toast,setToast]=useState('');
-  const [route,setRoute]=useState(currentBookId);const [readerStart,setReaderStart]=useState<{bookId:string;anchor:BookmarkAnchor}|null>(null); const [query,setQuery]=useState('');const [sort,setSort]=useState('recent');const canEdit=true;
+  const [route,setRoute]=useState(currentBookId);const [readerStart,setReaderStart]=useState<{bookId:string;anchor:BookmarkAnchor}|null>(null); const [query,setQuery]=useState('');const [sort,setSort]=useState('recent');const canEdit=accountReady&&!loading;
   const [drawerOpen,setDrawerOpen]=useState(false);const [intakeMode,setIntakeMode]=useState<'file'|'text'>('file');const [importing,setImporting]=useState(false);const [busy,setBusy]=useState(false);const [theme,setTheme]=useState<Theme>(readTheme);const [backupOpen,setBackupOpen]=useState(false);const [edit,setEdit]=useState<Book|null>(null);const [remove,setRemove]=useState<Book|null>(null);const [menu,setMenu]=useState<string|null>(null);const [view,setView]=useState<'covers'|'spines'>('covers');
   const [clearConfirm,setClearConfirm]=useState<{title:string;ids:string[]}|null>(null);const [deleting,setDeleting]=useState(false);const [clearError,setClearError]=useState('');
   const [creating,setCreating]=useState<ShelfTarget|null>(null);const [renaming,setRenaming]=useState<ShelfTarget|null>(null);const [assetShelf,setAssetShelf]=useState<ShelfTarget|null>(null);
   const deletingRef=useRef(false);const editingShelf=useRef(false);const preparingAssets=useRef(false);
   const restore=useRef<HTMLInputElement>(null);const latestBooks=useRef(books); latestBooks.current=books;
   const splittingBooks=useRef(new Set<string>());
-  const initialLoad=useRef<Promise<Book[]>|null>(null);
   useEffect(()=>{const sync=(event:Event)=>{const value=(event as CustomEvent<Theme>).detail;setTheme(value==='paper'||value==='warm'||value==='dark'?value:readTheme());};window.addEventListener(THEME_EVENT,sync);window.addEventListener('storage',sync);return()=>{window.removeEventListener(THEME_EVENT,sync);window.removeEventListener('storage',sync);};},[]);
   useEffect(()=>{document.documentElement.dataset.libraryTheme=theme;document.documentElement.classList.toggle('dark',theme==='dark');return()=>{delete document.documentElement.dataset.libraryTheme;document.documentElement.classList.remove('dark');};},[theme]);
   function changeTheme(value:Theme){try{saveTheme(value);setTheme(value);}catch{setToast('테마를 저장하지 못했어요.');}}
 
   useEffect(()=>{
     let active=true;
-    initialLoad.current??=(async()=>{
-      let data=await loadBooks();
+    setLoading(true);setAccountReady(false);
+    const initialLoad=library.start({
+      initialize:async store=>{
+      let data=await store.loadBooks();
       // Remove only the four app-provided demos, never user-created books.
       const demos=data.filter(book=>retiredDemoIds.has(book.id));
-      if(demos.length){await deleteBooks(demos.map(book=>book.id));data=data.filter(book=>!retiredDemoIds.has(book.id));}
-      data=await normalizeShelfBookmarks(data);
+      if(demos.length){await store.deleteBooks(demos.map(book=>book.id));data=data.filter(book=>!retiredDemoIds.has(book.id));}
+      data=await normalizeShelfBookmarks(data,store);
       for(let index=0;index<data.length;index++){
         const book=data[index]!;
         if(book.pageCount!==undefined&&book.pageLayoutVersion===PAGE_LAYOUT_VERSION)continue;
         const counted={...book,pageCount:await measureBookPageCount(book),pageLayoutVersion:PAGE_LAYOUT_VERSION};
-        await repackSeries(book.id,[counted],[]);data[index]=counted;
+        library.assertCurrent();await store.repackSeries(book.id,[counted],[]);data[index]=counted;
         await new Promise<void>(resolve=>setTimeout(resolve,0));
       }
       return data;
-    })();
-    void initialLoad.current.then(data=>{if(active){latestBooks.current=data;setBooks(data);}})
+      },
+      onBooks:data=>{if(!active)return;const previous=new Map(latestBooks.current.map(book=>[book.id,book]));const next=data.map(book=>reuseBookReferences(book,previous.get(book.id)));latestBooks.current=next;setBooks(next);},
+      onStatus:status=>{if(active)setSyncStatus(status);},
+      prepare:async book=>book.pageCount!==undefined&&book.pageLayoutVersion===PAGE_LAYOUT_VERSION?book:{...book,pageCount:await measureBookPageCount(book),pageLayoutVersion:PAGE_LAYOUT_VERSION},
+    });
+    void initialLoad.then(()=>{if(active)setAccountReady(true);})
       .catch(()=>{if(active)setError('서재를 열지 못했어요. 브라우저의 저장소 접근을 허용한 뒤 새로고침해 주세요.');})
       .finally(()=>{if(active)setLoading(false);});
-    return()=>{active=false;};
-  },[]);
+    return()=>{active=false;library.stop();};
+  },[library]);
+  useLayoutEffect(()=>{library.setPaused(Boolean(route||edit||renaming||assetShelf||importing||creating||busy));},[library,route,edit,renaming,assetShelf,importing,creating,busy]);
   useEffect(()=>{const change=()=>{setRoute(currentBookId());setMenu(null);};addEventListener('hashchange',change);return()=>removeEventListener('hashchange',change);},[]);
   useEffect(()=>{if(!toast)return;const timer=setTimeout(()=>setToast(''),3600);return()=>clearTimeout(timer);},[toast]);
   useEffect(()=>{if(!menu)return;const close=()=>setMenu(null);document.addEventListener('click',close);return()=>document.removeEventListener('click',close);},[menu]);
   const openBook=useCallback((book:Book)=>{
+    library.assertCurrent();library.setPaused(true);
     const mark=canonicalBookmark(shelfBooks(latestBooks.current,bookShelf(book)));
     setReaderStart(mark?.bookId===book.id?{bookId:book.id,anchor:{message:mark.message,char:mark.char}}:null);
     setRoute(book.id);location.hash=`/book/${encodeURIComponent(book.id)}`;
-  },[]);
+  },[library]);
   const closeBook=useCallback(()=>{setReaderStart(null);location.hash='/';},[]);
   async function commitBooks(ids:string[],make:(current:Book[])=>Book[]|Promise<Book[]>){
+    const assertAccount=accountGuard();if(!canEdit)throw new Error('서재를 열고 있어요.');
     if(deletingRef.current||editingShelf.current||preparingAssets.current||splittingBooks.current.size>0)throw new Error('책을 저장 중이에요. 잠시 후 다시 시도해 주세요.');
     editingShelf.current=true;for(const id of ids)splittingBooks.current.add(id);setBusy(true);
     try{
-  
-      const current=await loadBooks();const updated=await make(current);
+      await library.edit(async store=>{
+      const current=await store.loadBooks();assertAccount();const updated=await make(current);assertAccount();
       if(!updated.length)throw new Error('책장을 찾지 못했어요.');
-      await repackSeries(updated[0]!.id,updated,[]);
+      await store.repackSeries(updated[0]!.id,updated,[]);assertAccount();
       const byId=new Map(updated.map(book=>[book.id,book]));
       // Storage returns clones. Preserve live references for untouched books and
       // equal reader inputs so bookmark/metadata saves do not rebuild pages.
@@ -229,6 +262,7 @@ export default function App() {
         return changed?reuseBookReferences(changed,live):(live??book);
       });const existing=new Set(current.map(book=>book.id));
       next.push(...updated.filter(book=>!existing.has(book.id)));latestBooks.current=next;setBooks(next);
+      },{publish:false});
     }finally{editingShelf.current=false;for(const id of ids)splittingBooks.current.delete(id);setBusy(false);}
   }
   const updateBook=async(book:Book)=>{
@@ -266,20 +300,23 @@ export default function App() {
     });
   }
   async function commitBookmarkFields(make:(current:Book[])=>Book[]){
+    const assertAccount=accountGuard();if(!canEdit)throw new Error('서재를 열고 있어요.');
     if(deletingRef.current||editingShelf.current||preparingAssets.current||splittingBooks.current.size>0)throw new Error('책을 저장 중이에요. 잠시 후 다시 시도해 주세요.');
     editingShelf.current=true;
     try{
+      await library.edit(async store=>{
       const current=latestBooks.current;
       const updated=make(current);
       const currentById=new Map(current.map(book=>[book.id,book]));
       const changed=updated.filter(book=>{const previous=currentById.get(book.id);return !previous||(book.bookmarkStyle??'normal')!==(previous.bookmarkStyle??'normal')||book.updatedAt!==previous.updatedAt||JSON.stringify(book.bookmarks??[])!==JSON.stringify(previous.bookmarks??[]);});
       if(!changed.length)return;
-      await updateBookmarks(changed.map(({id,bookmarks,bookmarkStyle,updatedAt})=>({id,bookmarks,bookmarkStyle,updatedAt})));
+      assertAccount();await store.updateBookmarks(changed.map(({id,bookmarks,bookmarkStyle,updatedAt})=>({id,bookmarks,bookmarkStyle,updatedAt})));assertAccount();
       // Keep the existing text, assets and source maps by reference. A bookmark
       // change must never reload or paginate the book's body.
       const byId=new Map(changed.map(book=>[book.id,book]));
       const next=latestBooks.current.map(book=>{const changedBook=byId.get(book.id);return changedBook?{...book,bookmarks:changedBook.bookmarks,bookmarkStyle:changedBook.bookmarkStyle,updatedAt:changedBook.updatedAt}:book;});
       latestBooks.current=next;setBooks(next);
+      },{publish:false});
     }finally{editingShelf.current=false;}
   }
   const decorateBook=async(draft:Book,reset:boolean)=>{
@@ -296,6 +333,7 @@ export default function App() {
     setToast('책장을 꾸몄어요.');
   }
   async function intakeBooks(request:IntakeRequest){
+    const assertAccount=accountGuard();
     if(!canEdit||busy||editingShelf.current||deletingRef.current)throw new Error('저장이 끝난 뒤 다시 시도해 주세요.');
     let incoming:Book[]=[];
     if(request.mode==='file'){
@@ -324,6 +362,7 @@ export default function App() {
     }
     // Parse every staged file first. Preparation happens once, before any write.
     const prepared=await prepareBooks(incoming,{removeEmoji:request.removeEmoji,removeSquareBrackets:request.removeSquareBrackets,removeAngleBrackets:request.removeAngleBrackets,removeDollarLines:request.removeDollarLines,removeHashLines:request.removeHashLines});
+    assertAccount();
     if(!prepared.length)throw new Error('추가할 본문이 없어요.');
     let createdBook:Book|undefined;
     await commitBooks(siblings.map(book=>book.id),current=>{
@@ -340,10 +379,12 @@ export default function App() {
     setQuery('');setToast(`${prepared.length}권의 책을 추가했어요.`);if(request.mode==='text'&&createdBook)openBook(createdBook);
   }
   async function saveShelfAssets(shelf:ShelfTarget,assets:BookAsset[],imageRules:ImageRule[]=shelfImageRules(latestBooks.current,shelf),displayRules:DisplayRule[]=shelfDisplayRules(latestBooks.current,shelf),bookmarkAssetId?:string){
+    const assertAccount=accountGuard();
     if(!canEdit||busy||preparingAssets.current||editingShelf.current||deletingRef.current)throw new Error('저장이 끝난 뒤 다시 시도해 주세요.');
     preparingAssets.current=true;setBusy(true);
     try{
       const snapshot=shelfBooks(await loadBooks(),shelf);if(!snapshot.length)throw new Error('책장을 찾지 못했어요.');
+      assertAccount();
       const expected=new Map(snapshot.map(book=>[book.id,book]));
       const icon=assets.find(asset=>asset.type==='icon')??assets[0];const palette=icon?await portraitPalette(icon.src):undefined;
       const processed=new Map<string,Book>();
@@ -355,6 +396,7 @@ export default function App() {
           ruled.pageCount=await measureBookPageCount(ruled);ruled.pageLayoutVersion=PAGE_LAYOUT_VERSION;
         }
         processed.set(book.id,ruled);
+        assertAccount();
       }
       // Release only our processing guard immediately before acquiring commitBooks' guard.
       preparingAssets.current=false;
@@ -367,21 +409,24 @@ export default function App() {
     }finally{preparingAssets.current=false;setBusy(false);}
   }
   async function backupBooks(){
+    const assertAccount=accountGuard();
     if(!clearConfirm)return;
 
     const targetIds=new Set(clearConfirm.ids);
     const persisted=(await loadBooks()).filter(book=>targetIds.has(book.id));
+    assertAccount();
     download(clearConfirm.title+'-'+new Date().toISOString().slice(0,10)+'.json',{format:'galpi-backup',version:1,volumePolicy:'chapters-200-v1',books:persisted});
     setToast('백업 완료');
   }
   async function clearBooks(){
+    const assertAccount=accountGuard();
     if(!canEdit||!clearConfirm||deletingRef.current||preparingAssets.current||busy||loading)return;
     if(splittingBooks.current.size){setClearError('책을 저장 중이에요. 잠시 후 다시 시도해 주세요.');return;}
     deletingRef.current=true;setDeleting(true);setBusy(true);setClearError('');
     try{
   
       const targetIds=new Set(clearConfirm.ids);
-      await deleteBooks([...targetIds]);
+      await library.edit(store=>store.deleteBooks([...targetIds]));assertAccount();
       const remaining=latestBooks.current.filter(book=>!targetIds.has(book.id));
       latestBooks.current=remaining;setBooks(remaining);
       if(targetIds.has(currentBookId()??'')){setRoute(null);location.hash='/';}
@@ -390,7 +435,29 @@ export default function App() {
     }catch{setClearError('삭제하지 못했어요. 다시 시도해 주세요.');}
     finally{deletingRef.current=false;setDeleting(false);setBusy(false);}
   }
-  async function restoreBackup(file?:File){if(!canEdit||!file||busy||preparingAssets.current)return;setBusy(true);setError('');try{const data=JSON.parse(await file.text());if(data.format!=='galpi-backup'||!Array.isArray(data.books))throw new Error('갈피에서 내보낸 책장 백업 파일을 선택해 주세요.');const normalized=await importChatFile(new File([JSON.stringify(data.books)],'backup.json',{type:'application/json'}),{removeUserInputs:false});const merged=await storeBooks(normalized,await loadBooks());latestBooks.current=merged;setBooks(merged);setToast(`${normalized.length}권을 복원했어요.`);}catch(e){setError(e instanceof Error?e.message:'백업을 복원하지 못했어요.');}finally{setBusy(false);if(restore.current)restore.current.value='';}}
+  async function restoreBackup(file?:File){
+    if(!canEdit||!file||busy||preparingAssets.current)return;
+    const assertAccount=accountGuard();setBusy(true);setError('');
+    try{
+      const data=JSON.parse(await file.text());assertAccount();
+      if(data.format!=='galpi-backup'||!Array.isArray(data.books))throw new Error('갈피에서 내보낸 책장 백업 파일을 선택해 주세요.');
+      const normalized=await importChatFile(new File([JSON.stringify(data.books)],'backup.json',{type:'application/json'}),{removeUserInputs:false});assertAccount();
+      const merged=await library.edit(async store=>storeBooks(normalized,await store.loadBooks(),store,assertAccount),{publish:false});assertAccount();
+      latestBooks.current=merged;setBooks(merged);setToast(`${normalized.length}권을 복원했어요.`);
+    }catch(e){setError(e instanceof Error?e.message:'백업을 복원하지 못했어요.');}
+    finally{setBusy(false);if(restore.current)restore.current.value='';}
+  }
+  async function exportLibrary(){
+    const assertAccount=accountGuard();
+    try{const persisted=await loadBooks();assertAccount();download('갈피-책장-'+new Date().toISOString().slice(0,10)+'.json',{format:'galpi-backup',version:1,volumePolicy:'chapters-200-v1',books:persisted});setToast('백업 완료');}
+    catch{setToast('백업하지 못했어요.');}
+  }
+  async function importGuest(){
+    if(!canEdit||busy)return;
+    const assertAccount=accountGuard();setBusy(true);
+    try{const count=await library.importGuestBooks();assertAccount();setToast(count?`${count}권을 가져왔어요. 이미지는 이 기기에만 보관돼요.`:'이 기기에 가져올 책이 없어요.');}
+    finally{setBusy(false);}
+  }
   const selected=books.find(b=>b.id===route);
   const selectedBookmark=selected?canonicalBookmark(shelfBooks(books,bookShelf(selected))):undefined;
   const markedBooks=books.filter(book=>canonicalBookmark(shelfBooks(books,bookShelf(book)))?.bookId===book.id).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
@@ -409,7 +476,7 @@ export default function App() {
   return <div className="app-shell">
     <header className="site-header" inert={deleting}><button className="drawer-trigger" aria-label="서재 메뉴 열기" title="내 서재" aria-expanded={drawerOpen} aria-controls="library-drawer" onClick={()=>setDrawerOpen(true)}><Menu size={20}/></button><a href="#/" className="brand" aria-label="갈피 서재"><span className="brand-mark"><BookOpen size={23} strokeWidth={1.4}/><span/></span><span>갈피<span className="brand-en">galpi</span></span></a></header>
     <div className="workspace" inert={deleting}>
-      {drawerOpen&&<LibraryDrawer onClose={()=>setDrawerOpen(false)}><nav aria-label="서재 메뉴"><button className="nav-item active" onClick={()=>{setDrawerOpen(false);setQuery('');}}><Library size={18}/><span>내 서재</span><small>{groupBooks(books).length}</small></button><button className="nav-item" aria-expanded={backupOpen} aria-controls="drawer-backup" onClick={()=>setBackupOpen(value=>!value)}><ArrowDownToLine size={18}/><span>백업·복원</span><ChevronDown size={14}/></button>{backupOpen&&<div id="drawer-backup" className="drawer-backup"><button className="secondary-btn" disabled={busy||loading} onClick={async()=>{try{download('갈피-책장-'+new Date().toISOString().slice(0,10)+'.json',{format:'galpi-backup',version:1,volumePolicy:'chapters-200-v1',books:await loadBooks()});setToast('백업 완료');}catch{setToast('백업하지 못했어요.');}}}><ArrowDownToLine size={15}/>백업</button><button className="secondary-btn" disabled={busy} onClick={()=>restore.current?.click()}><Upload size={15}/>복원</button></div>}</nav><GoogleAccount/><section className="drawer-appearance" aria-label="화면 설정"><h2>화면</h2><ThemePicker value={theme} onChange={changeTheme}/></section>{error&&<p className="error-message" role="alert">{error}</p>}</LibraryDrawer>}
+      {drawerOpen&&<LibraryDrawer onClose={()=>setDrawerOpen(false)}><nav aria-label="서재 메뉴"><button className="nav-item active" onClick={()=>{setDrawerOpen(false);setQuery('');}}><Library size={18}/><span>내 서재</span><small>{groupBooks(books).length}</small></button><button className="nav-item" aria-expanded={backupOpen} aria-controls="drawer-backup" onClick={()=>setBackupOpen(value=>!value)}><ArrowDownToLine size={18}/><span>백업·복원</span><ChevronDown size={14}/></button>{backupOpen&&<div id="drawer-backup" className="drawer-backup"><button className="secondary-btn" disabled={busy||loading} onClick={()=>void exportLibrary()}><ArrowDownToLine size={15}/>백업</button><button className="secondary-btn" disabled={busy||!canEdit} onClick={()=>restore.current?.click()}><Upload size={15}/>복원</button></div>}</nav><GoogleAccount disabled={!canEdit||busy||deleting||editingShelf.current||preparingAssets.current} syncStatus={syncStatus} onSyncRetry={library.retry} onImportGuest={importGuest}/><section className="drawer-appearance" aria-label="화면 설정"><h2>화면</h2><ThemePicker value={theme} onChange={changeTheme}/></section>{error&&<p className="error-message" role="alert">{error}</p>}</LibraryDrawer>}
 
       <main className="main-content">
         <section className="library-intro"><h1>내 서재</h1>{canEdit&&<button className="primary-btn" title="로그 가져오기" onClick={()=>{setError('');setIntakeMode('file');setCreating(null);setImporting(true);}}><Upload size={17}/>로그 가져오기</button>}</section>
@@ -450,7 +517,7 @@ export default function App() {
         <div className="modal-actions"><button className="secondary-btn" autoFocus disabled={busy} onClick={()=>setClearConfirm(null)}>취소</button><button className="danger-btn" disabled={busy} onClick={()=>void clearBooks()}>{deleting?<LoaderCircle size={16} className="animate-spin"/>:<Trash2 size={16}/>} {deleting?'삭제 중…':'책장 삭제'}</button></div>
       </div>
     </Modal>}
-    {canEdit&&remove&&<Modal title="책 삭제" onClose={()=>setRemove(null)}><p className="modal-description">‘{remove.title}’을 삭제할까요?</p><div className="modal-actions"><button className="secondary-btn" title="삭제 전 이 책을 백업" onClick={()=>download(remove.title+'.json',[remove])}><ArrowDownToLine size={16}/> 내보내기</button><button className="danger-btn" title="대화와 책갈피를 삭제합니다" disabled={busy} onClick={async()=>{if(!canEdit||deletingRef.current||editingShelf.current||preparingAssets.current||splittingBooks.current.size)return;deletingRef.current=true;setBusy(true);try{await deleteBook(remove.id);const next=latestBooks.current.filter(b=>b.id!==remove.id);latestBooks.current=next;setBooks(next);setRemove(null);setToast('삭제 완료');}catch{setToast('삭제 실패');}finally{deletingRef.current=false;setBusy(false);}}}>삭제</button></div></Modal>}
+    {canEdit&&remove&&<Modal title="책 삭제" onClose={()=>setRemove(null)}><p className="modal-description">‘{remove.title}’을 삭제할까요?</p><div className="modal-actions"><button className="secondary-btn" title="삭제 전 이 책을 백업" onClick={()=>download(remove.title+'.json',[remove])}><ArrowDownToLine size={16}/> 내보내기</button><button className="danger-btn" title="대화와 책갈피를 삭제합니다" disabled={busy} onClick={async()=>{if(!canEdit||deletingRef.current||editingShelf.current||preparingAssets.current||splittingBooks.current.size)return;const assertAccount=accountGuard();deletingRef.current=true;setBusy(true);try{await library.edit(store=>store.deleteBook(remove.id));assertAccount();const next=latestBooks.current.filter(b=>b.id!==remove.id);latestBooks.current=next;setBooks(next);setRemove(null);setToast('삭제 완료');}catch{setToast('삭제 실패');}finally{deletingRef.current=false;setBusy(false);}}}>삭제</button></div></Modal>}
     {toast&&<div className="toast" role="status"><Check size={16}/>{toast}</div>}
   </div>;
 }
