@@ -419,3 +419,12 @@
 .reader-bookmark-peek-before{--peek-page-left:calc(var(--paper-width)/-2 + var(--paper-height)*2/15);--peek-page-right:calc(var(--paper-width)/2 + var(--paper-height)*2/15)}
 .reader[data-page-layout='spread'] .reader-bookmark-peek-before{--peek-page-left:calc(-1*var(--paper-width) + var(--paper-height)*2/15);--peek-page-right:calc(var(--paper-width) + var(--paper-height)*2/15)}
 @media(prefers-reduced-motion:reduce){.reader .reader-bookmark-dragging{transition:none}.reader-flip-host:not([data-flip-state='read']) .reader-asset-preview-expand{animation-duration:1ms}}
+
+/* Detached ribbons outlive their saved anchor, below the reader's menus. */
+.reader-bookmark-motion-plane{position:fixed;inset:0;z-index:18;pointer-events:none}
+.reader-bookmark-loose{position:fixed;pointer-events:auto;transform-origin:center;touch-action:none;user-select:none}
+.reader .reader-bookmark-loose>.reader-bookmark-slip{left:0;top:0;width:100%;height:100%;min-width:0;max-width:none;transform:none;translate:none;rotate:none;opacity:1;visibility:visible;transition:none}
+.reader[data-bookmark-motion] .reader-page .reader-bookmark-slip,
+.reader[data-bookmark-motion] .reader-bookmark-peek,
+.reader[data-bookmark-motion] .reader-bookmark-fold-layer{visibility:hidden}
+.reader-is-editing .reader-bookmark-loose{pointer-events:none}

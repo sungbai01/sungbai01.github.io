@@ -19,6 +19,7 @@ import {imageReferenceRanges} from '../lib/assets';
 import {chapterLabel,editedMessages,fragmentKey} from '../lib/bookEditing';
 import type {ChapterDraft,ChapterInsertion,PageInsertion} from '../lib/bookEditing';
 import BookmarkTitle from './BookmarkTitle';
+import { BookmarkMotion } from './bookmarkMotion';
 import AssetImage from './AssetImage';
 import BookCover from './BookCover';
 import {squareAssetCrop} from '../lib/assetCrop';
@@ -208,7 +209,7 @@ function PageContent({page,query,editing,onEdit,drafts,onPreview}:{page:PaperPag
  </section>)}</>;
 }
 
-type BookmarkSlipProps={style:BookmarkStyle;icon?:string;image?:string;title:string;color:string;side?:'before'|'after';disabled?:boolean;onActivate?:()=>void;onRemove?:()=>void;canInteract?:()=>boolean};
+type BookmarkSlipProps={style:BookmarkStyle;icon?:string;image?:string;title:string;color:string;side?:'before'|'after';disabled?:boolean;onActivate?:()=>void;onRemove?:(source:HTMLElement)=>void;canInteract?:()=>boolean};
 function BookmarkSlip({style,icon,image,title,color,side='after',disabled,onActivate,onRemove,canInteract}:BookmarkSlipProps){
  const elementRef=useRef<HTMLSpanElement>(null);
  const actions=useRef({disabled,onActivate,onRemove,canInteract});actions.current={disabled,onActivate,onRemove,canInteract};
@@ -241,7 +242,7 @@ function BookmarkSlip({style,icon,image,title,color,side='after',disabled,onActi
  return <span ref={elementRef} data-no-flip data-bookmark-side={side} className={`reader-bookmark-slip reader-bookmark-${style}`} role="button" tabIndex={disabled?-1:0} aria-disabled={disabled||undefined} aria-label="책갈피로 이동" title={onRemove?'책갈피로 이동 · 끌어서 제거':'책갈피로 이동'} style={{'--bookmark-color':color} as CSSProperties}
  onPointerDown={event=>{event.stopPropagation();if(!actions.current.onRemove||!allowed()||!event.isPrimary||event.button!==0||drag.current)return;event.preventDefault();event.currentTarget.focus({preventScroll:true});suppressClick.current=false;const bounds=event.currentTarget.getBoundingClientRect();const pivotX=event.clientX-bounds.left<bounds.width/2?.25:.75,pivotY=event.clientY-bounds.top<bounds.height/2?.25:.75;event.currentTarget.style.transformOrigin=`${pivotX*100}% ${pivotY*100}%`;drag.current={id:event.pointerId,x:event.clientX,y:event.clientY,distance:0,bounds,angle:0,pivotX,pivotY};try{event.currentTarget.setPointerCapture(event.pointerId);}catch{cancel();}}}
  onPointerMove={move}
- onPointerUp={event=>{event.stopPropagation();const active=drag.current;if(!active||active.id!==event.pointerId)return;move(event);if(drag.current!==active)return;const eligible=allowed();const distance=active.distance;suppressClick.current=true;if(!eligible){reset();return;}const safe=event.clientX>=active.bounds.left-40&&event.clientX<=active.bounds.right+40&&event.clientY>=active.bounds.top-40&&event.clientY<=active.bounds.bottom+40;if(distance>=36&&!safe){drag.current=null;try{if(event.currentTarget.hasPointerCapture(active.id))event.currentTarget.releasePointerCapture(active.id);}catch{}const element=event.currentTarget;actions.current.onRemove?.();setTimeout(()=>{if(element.isConnected)reset();},500);}else{reset();if(distance<=5)actions.current.onActivate?.();}}}
+ onPointerUp={event=>{event.stopPropagation();const active=drag.current;if(!active||active.id!==event.pointerId)return;move(event);if(drag.current!==active)return;const eligible=allowed();const distance=active.distance;suppressClick.current=true;if(!eligible){reset();return;}const safe=event.clientX>=active.bounds.left-40&&event.clientX<=active.bounds.right+40&&event.clientY>=active.bounds.top-40&&event.clientY<=active.bounds.bottom+40;if(distance>=36&&!safe){drag.current=null;try{if(event.currentTarget.hasPointerCapture(active.id))event.currentTarget.releasePointerCapture(active.id);}catch{}actions.current.onRemove?.(event.currentTarget);reset();}else{reset();if(distance<=5)actions.current.onActivate?.();}}}
  onPointerCancel={event=>{event.stopPropagation();if(drag.current?.id===event.pointerId)cancel();}}
  onLostPointerCapture={event=>{if(drag.current?.id===event.pointerId)cancel();}}
  onClick={event=>{event.stopPropagation();event.preventDefault();if(suppressClick.current){suppressClick.current=false;return;}if(allowed())actions.current.onActivate?.();}}
@@ -339,6 +340,13 @@ export function Reader({ book, onClose, onReady, initialBookmark, onNextVolume, 
   const [selectedBookmarkStyle, setSelectedBookmarkStyle] = useState<BookmarkStyle>(displayBookmarkStyle(shelfBookmark ? shelfBookmark.style ?? 'normal' : bookmarkStyle ?? book.bookmarkStyle ?? 'normal'));
   const [bookmarkBusy, setBookmarkBusy] = useState(false);
   const bookmarkBusyRef = useRef(false);
+  const bookmarkMotionRef = useRef<BookmarkMotion|null>(null);
+  const reinsertBookmarkRef = useRef<()=>void>(()=>{});
+  useEffect(()=>{
+    const motion=new BookmarkMotion(()=>readerRef.current,()=>reinsertBookmarkRef.current());
+    bookmarkMotionRef.current=motion;
+    return()=>{motion.dispose();bookmarkMotionRef.current=null;};
+  },[book.id]);
   const [leaveConfirm,setLeaveConfirm]=useState(false);
   const [leaveError,setLeaveError]=useState('');
   const requestCloseRef=useRef<()=>void>(()=>{});
@@ -347,7 +355,7 @@ export function Reader({ book, onClose, onReady, initialBookmark, onNextVolume, 
   const pagesReadyRef = useRef(false);
   const renderLeafRef=useRef<(page:PaperPage,index:number,mobile:boolean)=>ReactNode>(()=>null);
   const [nextConfirm,setNextConfirm]=useState(false);
-  const blockedRef=useRef(false);blockedRef.current=editing||nextConfirm||leaveConfirm;
+  const blockedRef=useRef(false);blockedRef.current=editing||nextConfirm||leaveConfirm||bookmarkBusy;
   const requestNextRef=useRef(()=>{});requestNextRef.current=()=>setNextConfirm(true);
   const [initialPreferences] = useState(readReaderPreferences);
   const [theme, setTheme] = useState<Theme>(initialPreferences.theme);
@@ -872,12 +880,12 @@ export function Reader({ book, onClose, onReady, initialBookmark, onNextVolume, 
     else windowModeButtonRef.current?.focus();
   },[fullscreen]);
   useEffect(()=>{
-    if(editing||nextConfirm||leaveConfirm||panel||drawerOpen){navigationRevisionRef.current++;queuedTurnRef.current=null;}
+    if(editing||nextConfirm||leaveConfirm||panel||drawerOpen||bookmarkBusy){navigationRevisionRef.current++;queuedTurnRef.current=null;}
     const flip=flipRef.current;
-    const enabled=!editing&&!nextConfirm&&!leaveConfirm&&!drawerOpen&&!panel;
+    const enabled=!editing&&!nextConfirm&&!leaveConfirm&&!drawerOpen&&!panel&&!bookmarkBusy;
     // Reapplying false cancels a gesture; only update on an actual transition.
     if(flip&&flip.isInteractionEnabled()!==enabled)flip.setInteractionEnabled(enabled);
-  },[editing,nextConfirm,leaveConfirm,loading,panel,drawerOpen]);
+  },[editing,nextConfirm,leaveConfirm,loading,panel,drawerOpen,bookmarkBusy]);
   useEffect(()=>{if(!editing&&!nextConfirm&&!leaveConfirm){setViewport(previous=>{const next=readReaderViewport();return previous.width===next.width&&previous.height===next.height&&previous.touch===next.touch&&previous.horizontalSegments===next.horizontalSegments&&previous.screenWidth===next.screenWidth&&previous.screenHeight===next.screenHeight?previous:next;});const stage=stageRef.current;if(stage){const box=stage.getBoundingClientRect();setDimensions(previous=>{const next={width:Math.floor(box.width),height:Math.floor(box.height)};return previous.width===next.width&&previous.height===next.height?previous:next;});}}},[editing,nextConfirm,leaveConfirm]);
   useEffect(()=>{setAssetPreview(null);hoverSuppressedRef.current.clear();},[pageIndex,editing,drawerOpen,panel,loading]);
   useEffect(()=>{
@@ -907,10 +915,11 @@ export function Reader({ book, onClose, onReady, initialBookmark, onNextVolume, 
   useEffect(()=>{
     setSelectedBookmarkStyle(displayBookmarkStyle(shelfBookmark ? shelfBookmark.style ?? 'normal' : bookmarkStyle ?? book.bookmarkStyle ?? 'normal'));
   },[bookmarkStyle,book.bookmarkStyle,shelfBookmark?.style,!!shelfBookmark]);
-  async function changeBookmark(anchor:(Anchor & {label?:string;progress?:number})|null){
+  async function changeBookmark(anchor:(Anchor & {label?:string;progress?:number})|null,dragged?:HTMLElement){
     if(!onBookmarkChange||bookmarkBusyRef.current||editing)return;
     bookmarkBusyRef.current=true;setBookmarkBusy(true);setEditError('');
-    try{await onBookmarkChange(anchor,selectedBookmarkStyle);}catch{setEditError('책갈피를 저장하지 못했어요.');}
+    const save=async()=>{try{await onBookmarkChange(anchor,selectedBookmarkStyle);return true;}catch{setEditError('책갈피를 저장하지 못했어요.');return false;}};
+    try{if(bookmarkMotionRef.current)await bookmarkMotionRef.current.change(save,!!anchor,dragged);else await save();}
     finally{bookmarkBusyRef.current=false;setBookmarkBusy(false);}
   }
   async function chooseBookmarkStyle(next:BookmarkStyle){
@@ -928,7 +937,12 @@ export function Reader({ book, onClose, onReady, initialBookmark, onNextVolume, 
     if(shelfBookmark?.bookId===book.id&&bookmarkPage(pagesRef.current,shelfBookmark)===target){void changeBookmark(null);return;}
     const anchor=bookmarkAnchor(pagesRef.current,index,contentCount);if(anchor)void changeBookmark(anchor);
   }
-  const bookmarkActionsRef=useRef({activate:()=>{},remove:()=>{},allowed:()=>false});
+  reinsertBookmarkRef.current=()=>{
+    if(editing||saving||bookmarkBusyRef.current||loading||drawerOpen||panel||flipRef.current?.getState()!=='read')return;
+    const anchor=bookmarkAnchor(pagesRef.current,selectedLeaf??pageIndex,contentCount);
+    if(anchor)void changeBookmark(anchor);
+  };
+  const bookmarkActionsRef=useRef({activate:()=>{},remove:(_source:HTMLElement)=>{},allowed:()=>false});
   bookmarkActionsRef.current.allowed=()=>!editing&&!saving&&!bookmarkBusyRef.current&&!blockedRef.current&&!drawerRef.current&&!panel&&pagesReadyRef.current&&shelfBookmark?.bookId===bookRef.current.id&&flipRef.current?.getState()==='read';
   bookmarkActionsRef.current.activate=()=>{
     if(!bookmarkActionsRef.current.allowed()||!shelfBookmark)return;
@@ -940,8 +954,8 @@ export function Reader({ book, onClose, onReady, initialBookmark, onNextVolume, 
     renderWindowRef.current(target,flip.getCurrentPageIndex());
     flip.flip(target,FlipCorner.TOP);
   };
-  bookmarkActionsRef.current.remove=()=>{if(bookmarkActionsRef.current.allowed()&&onBookmarkChange)void changeBookmark(null);};
-  const bookmarkInteraction={disabled:editing||saving||bookmarkBusy,canInteract:()=>bookmarkActionsRef.current.allowed(),onActivate:()=>bookmarkActionsRef.current.activate(),onRemove:onBookmarkChange?()=>bookmarkActionsRef.current.remove():undefined};
+  bookmarkActionsRef.current.remove=source=>{if(bookmarkActionsRef.current.allowed()&&onBookmarkChange)void changeBookmark(null,source);};
+  const bookmarkInteraction={disabled:editing||saving||bookmarkBusy,canInteract:()=>bookmarkActionsRef.current.allowed(),onActivate:()=>bookmarkActionsRef.current.activate(),onRemove:onBookmarkChange?(source:HTMLElement)=>bookmarkActionsRef.current.remove(source):undefined};
   const ribbonIcon=shelfBookmark?.icon??characterIcon??book.characterIcon;
   const ribbonImage=shelfBookmark?.image??bookmarkImage??ribbonIcon;
   const ribbonStyle=displayBookmarkStyle(shelfBookmark ? shelfBookmark.style ?? 'normal' : selectedBookmarkStyle);
