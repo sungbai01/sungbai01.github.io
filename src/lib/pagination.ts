@@ -3,18 +3,23 @@ import { extractAssetSegments, imageReferenceRanges, type AssetSegment } from '.
 import { systemRanges, visibleProse } from './prose';
 
 export type Anchor = { message: number; char: number };
-export type Fragment = Anchor & { end: number; name: string; text: string; hidden?: boolean; chapter?: number };
+export type Fragment = Anchor & { end: number; name: string; text: string; hidden?: boolean; chapter?: number; asset?: BookAsset; assetSize?: number };
 export type PaperPage = { fragments: Fragment[]; intro: boolean; asset?: BookAsset; chapter?: number; chapterTitle?: string; chapterMessage?: number; kind?: 'paper' | 'asset' | 'padding' | 'endpaper' | 'back-cover' | 'end' };
 
 export const CHAPTER_HEADER_RATIO = .25;
+export const PAGE_LAYOUT_VERSION = 2;
 
-/** Two extra lines above/below prose; keep room for short mobile chapters. */
+export function inlineAssetSize(contentWidth: number, availableHeight: number): number {
+  return Math.max(12, Math.floor(Math.min(160, contentWidth * .55, availableHeight * .35)));
+}
+
+/** More room below prose: one of the former two extra bottom lines is removed. */
 export function pageTextInsets(height: number, fontSize: number): { top: number; bottom: number } {
   const top = height < 300 ? 22 : 36;
   const bottom = height < 300 ? 32 : 56;
   const line = fontSize * 1.75;
   const extra = Math.max(0, Math.min(line * 2, (height * (1 - CHAPTER_HEADER_RATIO) - top - bottom - line * 2) / 2));
-  return { top: top + extra, bottom: bottom + extra };
+  return { top: top + extra, bottom: Math.max(16, bottom + extra - line) };
 }
 
 /** Only contiguous, nonblank explicit chapter IDs group messages together. */
@@ -83,6 +88,7 @@ export function paginate(book: Book, measure: HTMLDivElement, options: Paginatio
   let current = pages[0]!;
   let number = 0;
   let pendingHeading = false;
+  let pendingOpening = false;
   let pendingChapterMessage = 0;
   let pendingChapterTitle: string | undefined;
   measure.replaceChildren();
@@ -90,7 +96,7 @@ export function paginate(book: Book, measure: HTMLDivElement, options: Paginatio
   try {
   book.messages.forEach((message, messageIndex) => {
     if (startsChapter(book, messageIndex)) {
-      number++; pendingHeading = true;
+      number++; pendingHeading = true; pendingOpening = true;
       pendingChapterMessage = messageIndex; pendingChapterTitle = message.chapterTitle;
       if (current.fragments.length) nextPage();
     }
@@ -128,11 +134,21 @@ export function paginate(book: Book, measure: HTMLDivElement, options: Paginatio
         continue;
       }
       if (segment.type === 'asset') {
-        if (current.fragments.length && current.kind !== 'asset') nextPage();
-        if ((pages.length - 1) % 2 === 1) { current.kind = 'padding'; nextPage(); }
-        current.kind = 'asset'; current.asset = segment.asset;
-        current.fragments.push({ message: messageIndex, char: segment.start, end: segment.end, name, text: content.slice(segment.start, segment.end) });
-        nextPage(); continue;
+        const addAsset = () => {
+          if (pendingHeading) { current.chapter = number; current.chapterMessage = pendingChapterMessage; current.chapterTitle = pendingChapterTitle; measure.style.height = `${chapterHeight}px`; }
+          const size = inlineAssetSize(measure.clientWidth, measure.clientHeight);
+          const section = document.createElement('section'); section.className = 'reader-fragment reader-inline-asset';
+          section.style.width = `${size}px`; section.style.height = `${size}px`; measure.append(section);
+          return { size, section };
+        };
+        let measured = addAsset();
+        if (measure.scrollHeight > measure.clientHeight && current.fragments.some(fragment => !fragment.hidden)) {
+          measured.section.remove();
+          if (pendingHeading) { delete current.chapter; delete current.chapterMessage; delete current.chapterTitle; }
+          nextPage(); measured = addAsset();
+        }
+        current.fragments.push({ message: messageIndex, char: segment.start, end: segment.end, name, text: content.slice(segment.start, segment.end), asset: segment.asset, assetSize: measured.size });
+        pendingHeading = false; continue;
       }
       if (!visibleProse(content.slice(segment.start, segment.end)).trim()) {
         current.fragments.push({ message: messageIndex, char: segment.start, end: segment.end, name,
@@ -144,8 +160,8 @@ export function paginate(book: Book, measure: HTMLDivElement, options: Paginatio
         const heading = pendingHeading;
         if (heading) { current.chapter = number; current.chapterMessage = pendingChapterMessage; current.chapterTitle = pendingChapterTitle; measure.style.height = `${chapterHeight}px`; }
         const section = document.createElement('section'); section.className = 'reader-fragment';
-        const paragraph = document.createElement('p'); paragraph.className = heading ? 'reader-prose reader-chapter-opening' : 'reader-prose';
-        if (heading) paragraph.style.textIndent = '1em';
+        const paragraph = document.createElement('p'); paragraph.className = pendingOpening ? 'reader-prose reader-chapter-opening' : 'reader-prose';
+        if (pendingOpening) paragraph.style.textIndent = '1em';
         section.append(paragraph); measure.append(section);
         const fits = (end: number) => { measureText(paragraph, content.slice(offset, end)); return measure.scrollHeight <= measure.clientHeight; };
         let low = offset, high = Math.min(segment.end, offset + 256), upperFits = fits(high);
@@ -165,8 +181,8 @@ export function paginate(book: Book, measure: HTMLDivElement, options: Paginatio
           }
           measureText(paragraph, content.slice(offset, end));
         }
-        current.fragments.push({ message: messageIndex, char: offset, end, name, text: content.slice(offset, end), ...(heading ? { chapter: number } : {}) });
-        pendingHeading = false;
+        current.fragments.push({ message: messageIndex, char: offset, end, name, text: content.slice(offset, end), ...(pendingOpening ? { chapter: number } : {}) });
+        pendingHeading = false; pendingOpening = false;
         offset = end;
         if (offset < segment.end) nextPage();
       }

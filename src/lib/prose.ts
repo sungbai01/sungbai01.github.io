@@ -2,6 +2,31 @@ import { imageReferenceRanges } from './assets';
 
 export type ProseRange = { start: number; end: number };
 
+/** Quotes delimit an attribute only immediately after '='. Apostrophes in
+ * unquoted prose (Hyuna's apartment) must not consume the closing bracket. */
+export function angleRanges(text: string, protectedRanges: ProseRange[] = []): ProseRange[] {
+  const ranges: ProseRange[] = [];
+  let protectedIndex = 0;
+  for (let start = 0; start < text.length; start++) {
+    while (protectedRanges[protectedIndex] && protectedRanges[protectedIndex]!.end <= start) protectedIndex++;
+    const protectedRange = protectedRanges[protectedIndex];
+    if (protectedRange && start === protectedRange.start) { start = protectedRange.end - 1; continue; }
+    if (text[start] !== '<') continue;
+    let quote = '', previous = '';
+    for (let end = start + 1; end < text.length; end++) {
+      const char = text[end]!;
+      if (quote) {
+        let escapes = 0;
+        for (let cursor = end - 1; cursor >= start && text[cursor] === '\\'; cursor--) escapes++;
+        if (char === quote && escapes % 2 === 0) quote = '';
+      } else if ((char === '"' || char === "'") && previous === '=') quote = char;
+      else if (char === '>') { ranges.push({ start, end: end + 1 }); start = end; break; }
+      if (!/\s/.test(char)) previous = char;
+    }
+  }
+  return ranges;
+}
+
 /** Half-open original UTF-16 ranges. Asset references must be protected first.
  * An unterminated opening brace hides the remaining text rather than leaking
  * a truncated system instruction. Stray closing braces are hidden by themselves.

@@ -1,13 +1,13 @@
 import type { Book } from './library';
-import { cleanText, paginate, pageTextInsets } from './pagination';
+import { cleanText, paginate, pageTextInsets, PAGE_LAYOUT_VERSION } from './pagination';
 import { CURRENT_VOLUME_POLICY, splitBookByPages } from './volumes';
 import { imageReferenceRanges } from './assets';
-import { systemRanges, visibleProse } from './prose';
+import { angleRanges, systemRanges, visibleProse } from './prose';
 import { applyBookDisplayRules } from './displayRules';
 import '../components/reader.css';
 
 /** Fixed import layout; reader font/viewport changes never regroup volumes. */
-export const IMPORT_PAGE_LAYOUT = { width: 400, height: 650, padding: 32, contentWidth: 336, contentHeight: 432, fontSize: 18 } as const;
+export const IMPORT_PAGE_LAYOUT = { width: 400, height: 650, padding: 32, contentWidth: 336, contentHeight: 463.5, fontSize: 18 } as const;
 
 export type PrepareBooksOptions = { removeEmoji?: boolean; removeSquareBrackets?: boolean; removeAngleBrackets?: boolean };
 
@@ -36,17 +36,8 @@ function preprocessBook(book: Book, options: PrepareBooksOptions): Book {
         if (content[index] === '[') { if (!squareDepth) squareStart = index; squareDepth++; }
         else if (content[index] === ']' && squareDepth && --squareDepth === 0) hidden.push({ start: squareStart, end: index + 1 });
       }
-      if (options.removeAngleBrackets !== false && content[index] === '<') {
-        let quote = '', end = index + 1;
-        for (; end < content.length; end++) {
-          const char = content[end]!;
-          if (quote) { if (char === quote) quote = ''; }
-          else if (char === '"' || char === "'") quote = char;
-          else if (char === '>') break;
-        }
-        if (end < content.length) { hidden.push({ start: index, end: end + 1 }); index = end; }
-      }
     }
+    if(options.removeAngleBrackets!==false)hidden.push(...angleRanges(content,references));
     hidden.sort((left, right) => left.start - right.start || right.end - left.end);
     return segments.map(segment => {
       const limit = Math.min(end, segment.end);
@@ -118,13 +109,13 @@ export async function prepareBooks(books:Book[],options:PrepareBooksOptions={}):
       // Already prepared volumes keep their grouping if a caller submits them
       // again. Backup restores must bypass this API to preserve all content.
       const ruled = source.displayRules?.length ? await applyBookDisplayRules(source, source.displayRules) : source;
-      if (source.volumePolicy === 'chapters-100-v1' || source.volumePolicy === CURRENT_VOLUME_POLICY) { result.push({...ruled,pageCount:paginate(ruled,measure,{pageHeight:IMPORT_PAGE_LAYOUT.height,contentTop:insets.top}).length}); continue; }
+      if (source.volumePolicy === 'chapters-100-v1' || source.volumePolicy === CURRENT_VOLUME_POLICY) { result.push({...ruled,pageCount:paginate(ruled,measure,{pageHeight:IMPORT_PAGE_LAYOUT.height,contentTop:insets.top}).length,pageLayoutVersion:PAGE_LAYOUT_VERSION}); continue; }
       const book = preprocessBook(ruled, options);
       const volumes=splitBookByPages(book,paginate(book,measure,{pageHeight:IMPORT_PAGE_LAYOUT.height,contentTop:insets.top}));
       for(const volume of volumes){
         // A continuation volume may gain a heading/parity leaf at its new start.
         const pageCount=volumes.length>1?paginate(volume,measure,{pageHeight:IMPORT_PAGE_LAYOUT.height,contentTop:insets.top}).length:volume.pageCount!;
-        result.push({...volume,pageCount,volumePolicy:CURRENT_VOLUME_POLICY});
+        result.push({...volume,pageCount,pageLayoutVersion:PAGE_LAYOUT_VERSION,volumePolicy:CURRENT_VOLUME_POLICY});
         if(volumes.length>1)await new Promise<void>(resolve=>setTimeout(resolve,0));
       }
       await new Promise<void>(resolve => setTimeout(resolve, 0));

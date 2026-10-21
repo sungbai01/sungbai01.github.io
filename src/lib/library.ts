@@ -56,6 +56,7 @@ export interface Book {
   volumeCount?: number;
   volumePolicy?: 'chapters-100-v1' | 'chapters-200-v1';
   pageCount?: number;
+  pageLayoutVersion?: number;
 }
 
 export class LibraryError extends Error {
@@ -225,6 +226,7 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
     if (typeof value.volumeCount === 'number' && Number.isSafeInteger(value.volumeCount) && value.volumeCount > 0) book.volumeCount = value.volumeCount;
     if (value.volumePolicy === 'chapters-100-v1' || value.volumePolicy === 'chapters-200-v1') book.volumePolicy = value.volumePolicy;
     if (typeof value.pageCount === 'number' && Number.isSafeInteger(value.pageCount) && value.pageCount >= 1) book.pageCount = value.pageCount;
+    if (typeof value.pageLayoutVersion === 'number' && Number.isSafeInteger(value.pageLayoutVersion) && value.pageLayoutVersion >= 1) book.pageLayoutVersion = value.pageLayoutVersion;
   }
   return book;
 }
@@ -445,6 +447,7 @@ function validateBook(book: Book): void {
     (book.volumeNumber !== undefined && (!Number.isSafeInteger(book.volumeNumber) || book.volumeNumber < 1)) ||
     (book.volumeCount !== undefined && (!Number.isSafeInteger(book.volumeCount) || book.volumeCount < 1)) ||
     (book.pageCount !== undefined && (!Number.isSafeInteger(book.pageCount) || book.pageCount < 1)) ||
+    (book.pageLayoutVersion !== undefined && (!Number.isSafeInteger(book.pageLayoutVersion) || book.pageLayoutVersion < 1)) ||
     (book.backCover !== undefined && typeof book.backCover !== 'string') ||
     (book.characterIcon !== undefined && typeof book.characterIcon !== 'string') ||
     (book.bookmarkStyle !== undefined && book.bookmarkStyle !== 'normal' && book.bookmarkStyle !== 'character' && book.bookmarkStyle !== 'image') ||

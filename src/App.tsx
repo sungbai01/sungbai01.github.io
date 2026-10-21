@@ -3,6 +3,7 @@ import { ArrowDownToLine, ArrowRight, BookOpen, Bookmark, Check, ChevronDown, El
 import { loadBooks, repackSeries, updateBookmarks, deleteBook, deleteBooks, importChatFile, BOOK_COLORS, type Book } from './lib/library';
 import { groupBooks } from './lib/volumes';
 import { prepareBooks,measureBookPageCount } from './lib/prepareBooks';
+import {PAGE_LAYOUT_VERSION} from './lib/pagination';
 import ShelfAssets from './components/ShelfAssets';
 import BookIntake,{type IntakeRequest} from './components/BookIntake';
 import ThemePicker from './components/ThemePicker';
@@ -99,7 +100,7 @@ function download(name: string, data: unknown) {
 }
 
 async function storeBooks(incoming:Book[],existing:Book[]){
-  for(let index=0;index<incoming.length;index++){const book=incoming[index]!;if(book.pageCount!==undefined)continue;incoming[index]={...book,pageCount:await measureBookPageCount(book)};await new Promise<void>(resolve=>setTimeout(resolve,0));}
+  for(let index=0;index<incoming.length;index++){const book=incoming[index]!;if(book.pageCount!==undefined&&book.pageLayoutVersion===PAGE_LAYOUT_VERSION)continue;incoming[index]={...book,pageCount:await measureBookPageCount(book),pageLayoutVersion:PAGE_LAYOUT_VERSION};await new Promise<void>(resolve=>setTimeout(resolve,0));}
   if(incoming.length)await repackSeries(incoming[0]!.id,incoming,[]);
   const byId=new Map(incoming.map(book=>[book.id,book]));const existingIds=new Set(existing.map(book=>book.id));
   return normalizeShelfBookmarks([...existing.map(book=>byId.get(book.id)??book),...incoming.filter(book=>!existingIds.has(book.id))]);
@@ -194,8 +195,8 @@ export default function App() {
       data=await normalizeShelfBookmarks(data);
       for(let index=0;index<data.length;index++){
         const book=data[index]!;
-        if(book.pageCount!==undefined)continue;
-        const counted={...book,pageCount:await measureBookPageCount(book)};
+        if(book.pageCount!==undefined&&book.pageLayoutVersion===PAGE_LAYOUT_VERSION)continue;
+        const counted={...book,pageCount:await measureBookPageCount(book),pageLayoutVersion:PAGE_LAYOUT_VERSION};
         await repackSeries(book.id,[counted],[]);data[index]=counted;
         await new Promise<void>(resolve=>setTimeout(resolve,0));
       }
@@ -247,7 +248,9 @@ export default function App() {
     await commitBooks([book.id],async current=>{
       const stored=current.find(item=>item.id===book.id);if(!stored)throw new Error('책을 찾지 못했어요.');
       const updated={...stored,...patch};
-      if(updated.pageCount===undefined||!equalRows(updated.messages,stored.messages,['role','name','content','chapter','chapterTitle','chapterStart']))updated.pageCount=await measureBookPageCount(updated);
+      if(updated.pageCount===undefined||updated.pageLayoutVersion!==PAGE_LAYOUT_VERSION||!equalRows(updated.messages,stored.messages,['role','name','content','chapter','chapterTitle','chapterStart'])){
+        updated.pageCount=await measureBookPageCount(updated);updated.pageLayoutVersion=PAGE_LAYOUT_VERSION;
+      }
       return [updated];
     });
   };
@@ -351,7 +354,9 @@ export default function App() {
         const imageId=assets.some(asset=>asset.id===bookmarkAssetId)?bookmarkAssetId:undefined;
         const styled={...book,assets,imageRules,displayRules,bookmarkAssetId:imageId,bookmarkStyle:imageId&&imageId!==book.bookmarkAssetId?'image' as const:!imageId&&book.bookmarkStyle==='image'?'normal' as const:book.bookmarkStyle,characterIcon:icon?.src,...(palette?{color:palette,customColor:palette}:assets.length?{}:{cover:undefined,backCover:undefined,color:colors[0]!,customColor:undefined})};
         const ruled=await applyBookDisplayRules(styled,displayRules);
-        if(ruled.pageCount===undefined||!equalRows(ruled.messages,book.messages,['role','name','content','chapter','chapterTitle','chapterStart'])||!equalRows(ruled.assets,book.assets,['id','name','src','type']))ruled.pageCount=await measureBookPageCount(ruled);
+        if(ruled.pageCount===undefined||ruled.pageLayoutVersion!==PAGE_LAYOUT_VERSION||!equalRows(ruled.messages,book.messages,['role','name','content','chapter','chapterTitle','chapterStart'])||!equalRows(ruled.assets,book.assets,['id','name','src','type'])){
+          ruled.pageCount=await measureBookPageCount(ruled);ruled.pageLayoutVersion=PAGE_LAYOUT_VERSION;
+        }
         processed.set(book.id,ruled);
       }
       // Release only our processing guard immediately before acquiring commitBooks' guard.

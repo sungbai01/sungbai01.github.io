@@ -7,7 +7,7 @@ import { PageFlip } from '../vendor/page-flip/PageFlip';
 import { SizeType } from '../vendor/page-flip/Settings';
 import { FlipCorner } from '../vendor/page-flip/Flip/Flip';
 import { ArrowRight, BookOpen, Bookmark, Check, ChevronLeft, ChevronRight, List, Maximize, Minus, Pencil, Plus, Search, Type, X } from 'lucide-react';
-import type { Book } from '../lib/library';
+import type { Book, BookAsset } from '../lib/library';
 import { paginate, cleanText, startsChapter, chapterNumber, pageTextInsets } from '../lib/pagination';
 import type { Anchor, Fragment, PaperPage } from '../lib/pagination';
 import { readerPageCount, readReaderViewport } from '../lib/readerLayout';
@@ -96,7 +96,7 @@ function bookmarkAnchor(pages:PaperPage[],index:number,contentCount:number){
  if(!pages.length)return null;
  const target=evenBookmarkLeaf(pages,index),page=pages[target];
  const fragment=page?.fragments.find(fragment=>!fragment.hidden)??page?.fragments[0];
- if(fragment)return {message:fragment.message,char:fragment.char,progress:Math.min(1,target/Math.max(1,contentCount-1)),label:page.asset?.name??visibleProse(fragment.text).slice(0,60)};
+ if(fragment)return {message:fragment.message,char:fragment.char,progress:Math.min(1,target/Math.max(1,contentCount-1)),label:page.asset?.name??fragment.asset?.name??visibleProse(fragment.text).slice(0,60)};
  // An even blank endpaper still belongs to the preceding text's anchor.
  for(let cursor=target-1;cursor>=0;cursor--){const prior=pages[cursor];const first=prior.fragments[0];if(first)return {message:first.message,char:first.char,progress:Math.min(1,target/Math.max(1,contentCount-1)),label:'책갈피'};}
  return null;
@@ -127,11 +127,28 @@ function EditablePassage({fragment,onEdit,draft}:{fragment:Fragment;onEdit:EditF
  useEffect(()=>{if(ref.current){const text=visibleProse(fragment.text);ref.current.textContent=draft??(fragment.chapter!==undefined?text.trimStart():text);}},[]);
  return <p ref={ref} className={`reader-prose reader-live-passage${fragment.chapter!==undefined?' reader-chapter-opening':''}`} role="textbox" aria-label="페이지 본문 편집" contentEditable suppressContentEditableWarning data-no-flip onInput={e=>onEdit(fragment,e.currentTarget.innerText)} onPaste={e=>{e.preventDefault();document.execCommand('insertText',false,e.clipboardData.getData('text/plain'));}}/>;
 }
-function PageContent({page,query,editing,onEdit,drafts}:{page:PaperPage;query:string;editing:boolean;onEdit:EditFragment;drafts:Map<string,string>}){
- return <>{page.fragments.filter(fragment=>!fragment.hidden).map(fragment=><section className="reader-fragment" data-message={fragment.message} data-char={fragment.char} key={`${fragment.message}:${fragment.char}`}>
- {editing?<EditablePassage fragment={fragment} onEdit={onEdit} draft={drafts.get(`${fragment.message}:${fragment.char}`)}/>:<p className={`reader-prose${fragment.chapter!==undefined?' reader-chapter-opening':''}`}><RisuText text={fragment.chapter!==undefined?visibleProse(fragment.text).trimStart():fragment.text} query={query}/></p>}
+type AssetPreview={asset:BookAsset;owner:string;pinned:boolean};
+function InlineAsset({fragment,editing,onEdit,draft,onPreview}:{fragment:Fragment;editing:boolean;onEdit:EditFragment;draft?:string;onPreview:(asset:BookAsset|null,owner:string,pinned?:boolean)=>void}){
+ const asset=fragment.asset!;
+ const owner=`${fragment.message}:${fragment.char}`;
+ const [removed,setRemoved]=useState(draft==='');
+ const buttonRef=useRef<HTMLButtonElement>(null);
+ const preview=useRef(onPreview);preview.current=onPreview;
+ const eligible=()=>!buttonRef.current?.closest('[data-flip-copy="true"],[inert],[aria-hidden="true"]');
+ useEffect(()=>()=>preview.current(null,owner,true),[owner]);
+ return <div className="reader-inline-asset-body" data-no-flip>
+ {removed?<button type="button" className="reader-inline-asset-undo" onClick={()=>{onEdit(fragment,fragment.text);setRemoved(false);}}>이미지 복원</button>:<>
+ <button ref={buttonRef} className="reader-inline-asset-open" type="button" aria-label={`${asset.name} 크게 보기`} onPointerDown={event=>event.stopPropagation()} onPointerEnter={event=>{if(event.pointerType!=='touch'&&eligible())onPreview(asset,owner);}} onPointerLeave={()=>{if(document.activeElement!==buttonRef.current)onPreview(null,owner);}} onFocus={()=>{if(eligible())onPreview(asset,owner);}} onBlur={()=>onPreview(null,owner)} onClick={event=>{event.stopPropagation();if(eligible())onPreview(asset,owner,true);}}><img src={asset.src} alt={asset.name} draggable={false}/></button>
+ {editing&&<button className="reader-inline-asset-remove" type="button" aria-label="본문 이미지 제거" title="본문에서 이미지 제거" onClick={()=>{onPreview(null,owner,true);onEdit(fragment,'');setRemoved(true);}}><X size={16}/></button>}
+ </>}
+ </div>;
+}
+function PageContent({page,query,editing,onEdit,drafts,onPreview}:{page:PaperPage;query:string;editing:boolean;onEdit:EditFragment;drafts:Map<string,string>;onPreview:(asset:BookAsset|null,owner:string,pinned?:boolean)=>void}){
+ return <>{page.fragments.filter(fragment=>!fragment.hidden).map(fragment=><section className={`reader-fragment${fragment.asset?' reader-inline-asset':''}`} style={fragment.asset?{width:`${fragment.assetSize??12}px`,height:`${fragment.assetSize??12}px`}:undefined} data-message={fragment.message} data-char={fragment.char} key={`${fragment.message}:${fragment.char}`}>
+ {fragment.asset?<InlineAsset fragment={fragment} editing={editing} onEdit={onEdit} draft={drafts.get(`${fragment.message}:${fragment.char}`)} onPreview={onPreview}/>:editing?<EditablePassage fragment={fragment} onEdit={onEdit} draft={drafts.get(`${fragment.message}:${fragment.char}`)}/>:<p className={`reader-prose${fragment.chapter!==undefined?' reader-chapter-opening':''}`}><RisuText text={fragment.chapter!==undefined?visibleProse(fragment.text).trimStart():fragment.text} query={query}/></p>}
  </section>)}</>;
 }
+
 type BookmarkSlipProps={style:BookmarkStyle;icon?:string;image?:string;title:string;color:string;side?:'before'|'after';disabled?:boolean;onActivate?:()=>void;onRemove?:()=>void;canInteract?:()=>boolean};
 function BookmarkSlip({style,icon,image,title,color,side='after',disabled,onActivate,onRemove,canInteract}:BookmarkSlipProps){
  const elementRef=useRef<HTMLSpanElement>(null);
@@ -175,7 +192,7 @@ function ChapterHeading({message,title,draft,onChange}:{message:number;title:str
  const [value,setValue]=useState(draft?.chapterTitle??title);
  return <div className="reader-chapter-editor" data-no-flip><input aria-label="챕터 제목" value={value} onChange={event=>{setValue(event.target.value);onChange(message,{chapterTitle:event.target.value});}}/><button type="button" aria-label="챕터 구분 삭제" title="본문을 유지하고 챕터 구분 삭제" onClick={()=>onChange(message,{chapterStart:false})}><X size={16}/></button></div>;
 }
-function PageLeaf({page,book,query,index,onNext,onClose,mobile,editing,onEdit,drafts,chapterDrafts,onChapterEdit,bookmark}:{page:PaperPage;book:Book;query:string;index:number;onNext?:()=>void;onClose:()=>void;mobile:boolean;editing:boolean;onEdit:EditFragment;drafts:Map<string,string>;chapterDrafts:Map<number,ChapterDraft>;onChapterEdit:(message:number,patch:ChapterDraft)=>void;bookmark?:BookmarkSlipProps}) {
+function PageLeaf({page,book,query,index,onNext,onClose,mobile,editing,onEdit,drafts,chapterDrafts,onChapterEdit,onPreview,bookmark}:{page:PaperPage;book:Book;query:string;index:number;onNext?:()=>void;onClose:()=>void;mobile:boolean;editing:boolean;onEdit:EditFragment;drafts:Map<string,string>;chapterDrafts:Map<number,ChapterDraft>;onChapterEdit:(message:number,patch:ChapterDraft)=>void;onPreview:(asset:BookAsset|null,owner:string,pinned?:boolean)=>void;bookmark?:BookmarkSlipProps}) {
  const chapterMessage=page.chapterMessage??page.fragments[0]?.message;
  const chapterDraft=chapterMessage===undefined?undefined:chapterDrafts.get(chapterMessage);
  const showChapter=page.chapter!==undefined&&chapterDraft?.chapterStart!==false;
@@ -184,7 +201,7 @@ function PageLeaf({page,book,query,index,onNext,onClose,mobile,editing,onEdit,dr
  if(page.kind==='back-cover')return <div className="reader-back-cover reader-true-back" style={{'--book-cover':book.color} as CSSProperties}><div className="reader-back-imprint"><span className="reader-back-colophon">{cleanText(book.author)}</span><span className="reader-back-mark">{cleanText(book.title).replace(/\s*·\s*\d+권\s*$/,'')}</span><span className="reader-back-volume">{book.volumeNumber?String(book.volumeNumber).padStart(2,'0'):''}</span><BackBarcode/>{mobile&&action}</div></div>;
  if(page.kind==='end')return <div className="reader-end-half">{action}</div>;
  if(page.kind==='padding'||page.kind==='endpaper')return <div className={`reader-paper-shell${page.kind==='endpaper'?' reader-endpaper':''}`}>{bookmark&&<BookmarkSlip {...bookmark}/>}</div>;
- return <div className="reader-paper-shell">{bookmark&&<BookmarkSlip {...bookmark}/>} {showChapter&&<div className="reader-chapter-heading">{editing&&chapterMessage!==undefined?<ChapterHeading message={chapterMessage} title={chapterTitle} draft={chapterDraft} onChange={onChapterEdit}/>:chapterTitle}</div>}{page.kind==='asset'?<figure className="reader-asset-page"><img src={page.asset!.src} alt={page.asset!.name}/></figure>:<div className={`reader-page-content${showChapter?' reader-page-chapter-content':''}${editing?' reader-page-content-editing':''}`}><PageContent page={page} query={query} editing={editing} onEdit={onEdit} drafts={drafts}/></div>}<div className="reader-page-number">{index+1}</div></div>;
+ return <div className="reader-paper-shell">{bookmark&&<BookmarkSlip {...bookmark}/>} {showChapter&&<div className="reader-chapter-heading">{editing&&chapterMessage!==undefined?<ChapterHeading message={chapterMessage} title={chapterTitle} draft={chapterDraft} onChange={onChapterEdit}/>:chapterTitle}</div>}<div className={`reader-page-content${showChapter?' reader-page-chapter-content':''}${editing?' reader-page-content-editing':''}`}><PageContent page={page} query={query} editing={editing} onEdit={onEdit} drafts={drafts} onPreview={onPreview}/></div><div className="reader-page-number">{index+1}</div></div>;
 }
 
 function LeaveDialog({moving,busy,error,onCancel,onLeave,onSave}:{moving:boolean;busy:boolean;error:string;onCancel:()=>void;onLeave:()=>void;onSave:()=>void}){
@@ -200,6 +217,13 @@ function NextVolumeDialog({title,onConfirm,onClose}:{title?:string;onConfirm:()=
 
 export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolumeTitle, onSaveBook, shelfBookmark, onBookmarkChange, onBookmarkStyleChange, bookmarkStyle, characterIcon, bookmarkImage }: ReaderProps) {
   const [editing,setEditing]=useState(false);
+  const [assetPreview,setAssetPreview]=useState<AssetPreview|null>(null);
+  const assetPreviewRef=useRef(assetPreview);assetPreviewRef.current=assetPreview;
+  const previewAsset=(asset:BookAsset|null,owner:string,pinned=false)=>setAssetPreview(current=>{
+    if(!asset)return current?.owner===owner&&(!current.pinned||pinned)?null:current;
+    if(current?.owner===owner&&current.pinned&&!pinned)return current;
+    return {asset,owner,pinned};
+  });
   const [saving,setSaving]=useState(false);
   const [editError,setEditError]=useState('');
   const [leafRevision,setLeafRevision]=useState(0);
@@ -572,6 +596,8 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
+      if(event.key==='Escape'&&assetPreviewRef.current){event.preventDefault();setAssetPreview(null);return;}
+      if(assetPreviewRef.current?.pinned)return;
       if(blockedRef.current)return;
       const target = event.target as HTMLElement | null;
       if (event.key === 'Escape') {
@@ -599,7 +625,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
     const stage=stageRef.current;if(!stage)return;
     let accumulated=0,last=-Infinity,lastInput=0;
     const wheel=(event:WheelEvent)=>{
-      if(event.ctrlKey||blockedRef.current||panel||drawerRef.current){accumulated=0;return;}
+      if(event.ctrlKey||blockedRef.current||panel||drawerRef.current||assetPreviewRef.current?.pinned){accumulated=0;return;}
       event.preventDefault();
       const now=performance.now();
       if(now-lastInput>180)accumulated=0;
@@ -662,11 +688,12 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
   useEffect(()=>{
     if(editing||nextConfirm||leaveConfirm||panel||drawerOpen){navigationRevisionRef.current++;queuedTurnRef.current=null;}
     const flip=flipRef.current;
-    const enabled=!editing&&!nextConfirm&&!leaveConfirm&&!drawerOpen&&!panel;
+    const enabled=!editing&&!nextConfirm&&!leaveConfirm&&!drawerOpen&&!panel&&!assetPreview?.pinned;
     // Reapplying false cancels a gesture; only update on an actual transition.
     if(flip&&flip.isInteractionEnabled()!==enabled)flip.setInteractionEnabled(enabled);
-  },[editing,nextConfirm,leaveConfirm,loading,panel,drawerOpen]);
+  },[editing,nextConfirm,leaveConfirm,loading,panel,drawerOpen,assetPreview?.pinned]);
   useEffect(()=>{if(!editing&&!nextConfirm&&!leaveConfirm){setViewport(previous=>{const next=readReaderViewport();return previous.width===next.width&&previous.height===next.height&&previous.touch===next.touch&&previous.horizontalSegments===next.horizontalSegments?previous:next;});const stage=stageRef.current;if(stage){const box=stage.getBoundingClientRect();setDimensions(previous=>{const next={width:Math.floor(box.width),height:Math.floor(box.height)};return previous.width===next.width&&previous.height===next.height?previous:next;});}}},[editing,nextConfirm,leaveConfirm]);
+  useEffect(()=>{setAssetPreview(null);},[pageIndex,editing,drawerOpen,panel,loading]);
   const onEdit:EditFragment=(fragment,text)=>{draftsRef.current.set(`${fragment.message}:${fragment.char}`,text);};
   useEffect(()=>{
     setSelectedBookmarkStyle(shelfBookmark ? shelfBookmark.style ?? 'normal' : bookmarkStyle ?? book.bookmarkStyle ?? 'normal');
@@ -709,7 +736,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
   const ribbonIcon=shelfBookmark?.icon??characterIcon??book.characterIcon;
   const ribbonImage=shelfBookmark?.image??bookmarkImage;
   const ribbonStyle=shelfBookmark ? shelfBookmark.style ?? 'normal' : selectedBookmarkStyle;
-  renderLeafRef.current=(page,index,mobile)=><PageLeaf page={page} book={bookRef.current} query={queryRef.current} index={index} mobile={mobile} editing={editing} onEdit={onEdit} drafts={draftsRef.current} chapterDrafts={chapterDraftsRef.current} onChapterEdit={(message,patch)=>{chapterDraftsRef.current.set(message,{...chapterDraftsRef.current.get(message),...patch});if(patch.chapterStart===false)setLeafRevision(value=>value+1);}} onNext={nextVolumeRef.current?()=>requestNextRef.current():undefined} onClose={()=>requestCloseRef.current()} bookmark={shelfBookmark?.bookId===bookRef.current.id&&bookmarkPage(pagesRef.current,shelfBookmark)===index?{...bookmarkInteraction,style:ribbonStyle,icon:ribbonIcon,image:ribbonImage,title:shelfBookmark.title,color:bookRef.current.color,side:index<(selectedLeaf??pageIndex)?'before':'after'}:undefined}/>;
+  renderLeafRef.current=(page,index,mobile)=><PageLeaf page={page} book={bookRef.current} query={queryRef.current} index={index} mobile={mobile} editing={editing} onEdit={onEdit} drafts={draftsRef.current} chapterDrafts={chapterDraftsRef.current} onPreview={previewAsset} onChapterEdit={(message,patch)=>{chapterDraftsRef.current.set(message,{...chapterDraftsRef.current.get(message),...patch});if(patch.chapterStart===false)setLeafRevision(value=>value+1);}} onNext={nextVolumeRef.current?()=>requestNextRef.current():undefined} onClose={()=>requestCloseRef.current()} bookmark={shelfBookmark?.bookId===bookRef.current.id&&bookmarkPage(pagesRef.current,shelfBookmark)===index?{...bookmarkInteraction,style:ribbonStyle,icon:ribbonIcon,image:ribbonImage,title:shelfBookmark.title,color:bookRef.current.color,side:index<(selectedLeaf??pageIndex)?'before':'after'}:undefined}/>;
   useEffect(()=>{if(!onSaveBook&&editing){draftsRef.current.clear();chapterDraftsRef.current.clear();setEditing(false);setLeafRevision(value=>value+1);}},[onSaveBook,editing]);
   function cancelEditing(){draftsRef.current.clear();chapterDraftsRef.current.clear();setEditing(false);setEditError('');setLeafRevision(value=>value+1);}
   async function saveEditing(){
@@ -817,6 +844,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
         </>}
       </div>
     </>}
+    {assetPreview&&<div className={`reader-asset-preview${assetPreview.pinned?' reader-asset-preview-pinned':''}`} data-no-flip onPointerDown={event=>event.stopPropagation()} onClick={()=>setAssetPreview(null)} role="region" aria-label="이미지 미리보기"><img src={assetPreview.asset.src} alt={assetPreview.asset.name} onClick={event=>event.stopPropagation()} draggable={false}/>{assetPreview.pinned&&<button type="button" autoFocus aria-label="이미지 미리보기 닫기" onClick={()=>setAssetPreview(null)}><X size={22}/></button>}</div>}
     <div ref={measureRef} className="reader-measure reader-page-content" aria-hidden="true" />
     {leaveConfirm&&<LeaveDialog moving={!!shelfBookmark} busy={bookmarkBusy} error={leaveError} onCancel={()=>{setLeaveConfirm(false);setLeaveError('');}} onLeave={()=>closeRef.current()} onSave={()=>void saveBeforeLeaving()}/>}
     {nextConfirm&&onNextVolume&&<NextVolumeDialog title={nextVolumeTitle} onClose={()=>setNextConfirm(false)} onConfirm={()=>{setNextConfirm(false);onNextVolume();}}/>}
