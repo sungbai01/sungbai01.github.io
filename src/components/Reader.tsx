@@ -550,7 +550,9 @@ export function Reader({ book, onClose, onReady, initialBookmark, onNextVolume, 
         element.className = `reader-page ${index % 2 === 0 ? 'reader-page-left' : 'reader-page-right'}`;
         element.dataset.pageKind=page.kind??'paper';
         element.dataset.readerPageIndex=String(index);
-        element.setAttribute('data-density', page.kind==='back-cover'||page.kind==='front-cover'?'hard':'soft');
+        const coverFace=page.kind==='front-cover'||page.kind==='opening-endpaper'&&index===(count===2?2:1)?'front':page.kind==='back-cover'||page.kind==='colophon'?'back':undefined;
+        if(coverFace)element.dataset.coverFace=coverFace;
+        element.setAttribute('data-density', coverFace?'hard':'soft');
         element.setAttribute('role', 'article');
         element.setAttribute('aria-label', page.pageNumber?`${page.pageNumber}쪽`:page.kind==='front-cover'?'앞표지':page.kind==='back-cover'?'뒷표지':page.kind==='colophon'?'책 정보':'속표지');
         element.setAttribute('lang', 'ko');
@@ -1026,7 +1028,7 @@ export function Reader({ book, onClose, onReady, initialBookmark, onNextVolume, 
     </div>
 
     <main className="reader-main" aria-label={`${book.title} 읽기`}>
-      <div className="reader-stage" ref={stageRef} aria-busy={loading} data-cover-view={pages.slice(pageIndex,pageIndex+spread).some(page=>page.kind==='front-cover')?'front':pages.slice(pageIndex,pageIndex+spread).some(page=>page.kind==='back-cover')?'back':'open'} data-book-closed={pages.slice(pageIndex,pageIndex+spread).some(page=>page.kind==='back-cover'||page.kind==='front-cover')}>
+      <div className="reader-stage" ref={stageRef} aria-busy={loading} data-book-closed={pages.slice(pageIndex,pageIndex+spread).some(page=>page.kind==='back-cover'||page.kind==='front-cover')}>
         {!loading&&<div className="reader-cover-boards" aria-hidden="true" inert><span className="reader-cover-board-left"/><span className="reader-cover-board-right"/></div>}
         <div className="reader-book-mount" ref={mountRef} onPointerDownCapture={event=>{const page=(event.target as HTMLElement).closest<HTMLElement>('[data-reader-page-index]');if(page&&!page.dataset.flipCopy)setSelectedLeaf(Number(page.dataset.readerPageIndex));}}/>
         {!loading&&peekBookmark&&shelfBookmark&&<div className={`reader-bookmark-peek reader-bookmark-peek-${markedPage<pageIndex?'before':'after'}`} aria-label="페이지 사이 책갈피"><BookmarkSlip {...bookmarkInteraction} style={ribbonStyle} icon={ribbonIcon} image={ribbonImage} title={shelfBookmark.title} color={book.color} side={markedPage<pageIndex?'before':'after'}/></div>}

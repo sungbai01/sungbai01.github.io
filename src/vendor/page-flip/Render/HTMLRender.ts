@@ -408,6 +408,25 @@ export class HTMLRender extends Render {
         this.bottomPage.draw(tempDensity);
     }
 
+    /** The inside and outside are one board. Remove the resting backing on
+     * the side occupied by a turning board, leaving the actual hard face to
+     * carry its overhang. Outside the book there is no stationary cover.
+     */
+    private updateCoverBacking(): void {
+        const stage=this.element.closest<HTMLElement>('.reader-stage');
+        if(!stage)return;
+        const physical=(page:Page)=>page!==null&&!['end','front-endpaper'].includes((page as HTMLPage).getElement().dataset.pageKind??'');
+        const hard=this.flippingPage!==null&&this.flippingPage.getDrawingDensity()===PageDensity.HARD;
+        const moving=hard?[this.flippingPage,this.leftPage,this.rightPage,this.bottomPage]
+            .filter(Boolean).map(page=>(page as HTMLPage).getElement().dataset.coverFace).find(Boolean):undefined;
+        const spread=this.orientation===Orientation.LANDSCAPE;
+        const left=spread&&physical(this.leftPage)&&moving!=='front';
+        const right=physical(this.rightPage)&&moving!=='back'&&!(hard&&!spread);
+        const nextLeft=left?'true':'false',nextRight=right?'true':'false';
+        if(stage.dataset.coverBackingLeft!==nextLeft)stage.dataset.coverBackingLeft=nextLeft;
+        if(stage.dataset.coverBackingRight!==nextRight)stage.dataset.coverBackingRight=nextRight;
+    }
+
     protected drawFrame(): void {
         // Clear both families on every frame, including read frames and density
         // transitions; only this frame's active family may become visible again.
@@ -419,6 +438,7 @@ export class HTMLRender extends Render {
         if (reading || endVisible) this.shadow = null;
         this.updateBookmarkVisibility();
         this.clear();
+        this.updateCoverBacking();
 
         this.drawLeftPage();
 
