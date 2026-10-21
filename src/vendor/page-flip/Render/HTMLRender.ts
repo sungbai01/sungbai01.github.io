@@ -482,8 +482,9 @@ export class HTMLRender extends Render {
     private updateBookmarkVisibility(): void {
         const clone = this.flippingPage === null
             ? null : (this.flippingPage as HTMLPage).getElement();
-        const cloneIndex = clone?.dataset.flipCopy === 'true' &&
-            (this.flippingPage as HTMLPage).hasVisibleBookmarkFold()
+        // Ownership lasts for the whole turn. Testing the tip against the fold
+        // polygon here restored the stationary body halfway through a turn.
+        const cloneIndex = clone?.dataset.flipCopy === 'true'
             ? clone.dataset.readerPageIndex : undefined;
         const pages = new Set<Page>([
             ...this.visiblePages,

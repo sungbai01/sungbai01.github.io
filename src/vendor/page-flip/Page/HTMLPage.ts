@@ -132,12 +132,12 @@ export class HTMLPage extends Page {
         return Math.abs(area) > 1e-6 && !(positive && negative);
     }
 
-    /** A sibling follows the exact rendered sheet transform without its clip.
-     * Only the ribbon is cloned; page contents and event handlers stay in place.
+    /** Only the protruding tip needs to escape the paper's clipping boundary.
+     * The body stays on its real sheet, with the same fold and stacking order.
      */
     private drawBookmarkFoldLayer(density: PageDensity): void {
         const slip = this.element.querySelector<HTMLElement>('.reader-bookmark-slip');
-        if (!slip || this.element.dataset.bookmarkHidden === 'true' ||
+        if (density === PageDensity.HARD || !slip || this.element.dataset.bookmarkHidden === 'true' ||
             !this.element.parentElement || !this.hasVisibleBookmarkFold(density)) {
             this.clearBookmarkFoldLayer();
             return;
@@ -162,26 +162,14 @@ export class HTMLPage extends Page {
         for (const side of ['reader-page-left', 'reader-page-right']) {
             if (this.element.classList.contains(side)) layer.classList.add(side);
         }
-        // Copy the inline result of drawSoft/drawHard, not computed layout or a
-        // second animation. Keep only this sibling's ribbon outside the fold clip.
+        // Copy the sheet transform, but never duplicate its bookmark body.
         layer.style.cssText = this.element.style.cssText;
         layer.style.position = 'absolute';
-        // Preserve the sheet's fold clipping for the bookmark body. Only the
-        // part above the paper (hole/string) may extend beyond the sheet. An
-        // entirely unclipped clone paints the whole ribbon over the next page.
-        let bookmarkClip = 'inset(-120px -8px -8px -8px)';
-        if(density === PageDensity.SOFT){
-            const points=this.state.area.filter(p=>p!==null).map(p=>Helper.GetRotatedPoint({
-                x:this.render.getDirection()===FlipDirection.BACK?this.state.position.x-p.x:p.x-this.state.position.x,
-                y:p.y-this.state.position.y,
-            },{x:0,y:0},this.state.angle));
-            const width=this.render.getRect().pageWidth;
-            const above=[{x:-width,y:-120},{x:width*2,y:-120},{x:width*2,y:0},{x:-width,y:0}];
-            const area=points.reduce((sum,p,index)=>{const next=points[(index+1)%points.length];return sum+p.x*next.y-next.x*p.y;},0);
-            if(area<0)above.reverse();
-            const contour=(values:{x:number;y:number}[])=>values.map((p,index)=>`${index?'L':'M'}${p.x.toFixed(3)} ${p.y.toFixed(3)}`).join(' ')+' Z';
-            bookmarkClip=`path(nonzero, "${contour(points)} ${contour(above)}")`;
-        }
+        // In page-local coordinates the paper starts at y=0. The bottom inset
+        // equals the full page height, so this layer cannot paint any body at
+        // any fold angle. Hard pages are already unclipped and need no copy.
+        const {pageWidth,height}=this.render.getRect();
+        const bookmarkClip=`inset(-120px -${pageWidth}px ${height}px -${pageWidth}px)`;
         layer.style.clipPath = bookmarkClip;
         layer.style.setProperty('-webkit-clip-path', bookmarkClip);
         layer.style.overflow = 'visible';
@@ -203,7 +191,6 @@ export class HTMLPage extends Page {
         ribbon.style.minHeight = '0';
         ribbon.style.maxWidth = 'none';
         ribbon.style.maxHeight = 'none';
-        this.element.dataset.bookmarkFolding = 'true';
     }
 
     public clearBookmarkFoldLayer(): void {
