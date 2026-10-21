@@ -210,7 +210,7 @@ type BookmarkSlipProps={style:BookmarkStyle;icon?:string;image?:string;title:str
 function BookmarkSlip({style,icon,image,title,color,side='after',disabled,onActivate,onRemove,canInteract}:BookmarkSlipProps){
  const elementRef=useRef<HTMLSpanElement>(null);
  const actions=useRef({disabled,onActivate,onRemove,canInteract});actions.current={disabled,onActivate,onRemove,canInteract};
- const drag=useRef<{id:number;x:number;y:number;distance:number;bounds:DOMRect;angle:number}|null>(null);
+ const drag=useRef<{id:number;x:number;y:number;distance:number;bounds:DOMRect;angle:number;pivotX:number;pivotY:number}|null>(null);
  const suppressClick=useRef(false);
  const allowed=()=>{const element=elementRef.current;return !actions.current.disabled&&!!element&&!element.closest('[inert],[data-flip-copy="true"],[aria-hidden="true"]')&&(actions.current.canInteract?.()??true);};
  const reset=()=>{
@@ -229,12 +229,15 @@ function BookmarkSlip({style,icon,image,title,color,side='after',disabled,onActi
   const dx=event.clientX-active.x,dy=event.clientY-active.y;
   active.distance=Math.max(active.distance,Math.hypot(dx,dy));
   if(active.distance>5){suppressClick.current=true;event.currentTarget.classList.add('reader-bookmark-dragging');}
-  active.angle+=(clamp(dx*.14-dy*.045,-24,24)-active.angle)*.25;
+  const torque=(active.pivotX-.5)*dy-(active.pivotY-.5)*dx;
+  const direction=Math.abs(torque)>.1?Math.sign(torque):Math.sign(active.angle)||1;
+  const tilt=direction*Math.min(58,Math.max(0,Math.hypot(dx,dy)-5)*.2);
+  active.angle+=(tilt-active.angle)*.35;
   event.currentTarget.style.setProperty('--bookmark-drag-angle',`${active.angle}deg`);
   event.currentTarget.style.setProperty('--bookmark-drag-x',`${dx}px`);event.currentTarget.style.setProperty('--bookmark-drag-y',`${dy}px`);
  };
  return <span ref={elementRef} data-no-flip data-bookmark-side={side} className={`reader-bookmark-slip reader-bookmark-${style}`} role="button" tabIndex={disabled?-1:0} aria-disabled={disabled||undefined} aria-label="책갈피로 이동" title="책갈피로 이동 · 끌어서 제거" style={{'--bookmark-color':color} as CSSProperties}
- onPointerDown={event=>{event.stopPropagation();if(!allowed()||!event.isPrimary||event.button!==0||drag.current)return;event.preventDefault();event.currentTarget.focus({preventScroll:true});suppressClick.current=false;const bounds=event.currentTarget.getBoundingClientRect();event.currentTarget.style.transformOrigin=`${event.clientX-bounds.left}px ${event.clientY-bounds.top}px`;drag.current={id:event.pointerId,x:event.clientX,y:event.clientY,distance:0,bounds,angle:0};try{event.currentTarget.setPointerCapture(event.pointerId);}catch{cancel();}}}
+ onPointerDown={event=>{event.stopPropagation();if(!allowed()||!event.isPrimary||event.button!==0||drag.current)return;event.preventDefault();event.currentTarget.focus({preventScroll:true});suppressClick.current=false;const bounds=event.currentTarget.getBoundingClientRect();const pivotX=event.clientX-bounds.left<bounds.width/2?.25:.75,pivotY=event.clientY-bounds.top<bounds.height/2?.25:.75;event.currentTarget.style.transformOrigin=`${pivotX*100}% ${pivotY*100}%`;drag.current={id:event.pointerId,x:event.clientX,y:event.clientY,distance:0,bounds,angle:0,pivotX,pivotY};try{event.currentTarget.setPointerCapture(event.pointerId);}catch{cancel();}}}
  onPointerMove={move}
  onPointerUp={event=>{event.stopPropagation();const active=drag.current;if(!active||active.id!==event.pointerId)return;move(event);if(drag.current!==active)return;const eligible=allowed();const distance=active.distance;suppressClick.current=true;if(!eligible){reset();return;}const safe=event.clientX>=active.bounds.left-40&&event.clientX<=active.bounds.right+40&&event.clientY>=active.bounds.top-40&&event.clientY<=active.bounds.bottom+40;if(distance>=36&&!safe){drag.current=null;try{if(event.currentTarget.hasPointerCapture(active.id))event.currentTarget.releasePointerCapture(active.id);}catch{}const element=event.currentTarget;actions.current.onRemove?.();setTimeout(()=>{if(element.isConnected)reset();},500);}else{reset();if(distance<=5)actions.current.onActivate?.();}}}
  onPointerCancel={event=>{event.stopPropagation();if(drag.current?.id===event.pointerId)cancel();}}

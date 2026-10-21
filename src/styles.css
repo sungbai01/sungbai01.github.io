@@ -186,7 +186,7 @@ button:disabled{cursor:default;opacity:.45}
 html{scrollbar-gutter:stable;overflow-anchor:none}
 .app-shell,.workspace,.main-content,.collection,.series-shelf,.shelf-groups{overflow-anchor:none}
 .site-header{flex-shrink:0;box-sizing:border-box;min-height:94px}
-.collection{min-height:65vh}
+.collection{min-height:0}
 .collection-toolbar{min-height:34px;flex-shrink:0}
 .collection-controls{min-height:32px}
 .view-toggle{display:inline-flex;align-items:center;justify-content:center;flex:0 0 34px;width:34px;height:30px;padding:0;border:1px solid var(--sand-5);border-radius:5px;color:var(--sand-10);background:var(--sand-2)}
