@@ -244,7 +244,7 @@
 
 /* End actions do not cast a second, empty book shadow. */
 .reader-flip-host{box-shadow:none}
-.reader-true-back{background:var(--book-cover);border-width:4px;border-radius:3px;box-shadow:inset 0 0 0 1px #fff2,0 5px 0 -1px color-mix(in srgb,var(--book-cover),black 35%)}
+.reader-true-back{background:var(--book-cover);border:0;border-radius:3px;box-shadow:none}
 
 .reader-bookmark-peek-before{left:calc(50% - var(--paper-height)*2/15)}
 .reader-bookmark-peek-after{left:50%}
@@ -364,6 +364,13 @@
 .reader-page[data-cover-face]::before{content:'';position:absolute;inset:-5px;background:var(--book-cover);border-radius:4px;box-shadow:inset 0 1px 0 #fff3,0 3px 0 color-mix(in srgb,var(--book-cover),black 35%),0 5px 3px #0002;z-index:-1;pointer-events:none}
 .reader-page[data-cover-face]::after{content:'';position:absolute;left:-4px;right:-4px;bottom:-8px;height:3px;border-radius:0 0 3px 3px;background:linear-gradient(var(--book-cover),color-mix(in srgb,var(--book-cover),black 38%));pointer-events:none}
 .reader-page[data-page-kind=front-cover]>.reader-front-cover,.reader-page[data-page-kind=back-cover]>.reader-back-cover{inset:-5px}
+/* The hinge stays flush; only the three outside edges overhang the paper. */
+.reader[data-page-layout=spread] .reader-page[data-cover-face].--left::before{right:0;border-top-right-radius:0;border-bottom-right-radius:0}
+.reader[data-page-layout=spread] .reader-page[data-cover-face].--right::before{left:0;border-top-left-radius:0;border-bottom-left-radius:0}
+.reader[data-page-layout=spread] .reader-page[data-cover-face].--left::after{right:0}
+.reader[data-page-layout=spread] .reader-page[data-cover-face].--right::after{left:0}
+.reader[data-page-layout=spread] .reader-page[data-cover-face].--left>:is(.reader-front-cover,.reader-back-cover){right:0;border-top-right-radius:0;border-bottom-right-radius:0}
+.reader[data-page-layout=spread] .reader-page[data-cover-face].--right>:is(.reader-front-cover,.reader-back-cover){left:0;border-top-left-radius:0;border-bottom-left-radius:0}
 
 
 
