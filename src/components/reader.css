@@ -218,7 +218,7 @@
 .reader .reader-bookmark-slip:hover,.reader .reader-bookmark-slip:focus-visible{opacity:1}
 .reader-page[data-bookmark-hidden='true'] .reader-bookmark-slip{visibility:hidden}
 .reader-bookmark-peek{position:absolute;z-index:9;left:50%;top:calc((100% - var(--paper-height))/2 - 20px);width:calc(var(--paper-height)*2/15);height:20px;pointer-events:none;transition:left .36s ease}
-.reader-bookmark-peek .reader-bookmark-slip{left:0;top:0;height:calc(var(--paper-height)*.4);width:100%;pointer-events:auto;clip-path:inset(-48px -16px calc(100% - 20px) -16px)}
+.reader-bookmark-peek .reader-bookmark-slip{left:0;top:0;height:calc(var(--paper-height)*.4);width:100%;pointer-events:auto;clip-path:none}
 .reader-back-mark{font:400 clamp(16px,2.3vw,25px)/1.65 'Gowun Batang',serif;letter-spacing:.08em;width:auto;max-width:85%;padding:18px 8px 0;overflow-wrap:anywhere}
 .reader svg.reader-back-barcode{display:block;width:min(56%,180px);height:52px;min-height:42px;background:var(--reader-preview-paper);opacity:1;flex-shrink:0}
 .reader-true-back{border:4px solid color-mix(in srgb,var(--book-cover),black 22%);border-left-width:7px;border-radius:3px 6px 6px 3px;box-shadow:inset 3px 0 7px #0004,inset -2px 0 2px #fff3,0 6px 0 -2px color-mix(in srgb,var(--book-cover),black 35%),0 8px 14px #0003}
@@ -292,7 +292,7 @@
 .reader-toolbar{position:relative;z-index:40;background:var(--reader-panel-bg)}
 .reader-book-mount{overflow:visible}
 .reader .reader-bookmark-dragging{cursor:grabbing;opacity:1!important;transition:none;will-change:translate}
-.reader-bookmark-peek:has(.reader-bookmark-dragging) .reader-bookmark-slip{clip-path:none}
+
 /* Editing controls sit outside the native page gesture surface. */
 .reader-edit-navigation{position:absolute;top:0;bottom:0;left:50%;transform:translateX(-50%);width:var(--reader-book-width);pointer-events:none;z-index:8}
 .reader-edit-navigation button{position:absolute;top:50%;transform:translateY(-50%);pointer-events:auto;display:grid;place-items:center;width:36px;height:56px;border:0;border-radius:0;background:transparent;color:var(--reader-ink);box-shadow:none;font:300 42px/1 system-ui}
@@ -318,12 +318,12 @@
 .reader .reader-inline-asset-remove{position:absolute;top:4px;right:4px;display:grid;place-items:center;width:28px;height:28px;padding:0;border:1px solid var(--reader-line);border-radius:50%;background:var(--reader-panel-bg);color:var(--reader-ink)}
 .reader .reader-inline-asset-undo{display:grid;place-items:center;width:100%;height:100%;padding:4px;border:1px dashed var(--reader-line);border-radius:3px;background:var(--reader-paper);color:var(--reader-muted);font-family:inherit;font-size:12px;line-height:1.4}
 .reader-asset-preview{position:fixed;inset:0;z-index:18;pointer-events:none}
-.reader-asset-preview-expand{position:absolute;overflow:hidden;border-radius:3px;background:var(--reader-paper);box-shadow:0 5px 22px #0004;animation:reader-asset-unfold .24s ease-out both}
-.reader-asset-preview-expand>img{display:block;width:100%;height:100%;object-fit:cover;object-position:top center;pointer-events:none}
-.reader-asset-preview-pinned{pointer-events:auto;background:#0002;touch-action:pan-y}
+.reader-asset-preview-expand{position:absolute;display:block;margin:0;padding:0;border:0;pointer-events:none;overflow:hidden;border-radius:3px;background:var(--reader-paper);box-shadow:0 5px 22px #0004;animation:reader-asset-unfold .24s ease-out both}
+.reader-asset-preview-expand>img{display:block;width:100%;height:100%;object-fit:contain;object-position:top center;pointer-events:none}
+.reader-asset-preview-pinned{pointer-events:none;background:transparent}
 .reader-asset-preview-pinned .reader-asset-preview-expand{pointer-events:auto}
-.reader-asset-preview-expand>button{position:absolute;top:4px;right:4px;display:grid;place-items:center;width:28px;height:28px;border:0;border-radius:50%;background:var(--reader-panel-bg);color:var(--reader-ink)}
-@keyframes reader-asset-unfold{from{width:var(--preview-start);height:var(--preview-start)}to{width:var(--preview-width);height:var(--preview-end)}}
+
+@keyframes reader-asset-unfold{from{clip-path:inset(0 var(--preview-clip-x,0px) var(--preview-clip-bottom,0px) var(--preview-clip-x,0px))}to{clip-path:inset(0)}}
 @media(prefers-reduced-motion:reduce){.reader-asset-preview-expand{animation:none}}
 .reader .reader-bookmark-image strong,.reader .reader-bookmark-character strong{position:absolute;z-index:2;left:6px;bottom:8px;max-height:50%;max-width:2.8em;writing-mode:vertical-rl;text-orientation:upright;text-align:start;font:600 14px/1.4 'Gowun Batang',serif;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;color:#fff;text-shadow:0 1px 3px #000,1px 0 2px #000,-1px 0 2px #000;background:transparent;border-radius:0;padding:0}
 .reader-bookmark-slip[data-bookmark-side='before']>.reader-bookmark-image-fill{transform:scaleX(-1)}
@@ -352,17 +352,35 @@
 .reader-edit-navigation button{height:112px;font-size:42px}
 .reader-edit-navigation button>span{display:block;transform:scaleY(2)}
 .reader-colophon{border-top:5px solid var(--book-cover);border-right:5px solid var(--book-cover);border-bottom:5px solid var(--book-cover);border-left:0}
-.reader-colophon dl{position:absolute;right:clamp(24px,8%,46px);bottom:clamp(32px,10%,64px);max-width:78%;margin:0;font:12px/1.8 'Gowun Batang',serif;color:var(--reader-ink)}
-.reader-colophon dl>div{margin-top:12px;text-align:right;overflow-wrap:anywhere}
-.reader-colophon dt{font-size:10px;color:var(--reader-muted);letter-spacing:.08em}
-.reader-colophon dd{margin:2px 0 0}
-.reader-front-cover{position:absolute;inset:0;display:grid;grid-template-rows:1fr auto 1fr;align-items:center;justify-items:center;gap:6%;padding:9% 10%;background:var(--book-cover);color:#fff4dd;border:4px solid color-mix(in srgb,var(--book-cover),black 20%);border-radius:3px 7px 7px 3px;box-shadow:inset 0 0 0 1px #fff2,inset 7px 0 10px #0002}
-.reader-front-cover-title{width:100%;max-height:100%;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;text-align:center;overflow-wrap:anywhere;font:400 clamp(20px,3.4vw,36px)/1.35 'Gowun Batang',serif}
-.reader-front-cover-portrait{width:100%;max-width:340px;aspect-ratio:1;overflow:hidden;align-self:center}
-.reader-front-cover-portrait img{width:100%;height:100%;object-fit:cover;object-position:top center;display:block}
-.reader-front-cover-volume{font:400 clamp(22px,3.5vw,40px)/1 Georgia,serif;letter-spacing:.12em;align-self:end}
+
+
+
+
+
+
+
+
+
 .reader-page[data-page-kind='front-endpaper']{background:transparent!important}
 
-.reader-front-cover{grid-template-rows:minmax(0,1fr) auto minmax(0,.65fr);gap:4%;padding:8% 10%}
-.reader-front-cover-portrait{width:min(100%,calc(var(--paper-height)*.44));height:auto}
+
+
 .reader-front-outside{position:absolute;inset:0;background:transparent}
+
+.reader-front-cover{position:absolute;inset:0;overflow:hidden;background:var(--reader-paper)}
+.reader-colophon-details{position:absolute;right:clamp(24px,8%,46px);bottom:clamp(32px,10%,64px);max-width:78%;text-align:right;color:var(--reader-ink);font:12px/1.8 'Gowun Batang',serif}
+.reader-colophon-details dl{position:static;max-width:none;margin:0}
+.reader-colophon-details dl>div{display:flex;justify-content:flex-end;align-items:baseline;flex-wrap:wrap;margin-top:8px;overflow-wrap:anywhere}
+.reader-colophon-details dt{font:inherit;color:var(--reader-muted)}
+.reader-colophon-details dt:after{content:' · ';white-space:pre}
+.reader-colophon-details dd{margin:0;font:inherit;max-width:100%}
+.reader-colophon-details h2{margin:24px 0 0;font:400 clamp(20px,2.8vw,30px)/1.4 'Gowun Batang',serif;overflow-wrap:anywhere}
+.reader-asset-preview-pinned .reader-asset-preview-expand{cursor:zoom-out}
+
+.reader-chapter-gutter{top:-12px;bottom:-12px}
+.reader-asset-preview-expand{will-change:clip-path}
+
+.reader-edit-navigation button[data-add-page] span{transform:none;font-size:44px}
+
+.reader-bookmark-peek{clip-path:inset(-100dvh -100vw 0 -100vw)}
+.modal-header-actions{display:flex;align-items:center;gap:4px}

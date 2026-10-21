@@ -1,0 +1,2 @@
+.book-cover-fit{position:absolute;inset:0;overflow:hidden;background:var(--cover)}
+.book-cover-fit>.book-cover.book-cover-reader{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) scale(var(--cover-fit-scale,1));transform-origin:center;flex-shrink:0}

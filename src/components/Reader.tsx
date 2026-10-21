@@ -1,4 +1,4 @@
-import { createContext, useContext, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode, PointerEvent as ReactPointerEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
@@ -10,16 +10,17 @@ import { ArrowRight, BookOpen, Bookmark, Check, ChevronLeft, ChevronRight, List,
 import type { Book, BookAsset } from '../lib/library';
 import { paginate, cleanText, startsChapter, chapterNumber, pageTextInsets } from '../lib/pagination';
 import type { Anchor, Fragment, PaperPage } from '../lib/pagination';
-import { readerPageCount, readReaderViewport } from '../lib/readerLayout';
+import { readerPageCount, readReaderViewport,isMobileReaderViewport } from '../lib/readerLayout';
 import BackBarcode from './BackBarcode';
 import ThemePicker from './ThemePicker';
 import {readTheme,saveTheme,THEME_EVENT} from '../lib/appearance';
 import {visibleProse,systemRanges} from '../lib/prose';
 import {imageReferenceRanges} from '../lib/assets';
 import {chapterLabel,editedMessages,fragmentKey} from '../lib/bookEditing';
-import type {ChapterDraft,ChapterInsertion} from '../lib/bookEditing';
+import type {ChapterDraft,ChapterInsertion,PageInsertion} from '../lib/bookEditing';
 import BookmarkTitle from './BookmarkTitle';
 import AssetImage from './AssetImage';
+import BookCover from './BookCover';
 import {squareAssetCrop} from '../lib/assetCrop';
 import './reader.css';
 
@@ -69,11 +70,12 @@ function readReaderPreferences(): ReaderPreferences {
 }
 
 function readFullwindowPreference(): boolean {
+  if(isMobileReaderViewport(readReaderViewport()))return true;
   try {
     const saved = window.localStorage.getItem(FULLWINDOW_KEY);
     if (saved === 'true' || saved === 'false') return saved === 'true';
   } catch { /* Unavailable storage must not prevent opening a book. */ }
-  return window.matchMedia('(pointer: coarse)').matches && window.matchMedia('(hover: none)').matches;
+  return false;
 }
 
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
@@ -135,19 +137,22 @@ const ChapterToolsContext=createContext<ChapterTools|null>(null);
 function EditableChunk({text,structure,opening,onInput,onAdd}:{text:string;structure:string;opening:boolean;onInput:(text:string)=>void;onAdd:(offset:number)=>void}){
  const ref=useRef<HTMLParagraphElement>(null);
  const [hover,setHover]=useState<{offset:number;top:number}|null>(null);
- useEffect(()=>{if(ref.current)ref.current.textContent=text;},[structure]);
+ useLayoutEffect(()=>{if(ref.current)ref.current.textContent=text;},[structure]);
  return <div className="reader-edit-chunk"><div className="reader-chapter-gutter" onPointerLeave={()=>setHover(null)} onPointerMove={event=>{
-  if(event.pointerType==='touch'||!ref.current||event.target instanceof Element&&event.target.closest('button'))return;
+  if(event.pointerType==='touch'||!ref.current)return;
   const paragraph=ref.current,box=paragraph.getBoundingClientRect();
   const scale=box.width/Math.max(1,paragraph.offsetWidth);
-  const line=(parseFloat(getComputedStyle(paragraph).lineHeight)||28)*scale;
+  const line=parseFloat(getComputedStyle(paragraph).lineHeight)||28;
+  const rows=Math.max(1,Math.ceil(paragraph.scrollHeight/line));
+  const row=clamp(Math.round((event.clientY-box.top)/Math.max(1,line*scale)),0,rows);
   const doc=document as Document&{caretRangeFromPoint?:(x:number,y:number)=>Range|null};
-  const caret=doc.caretRangeFromPoint?.(box.left+1,Math.min(box.bottom-1,event.clientY+line*.45));
-  if(!caret||!paragraph.contains(caret.startContainer)){setHover(null);return;}
-  const prefix=document.createRange();prefix.selectNodeContents(paragraph);prefix.setEnd(caret.startContainer,caret.startOffset);
-  const offset=prefix.toString().length,rect=caret.getBoundingClientRect();
-  if((offset===0&&opening)||offset>=paragraph.innerText.length){setHover(null);return;}
-  const top=Math.max(-10,(rect.top-box.top)/Math.max(.1,scale)-10);
+  const caret=doc.caretRangeFromPoint?.(box.left+1,Math.min(box.bottom-1,box.top+(row+.45)*line*scale));
+  let offset=paragraph.innerText.length;
+  if(row<rows&&caret&&paragraph.contains(caret.startContainer)){
+   const prefix=document.createRange();prefix.selectNodeContents(paragraph);prefix.setEnd(caret.startContainer,caret.startOffset);offset=prefix.toString().length;
+  }
+  // Empty newline rows are real grid cells too; no glyph rectangle is needed.
+  const top=row*line;
   setHover(previous=>previous?.offset===offset&&previous.top===top?previous:{offset,top});
  }}>
  <button type="button" className={`reader-add-chapter${hover?' reader-add-chapter-visible':''}`} style={{top:hover?.top??0}} aria-label="이 줄 앞에 챕터 추가" title="챕터 추가" data-no-flip onPointerDown={event=>event.preventDefault()} onClick={()=>{if(hover){onAdd(hover.offset);setHover(null);}else{const selection=window.getSelection();const paragraph=ref.current;if(selection?.rangeCount&&paragraph?.contains(selection.anchorNode)){const range=document.createRange();range.selectNodeContents(paragraph);range.setEnd(selection.anchorNode!,selection.anchorOffset);const offset=range.toString().length;if(offset||!opening)onAdd(offset);}else if(!opening)onAdd(0);}}}>&gt;&gt;</button>
@@ -190,7 +195,7 @@ function InlineAsset({fragment,editing,onEdit,draft,onPreview}:{fragment:Fragmen
  useEffect(()=>setRemoved(editing&&draft===''),[editing,draft]);
  return <div className="reader-inline-asset-body" data-no-flip>
  {removed?<button type="button" className="reader-inline-asset-undo" onClick={()=>{onEdit(fragment,fragment.text);setRemoved(false);}}>이미지 복원</button>:<>
- <button ref={buttonRef} data-asset-owner={owner} data-original-width={crop?.width} data-original-height={crop?.height} className="reader-inline-asset-open" type="button" aria-label={`${asset.name} 크게 보기`} onPointerDown={event=>event.stopPropagation()} onPointerEnter={event=>{if(event.pointerType!=='touch'&&eligible())onPreview(asset,owner);}} onPointerLeave={()=>{if(document.activeElement!==buttonRef.current)onPreview(null,owner);}} onFocus={()=>{if(eligible())onPreview(asset,owner);}} onBlur={()=>onPreview(null,owner)} onClick={event=>{event.stopPropagation();if(eligible())onPreview(asset,owner,true);}}><img src={crop?.src??asset.src} alt={asset.name} draggable={false}/></button>
+ <button ref={buttonRef} data-asset-owner={owner} data-original-width={crop?.width} data-original-height={crop?.height} className="reader-inline-asset-open" type="button" aria-label={`${asset.name} 크게 보기`} onPointerDown={event=>event.stopPropagation()} onPointerEnter={event=>{if(event.pointerType!=='touch'&&eligible())onPreview(asset,owner);}} onPointerLeave={()=>onPreview(null,owner)} onFocus={()=>{if(eligible())onPreview(asset,owner);}} onBlur={()=>onPreview(null,owner)} onClick={event=>{event.stopPropagation();if(eligible())onPreview(asset,owner,true);}}><img src={crop?.src??asset.src} alt={asset.name} draggable={false}/></button>
  {editing&&<button className="reader-inline-asset-remove" type="button" aria-label="본문 이미지 제거" title="본문에서 이미지 제거" onClick={()=>{onPreview(null,owner,true);onEdit(fragment,'');setRemoved(true);}}><X size={16}/></button>}
  </>}
  </div>;
@@ -229,7 +234,7 @@ function BookmarkSlip({style,icon,image,title,color,side='after',disabled,onActi
  return <span ref={elementRef} data-no-flip data-bookmark-side={side} className={`reader-bookmark-slip reader-bookmark-${style}`} role="button" tabIndex={disabled?-1:0} aria-disabled={disabled||undefined} aria-label="책갈피로 이동" title="책갈피로 이동 · 끌어서 제거" style={{'--bookmark-color':color} as CSSProperties}
  onPointerDown={event=>{event.stopPropagation();if(!allowed()||!event.isPrimary||event.button!==0||drag.current)return;event.preventDefault();event.currentTarget.focus({preventScroll:true});suppressClick.current=false;drag.current={id:event.pointerId,x:event.clientX,y:event.clientY,distance:0};try{event.currentTarget.setPointerCapture(event.pointerId);}catch{cancel();}}}
  onPointerMove={move}
- onPointerUp={event=>{event.stopPropagation();const active=drag.current;if(!active||active.id!==event.pointerId)return;move(event);if(drag.current!==active)return;const eligible=allowed();const distance=active.distance;reset();suppressClick.current=true;if(!eligible)return;if(distance>=36)actions.current.onRemove?.();else if(distance<=5)actions.current.onActivate?.();}}
+ onPointerUp={event=>{event.stopPropagation();const active=drag.current;if(!active||active.id!==event.pointerId)return;move(event);if(drag.current!==active)return;const eligible=allowed();const distance=active.distance;suppressClick.current=true;if(!eligible){reset();return;}if(distance>=36){drag.current=null;try{if(event.currentTarget.hasPointerCapture(active.id))event.currentTarget.releasePointerCapture(active.id);}catch{}const element=event.currentTarget;actions.current.onRemove?.();setTimeout(()=>{if(element.isConnected)reset();},500);}else{reset();if(distance<=5)actions.current.onActivate?.();}}}
  onPointerCancel={event=>{event.stopPropagation();if(drag.current?.id===event.pointerId)cancel();}}
  onLostPointerCapture={event=>{if(drag.current?.id===event.pointerId)cancel();}}
  onClick={event=>{event.stopPropagation();event.preventDefault();if(suppressClick.current){suppressClick.current=false;return;}if(allowed())actions.current.onActivate?.();}}
@@ -252,11 +257,10 @@ function PageLeaf({page,book,query,index,onNext,onClose,mobile,editing,onEdit,dr
  const heading=editing&&chapterMessage!==undefined?chapterTools?.headings.get(chapterMessage):undefined;
  const chapterTitle=chapterLabel(heading?.number??page.chapter??1,heading?.title??page.chapterTitle);
  const coverTitle=cleanText(book.title).replace(/\s*·\s*\d+권\s*$/,'');
- const icon=book.characterIcon??book.assets?.find(asset=>asset.type==='icon')?.src;
  const date=(value:string)=>{const parsed=new Date(value);return Number.isNaN(parsed.getTime())?'—':parsed.toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit'});};
  const action=<button className="reader-end-action" data-no-flip disabled={editing} onClick={onNext??onClose}>{onNext?'다음 권 읽기':'서재로'}<ArrowRight size={18}/></button>;
- if(page.kind==='front-cover')return <div className="reader-front-cover" style={{'--book-cover':book.color} as CSSProperties}><div className="reader-front-cover-title">{coverTitle}</div><div className="reader-front-cover-portrait">{icon&&<AssetImage src={icon} alt=""/>}</div><span className="reader-front-cover-volume">{String(book.volumeNumber??1).padStart(2,'0')}</span></div>;
- if(page.kind==='colophon')return <div className="reader-paper-shell reader-colophon" style={{'--book-cover':book.color} as CSSProperties}>{bookmark&&<BookmarkSlip {...bookmark}/>}<dl><div><dt>업로드 날짜</dt><dd>{date(book.uploadedAt??book.createdAt)}</dd></div><div><dt>수정 날짜</dt><dd>{date(book.updatedAt)}</dd></div><div><dt>모델 이름</dt><dd>{book.author?.trim()||book.aiModel?.trim()||readerCopy.unknownAuthor}</dd></div><div><dt>책 이름</dt><dd>{coverTitle}</dd></div></dl></div>;
+ if(page.kind==='front-cover')return <div className="reader-front-cover"><BookCover book={book} fit/></div>;
+ if(page.kind==='colophon')return <div className="reader-paper-shell reader-colophon" style={{'--book-cover':book.color} as CSSProperties}>{bookmark&&<BookmarkSlip {...bookmark}/>}<section className="reader-colophon-details"><dl><div><dt>업로드일</dt><dd>{date(book.uploadedAt??book.createdAt)}</dd></div><div><dt>수정일</dt><dd>{date(book.updatedAt)}</dd></div><div><dt>저자 모델</dt><dd>{book.author?.trim()||book.aiModel?.trim()||readerCopy.unknownAuthor}</dd></div></dl><h2>{coverTitle}</h2></section></div>;
  if(page.kind==='back-cover')return <div className="reader-back-cover reader-true-back" style={{'--book-cover':book.color} as CSSProperties}><div className="reader-back-imprint"><span className="reader-back-colophon">{cleanText(book.author)}</span><span className="reader-back-mark">{cleanText(book.title).replace(/\s*·\s*\d+권\s*$/,'')}</span><span className="reader-back-volume">{book.volumeNumber?String(book.volumeNumber).padStart(2,'0'):''}</span><BackBarcode/>{mobile&&action}</div></div>;
  if(page.kind==='front-endpaper')return <div className="reader-front-outside"/>;
  if(page.kind==='end')return <div className="reader-end-half">{action}</div>;
@@ -279,17 +283,22 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
   const [editing,setEditing]=useState(false);
   const [assetPreview,setAssetPreview]=useState<AssetPreview|null>(null);
   const assetPreviewRef=useRef(assetPreview);assetPreviewRef.current=assetPreview;
+  const hoverSuppressedRef=useRef(new Set<string>());
   const previewAsset=(asset:BookAsset|null,owner:string,pinned=false)=>setAssetPreview(current=>{
-    if(!asset)return current?.owner===owner&&(!current.pinned||pinned)?null:current;
-    if(current?.owner===owner&&current.pinned&&!pinned)return current;
+    if(!asset){hoverSuppressedRef.current.delete(owner);return current?.owner===owner&&(!current.pinned||pinned)?null:current;}
+    if(!pinned&&hoverSuppressedRef.current.has(owner))return current;
+    if(current?.pinned&&!pinned)return current;
+    if(current?.owner===owner&&current.pinned&&pinned){hoverSuppressedRef.current.add(owner);return null;}
     const element=readerRef.current?.querySelector<HTMLButtonElement>(`[data-asset-owner="${owner}"]`);
     if(!element)return null;
     const rect=element.getBoundingClientRect(),image=element.querySelector('img');
     const originalWidth=Number(element.dataset.originalWidth)||image?.naturalWidth||1;
     const originalHeight=Number(element.dataset.originalHeight)||image?.naturalHeight||1;
     const ratio=originalHeight/originalWidth;
-    const width=Math.min(rect.width,window.innerWidth-24,(window.innerHeight-24)/ratio),height=width*ratio;
-    return {asset,owner,pinned,left:clamp(rect.left,12,window.innerWidth-width-12),top:clamp(rect.top,12,window.innerHeight-height-12),width,height,size:rect.height};
+    let width=ratio>=1?rect.width:rect.height/ratio,height=width*ratio;
+    const fit=Math.min(1,(window.innerWidth-24)/width,(window.innerHeight-24)/height);width*=fit;height*=fit;
+    const left=clamp(rect.left+(rect.width-width)/2,12,window.innerWidth-width-12);
+    return {asset,owner,pinned,left,top:clamp(rect.top,12,window.innerHeight-height-12),width,height,size:rect.height};
   });
   const [saving,setSaving]=useState(false);
   const [editError,setEditError]=useState('');
@@ -298,6 +307,14 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
   const chapterDraftsRef=useRef(new Map<number,ChapterDraft>());
   const chapterInsertionsRef=useRef(new Map<string,ChapterInsertion>());
   const chapterSequence=useRef(0);
+  const draftPagesRef=useRef(new Map<string,PageInsertion>());
+  const draftPageSequence=useRef(0);
+  const editingSourceRef=useRef<Book|null>(null);
+  const editingReflowedRef=useRef(false);
+  const editBookmarkRef=useRef<Anchor|null>(null);
+  const reflowEditingRef=useRef<(fragment:Fragment,offset:number)=>void>(()=>{});
+  const insertPageRef=useRef<(after:number)=>void>(()=>{});
+  const restoreDraftPagesRef=useRef<()=>void>(()=>{});
   // Restore the browser's choice; use the input-based default on first use.
   const [fullscreen,setFullscreen]=useState(readFullwindowPreference);
   useEffect(()=>{try{window.localStorage.setItem(FULLWINDOW_KEY,String(fullscreen));}catch{}},[fullscreen]);
@@ -493,7 +510,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
       measure.style.setProperty('--paper-height',`${height}px`);
       const body=paginate(currentBook, measure,{pageHeight:height,contentTop});
       body.forEach((page,index)=>{page.pageNumber=index+1;});
-      const bodyCount=body.length;
+      let bodyCount=body.length;
       const prefix:PaperPage[]=count===2?[{fragments:[],intro:false,kind:'front-endpaper'},{fragments:[],intro:false,kind:'front-cover'}]:[{fragments:[],intro:false,kind:'front-cover'}];
       const nextPages:PaperPage[]=[...prefix,...body,{fragments:[],intro:false,kind:'endpaper'}];
       if(count===2&&nextPages.length%2)nextPages.push({fragments:[],intro:false,kind:'endpaper'});
@@ -516,7 +533,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
       stageRef.current?.style.setProperty('--reader-edit-scale',String(Math.min(1,Math.max(.5,(dimensions.width-88)/(width*count)))));
       stageRef.current?.style.setProperty('--paper-width',`${width}px`);stageRef.current?.style.setProperty('--paper-height',`${height}px`);
       mountRef.current.append(host);
-      const nodes = nextPages.map((page, index) => {
+      const makeNode = (page:PaperPage,index:number) => {
         const element = document.createElement('div');
         element.className = `reader-page ${index % 2 === 0 ? 'reader-page-left' : 'reader-page-right'}`;
         element.dataset.pageKind=page.kind??'paper';
@@ -527,7 +544,10 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
         element.setAttribute('lang', 'ko');
         host!.append(element);
         return element;
-      });
+      };
+      const nodes=nextPages.map(makeNode);
+      const baselinePages=[...nextPages];
+      const nodeByPage=new Map(nextPages.map((page,index)=>[page,nodes[index]!]));
       const mounted=new Map<number,{root:Root;element:HTMLElement}>();
       mountedPagesRef.current=mounted;
       const renderWindow=(index:number,keepIndex?:number)=>{
@@ -556,6 +576,85 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
         renderWindow(safe);
         if(saveAnchor){frontRequestedRef.current=safe<prefix.length;anchorRef.current=frontRequestedRef.current?null:nextPages[safe].fragments[0]??body[bodyCount-1]?.fragments[0]??null;}
 
+      };
+      const isBody=(page:PaperPage)=>!page.kind||page.kind==='paper'||page.kind==='asset';
+      const syncPages=(target:number)=>{
+        let number=0;
+        const reordered=nextPages.map((page,index)=>{
+          if(isBody(page))page.pageNumber=++number;
+          let node=nodeByPage.get(page);if(!node){node=makeNode(page,index);nodeByPage.set(page,node);}
+          node.className=`reader-page ${index%2===0?'reader-page-left':'reader-page-right'}`;
+          node.dataset.readerPageIndex=String(index);node.dataset.pageKind=page.kind??'paper';
+          node.setAttribute('aria-label',page.pageNumber?`${page.pageNumber}쪽`:page.kind??'속표지');
+          return node;
+        });
+        const indexes=new Map(reordered.map((node,index)=>[node,index]));
+        const entries=[...mounted.values()];mounted.clear();
+        for(const entry of entries){const index=indexes.get(entry.element);if(index===undefined){entry.root.unmount();entry.element.remove();}else mounted.set(index,entry);}
+        nodes.splice(0,nodes.length,...reordered);
+        body.splice(0,body.length,...nextPages.filter(isBody));bodyCount=body.length;
+        pagesRef.current=nextPages;setContentCount(bodyCount);setPages([...nextPages]);
+        instance?.cancelUserTouch();instance?.updateFromHtml(nodes);instance?.setInteractionEnabled(false);
+        const destination=clamp(target,0,nextPages.length-1);
+        renderWindow(destination);instance?.turnToPage(destination);
+        report(instance?.getCurrentPageIndex()??destination);
+        mounted.forEach(({root},index)=>root.render(renderLeafRef.current(nextPages[index]!,index,count===1)));
+        setSelectedLeaf(destination);
+      };
+      insertPageRef.current=after=>{
+        if(cancelled||!instance||!nextPages[after]||!isBody(nextPages[after]!))return;
+        const id=`paper-${++draftPageSequence.current}`;
+        const following=nextPages.slice(after+1).flatMap(page=>page.fragments).find(fragment=>fragment.message>=0);
+        const source=editingSourceRef.current??currentBook;
+        const last=source.messages.length-1;
+        const before=following?{message:following.message,char:following.char}:{message:last,char:source.messages[last]?.content.length??0};
+        const fragment:Fragment={message:-draftPageSequence.current,char:0,end:0,name:currentBook.author,text:''};
+        const page:PaperPage={fragments:[fragment],intro:false,kind:'paper',draftPage:id};
+        draftPagesRef.current.set(id,{id,before,fragment,after:!following});draftsRef.current.set(fragmentKey(fragment),'');
+        nextPages.splice(after+1,0,page);
+        if(count===2){
+          const colophon=nextPages.findIndex(entry=>entry.kind==='colophon');
+          if(colophon%2===0){const blank=nextPages.findIndex(entry=>entry.kind==='endpaper');if(blank>=0)nextPages.splice(blank,1);else nextPages.splice(colophon,0,{fragments:[],intro:false,kind:'endpaper'});}
+        }
+        const destination=nextPages.indexOf(page);syncPages(destination);
+        requestAnimationFrame(()=>{
+          const element=nodeByPage.get(page)?.querySelector<HTMLElement>('[contenteditable]');
+          element?.focus();if(element){const range=document.createRange();range.selectNodeContents(element);range.collapse(true);window.getSelection()?.removeAllRanges();window.getSelection()?.addRange(range);}
+        });
+      };
+      const pageDrafts=()=>nextPages.flatMap(page=>page.draftPage&&draftPagesRef.current.has(page.draftPage)?[draftPagesRef.current.get(page.draftPage)!]:[]);
+      reflowEditingRef.current=(fragment,offset)=>{
+        if(cancelled||!instance)return;
+        const source=editingSourceRef.current??currentBook;
+        const edited=editedMessages(source,draftsRef.current,chapterDraftsRef.current,[...chapterInsertionsRef.current.values()],nextPages.flatMap(page=>page.fragments),pageDrafts(),false);
+        const caret=edited.mapDraftOffset(fragment,offset);
+        if(editBookmarkRef.current)editBookmarkRef.current=edited.mapAnchor(editBookmarkRef.current);
+        editingSourceRef.current={...source,messages:edited.messages};editingReflowedRef.current=true;
+        draftsRef.current.clear();chapterDraftsRef.current.clear();chapterInsertionsRef.current.clear();draftPagesRef.current.clear();
+        const flowed=paginate(editingSourceRef.current,measure,{pageHeight:height,contentTop});
+        const replacement:PaperPage[]=[...prefix,...flowed,{fragments:[],intro:false,kind:'endpaper'}];
+        if(count===2&&replacement.length%2)replacement.push({fragments:[],intro:false,kind:'endpaper'});
+        replacement[replacement.length-1]!.kind='colophon';replacement.push({fragments:[],intro:false,kind:'back-cover'});
+        if(count===2)replacement.push({fragments:[],intro:false,kind:'end'});
+        nextPages.splice(0,nextPages.length,...replacement);
+        const destination=pageForAnchor(nextPages,caret);syncPages(destination);anchorRef.current=caret;setLeafRevision(value=>value+1);
+        const keep=new Set([...baselinePages,...nextPages]);for(const page of nodeByPage.keys())if(!keep.has(page))nodeByPage.delete(page);
+        requestAnimationFrame(()=>{
+          const page=nextPages[destination],target=page.fragments.find(entry=>entry.message===caret.message&&entry.char<=caret.char&&caret.char<=entry.end);
+          if(!target)return;
+          const section=nodeByPage.get(page)?.querySelector<HTMLElement>(`[data-message="${target.message}"][data-char="${target.char}"]`);
+          const passage=section?.querySelector<HTMLElement>('[contenteditable]');if(!passage)return;
+          passage.focus();let remaining=Math.max(0,caret.char-target.char);
+          const walker=document.createTreeWalker(passage,NodeFilter.SHOW_TEXT);let node:Node|null,last:Node|null=null;
+          while((node=walker.nextNode())){last=node;if(remaining<=(node.textContent?.length??0))break;remaining-=node.textContent?.length??0;}
+          const range=document.createRange();if(node)range.setStart(node,remaining);else if(last)range.setStart(last,last.textContent?.length??0);else{range.selectNodeContents(passage);range.collapse(true);}range.collapse(true);
+          window.getSelection()?.removeAllRanges();window.getSelection()?.addRange(range);
+        });
+      };
+      restoreDraftPagesRef.current=()=>{
+        if(!draftPagesRef.current.size&&!editingReflowedRef.current)return;
+        nextPages.splice(0,nextPages.length,...baselinePages);draftPagesRef.current.clear();editingSourceRef.current=null;editingReflowedRef.current=false;
+        syncPages(prefix.length);
       };
       try {
         instance = new PageFlip(host, {
@@ -602,7 +701,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
       rootsRef.current = [];
       const mounted=mountedPagesRef.current;
       mountedPagesRef.current=new Map();
-      renderWindowRef.current=()=>{};
+      renderWindowRef.current=()=>{};insertPageRef.current=()=>{};restoreDraftPagesRef.current=()=>{};reflowEditingRef.current=()=>{};
       // Defer nested React root disposal until this component's effect cleanup ends.
       queueMicrotask(() => {
         pageRoots.forEach(root => root.unmount());
@@ -670,7 +769,6 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
       if(event.key==='Escape'&&assetPreviewRef.current){event.preventDefault();setAssetPreview(null);return;}
-      if(assetPreviewRef.current?.pinned)return;
       if(blockedRef.current)return;
       const target = event.target as HTMLElement | null;
       if (event.key === 'Escape') {
@@ -698,7 +796,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
     const stage=stageRef.current;if(!stage)return;
     let accumulated=0,last=-Infinity,lastInput=0;
     const wheel=(event:WheelEvent)=>{
-      if(event.ctrlKey||blockedRef.current||panel||drawerRef.current||assetPreviewRef.current?.pinned){accumulated=0;return;}
+      if(event.ctrlKey||blockedRef.current||panel||drawerRef.current){accumulated=0;return;}
       event.preventDefault();
       const now=performance.now();
       if(now-lastInput>180)accumulated=0;
@@ -761,12 +859,35 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
   useEffect(()=>{
     if(editing||nextConfirm||leaveConfirm||panel||drawerOpen){navigationRevisionRef.current++;queuedTurnRef.current=null;}
     const flip=flipRef.current;
-    const enabled=!editing&&!nextConfirm&&!leaveConfirm&&!drawerOpen&&!panel&&!assetPreview?.pinned;
+    const enabled=!editing&&!nextConfirm&&!leaveConfirm&&!drawerOpen&&!panel;
     // Reapplying false cancels a gesture; only update on an actual transition.
     if(flip&&flip.isInteractionEnabled()!==enabled)flip.setInteractionEnabled(enabled);
-  },[editing,nextConfirm,leaveConfirm,loading,panel,drawerOpen,assetPreview?.pinned]);
-  useEffect(()=>{if(!editing&&!nextConfirm&&!leaveConfirm){setViewport(previous=>{const next=readReaderViewport();return previous.width===next.width&&previous.height===next.height&&previous.touch===next.touch&&previous.horizontalSegments===next.horizontalSegments?previous:next;});const stage=stageRef.current;if(stage){const box=stage.getBoundingClientRect();setDimensions(previous=>{const next={width:Math.floor(box.width),height:Math.floor(box.height)};return previous.width===next.width&&previous.height===next.height?previous:next;});}}},[editing,nextConfirm,leaveConfirm]);
-  useEffect(()=>{setAssetPreview(null);},[pageIndex,editing,drawerOpen,panel,loading]);
+  },[editing,nextConfirm,leaveConfirm,loading,panel,drawerOpen]);
+  useEffect(()=>{if(!editing&&!nextConfirm&&!leaveConfirm){setViewport(previous=>{const next=readReaderViewport();return previous.width===next.width&&previous.height===next.height&&previous.touch===next.touch&&previous.horizontalSegments===next.horizontalSegments&&previous.screenWidth===next.screenWidth&&previous.screenHeight===next.screenHeight?previous:next;});const stage=stageRef.current;if(stage){const box=stage.getBoundingClientRect();setDimensions(previous=>{const next={width:Math.floor(box.width),height:Math.floor(box.height)};return previous.width===next.width&&previous.height===next.height?previous:next;});}}},[editing,nextConfirm,leaveConfirm]);
+  useEffect(()=>{setAssetPreview(null);hoverSuppressedRef.current.clear();},[pageIndex,editing,drawerOpen,panel,loading]);
+  useEffect(()=>{
+    if(!editing)return;
+    let timer:ReturnType<typeof setTimeout>|undefined;
+    const check=(event:Event)=>{
+      if((event as InputEvent).isComposing)return;
+      if(timer)return;timer=setTimeout(()=>{
+        timer=undefined;
+        const selection=window.getSelection();if(!selection?.rangeCount||!selection.isCollapsed)return;
+        const range=selection.getRangeAt(0),node=range.startContainer;
+        const element=node.nodeType===Node.ELEMENT_NODE?node as Element:node.parentElement;
+        const passage=element?.closest<HTMLElement>('.reader-live-passage'),leaf=passage?.closest<HTMLElement>('[data-reader-page-index]');
+        const content=passage?.closest<HTMLElement>('.reader-page-content'),section=passage?.closest<HTMLElement>('.reader-fragment');
+        if(!passage||!leaf||!content||!section||leaf.dataset.flipCopy||content.scrollHeight<=content.clientHeight+1)return;
+        const page=pagesRef.current[Number(leaf.dataset.readerPageIndex)];
+        const fragment=page?.fragments.find(entry=>entry.message===Number(section.dataset.message)&&entry.char===Number(section.dataset.char));if(!fragment)return;
+        let offset=0;for(const part of section.querySelectorAll<HTMLElement>('[contenteditable]')){if(part===passage)break;offset+=part.innerText.length;}
+        const prefix=document.createRange();prefix.selectNodeContents(passage);prefix.setEnd(range.startContainer,range.startOffset);offset+=prefix.toString().length;
+        reflowEditingRef.current(fragment,offset);
+      },60);
+    };
+    const mount=mountRef.current;mount?.addEventListener('input',check);mount?.addEventListener('compositionend',check);
+    return()=>{clearTimeout(timer);mount?.removeEventListener('input',check);mount?.removeEventListener('compositionend',check);};
+  },[editing]);
   const onEdit:EditFragment=(fragment,text)=>{draftsRef.current.set(`${fragment.message}:${fragment.char}`,text);};
   useEffect(()=>{
     setSelectedBookmarkStyle(displayBookmarkStyle(shelfBookmark ? shelfBookmark.style ?? 'normal' : bookmarkStyle ?? book.bookmarkStyle ?? 'normal'));
@@ -813,7 +934,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
     insertions:[...chapterInsertionsRef.current.values()],
     headings:new Map(),numbers:new Map(),
     add:(fragment,offset)=>{
-      if(!editing||fragment.char===0&&offset===0&&(chapterDraftsRef.current.get(fragment.message)?.chapterStart??startsChapter(bookRef.current,fragment.message)))return;
+      if(!editing||fragment.char===0&&offset===0&&(chapterDraftsRef.current.get(fragment.message)?.chapterStart??startsChapter(editingSourceRef.current??bookRef.current,fragment.message)))return;
       if([...chapterInsertionsRef.current.values()].some(entry=>fragmentKey(entry.fragment)===fragmentKey(fragment)&&entry.offset===offset))return;
       const id=`chapter-${++chapterSequence.current}`;
       chapterInsertionsRef.current.set(id,{id,fragment,offset});setLeafRevision(value=>value+1);
@@ -830,18 +951,21 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
       if(changed)setLeafRevision(value=>value+1);
     },
   };
-  const chapterEvents=[...book.messages.flatMap((message,index)=>(chapterDraftsRef.current.get(index)?.chapterStart??startsChapter(book,index))?[{message:index,char:0,offset:-1,title:chapterDraftsRef.current.get(index)?.chapterTitle??message.chapterTitle,id:undefined as string|undefined}]:[]),...chapterTools.insertions.map(entry=>({message:entry.fragment.message,char:entry.fragment.char,offset:entry.offset,title:entry.chapterTitle,id:entry.id}))].sort((a,b)=>a.message-b.message||a.char-b.char||a.offset-b.offset);
+  const editingBook=editingSourceRef.current??book;
+  const fragmentPositions=new Map<string,number>();pagesRef.current.forEach((page,index)=>page.fragments.forEach(fragment=>fragmentPositions.set(fragmentKey(fragment),index)));
+  const firstMessagePage=new Map<number,number>();pagesRef.current.forEach((page,index)=>page.fragments.forEach(fragment=>{if(!firstMessagePage.has(fragment.message))firstMessagePage.set(fragment.message,index);}));
+  const chapterEvents=[...editingBook.messages.flatMap((message,index)=>(chapterDraftsRef.current.get(index)?.chapterStart??startsChapter(editingBook,index))?[{message:index,char:0,offset:-1,page:firstMessagePage.get(index)??index,title:chapterDraftsRef.current.get(index)?.chapterTitle??message.chapterTitle,id:undefined as string|undefined}]:[]),...chapterTools.insertions.map(entry=>({message:entry.fragment.message,char:entry.fragment.char,offset:entry.offset,page:fragmentPositions.get(fragmentKey(entry.fragment))??0,title:entry.chapterTitle,id:entry.id}))].sort((a,b)=>a.page-b.page||a.char-b.char||a.offset-b.offset);
   chapterEvents.forEach((entry,index)=>{if(entry.id)chapterTools.numbers.set(entry.id,index+1);else chapterTools.headings.set(entry.message,{number:index+1,title:entry.title});});
-  renderLeafRef.current=(page,index,mobile)=><ChapterToolsContext.Provider value={chapterTools}><PageLeaf page={page} book={bookRef.current} query={queryRef.current} index={index} mobile={mobile} editing={editing} onEdit={onEdit} drafts={draftsRef.current} chapterDrafts={chapterDraftsRef.current} onPreview={previewAsset} onChapterEdit={(message,patch)=>{chapterDraftsRef.current.set(message,{...chapterDraftsRef.current.get(message),...patch});if(patch.chapterStart===false)setLeafRevision(value=>value+1);}} onNext={nextVolumeRef.current?()=>requestNextRef.current():undefined} onClose={()=>requestCloseRef.current()} bookmark={shelfBookmark?.bookId===bookRef.current.id&&bookmarkPage(pagesRef.current,shelfBookmark)===index?{...bookmarkInteraction,style:ribbonStyle,icon:ribbonIcon,image:ribbonImage,title:shelfBookmark.title,color:bookRef.current.color,side:index<(selectedLeaf??pageIndex)?'before':'after'}:undefined}/></ChapterToolsContext.Provider>;
-  useEffect(()=>{if(!onSaveBook&&editing){draftsRef.current.clear();chapterDraftsRef.current.clear();chapterInsertionsRef.current.clear();setEditing(false);setLeafRevision(value=>value+1);}},[onSaveBook,editing]);
-  function cancelEditing(){draftsRef.current.clear();chapterDraftsRef.current.clear();chapterInsertionsRef.current.clear();setEditing(false);setEditError('');setLeafRevision(value=>value+1);}
+  renderLeafRef.current=(page,index,mobile)=><ChapterToolsContext.Provider value={chapterTools}><PageLeaf page={page} book={editingSourceRef.current??bookRef.current} query={queryRef.current} index={index} mobile={mobile} editing={editing} onEdit={onEdit} drafts={draftsRef.current} chapterDrafts={chapterDraftsRef.current} onPreview={previewAsset} onChapterEdit={(message,patch)=>{chapterDraftsRef.current.set(message,{...chapterDraftsRef.current.get(message),...patch});if(patch.chapterStart===false)setLeafRevision(value=>value+1);}} onNext={nextVolumeRef.current?()=>requestNextRef.current():undefined} onClose={()=>requestCloseRef.current()} bookmark={shelfBookmark?.bookId===bookRef.current.id&&bookmarkPage(pagesRef.current,shelfBookmark)===index?{...bookmarkInteraction,style:ribbonStyle,icon:ribbonIcon,image:ribbonImage,title:shelfBookmark.title,color:bookRef.current.color,side:index<(selectedLeaf??pageIndex)?'before':'after'}:undefined}/></ChapterToolsContext.Provider>;
+  useEffect(()=>{if(!onSaveBook&&editing){draftsRef.current.clear();chapterDraftsRef.current.clear();chapterInsertionsRef.current.clear();draftPagesRef.current.clear();editingSourceRef.current=null;editingReflowedRef.current=false;setEditing(false);setLeafRevision(value=>value+1);}},[onSaveBook,editing]);
+  function cancelEditing(){restoreDraftPagesRef.current();editingSourceRef.current=null;editingReflowedRef.current=false;draftsRef.current.clear();chapterDraftsRef.current.clear();chapterInsertionsRef.current.clear();draftPagesRef.current.clear();setEditing(false);setEditError('');setLeafRevision(value=>value+1);}
   async function saveEditing(){
-    if(!onSaveBook||saving)return;const source=bookRef.current;
-    const {messages,mapAnchor}=editedMessages(source,draftsRef.current,chapterDraftsRef.current,[...chapterInsertionsRef.current.values()],pagesRef.current.flatMap(page=>page.fragments));
+    if(!onSaveBook||saving)return;const source=editingSourceRef.current??bookRef.current;
+    const {messages,mapAnchor}=editedMessages(source,draftsRef.current,chapterDraftsRef.current,[...chapterInsertionsRef.current.values()],pagesRef.current.flatMap(page=>page.fragments),pagesRef.current.flatMap(page=>page.draftPage&&draftPagesRef.current.has(page.draftPage)?[draftPagesRef.current.get(page.draftPage)!]:[]));
     const existingMark=shelfBookmark?.bookId===source.id?shelfBookmark:undefined;
-    const adjustedMark=existingMark?{...mapAnchor(existingMark),label:existingMark.label}:undefined;
+    const adjustedMark=existingMark?{...mapAnchor(editBookmarkRef.current??existingMark),label:existingMark.label}:undefined;
     const nextAnchor=anchorRef.current?mapAnchor(anchorRef.current):null;
-    setSaving(true);setEditError('');try{await onSaveBook({...source,messages,...(adjustedMark?{bookmarks:[adjustedMark]}:{}),updatedAt:new Date().toISOString()});anchorRef.current=nextAnchor;activeMessagesRef.current=messages;if(adjustedMark&&onBookmarkChange)await onBookmarkChange(adjustedMark,shelfBookmark?.style??selectedBookmarkStyle);draftsRef.current.clear();chapterDraftsRef.current.clear();chapterInsertionsRef.current.clear();setEditing(false);setLeafRevision(value=>value+1);}catch{setEditError('저장하지 못했어요. 다시 시도하세요.');}finally{setSaving(false);}
+    setSaving(true);setEditError('');try{await onSaveBook({...source,messages,...(adjustedMark?{bookmarks:[adjustedMark]}:{}),updatedAt:new Date().toISOString()});anchorRef.current=nextAnchor;activeMessagesRef.current=messages;if(adjustedMark&&onBookmarkChange)await onBookmarkChange(adjustedMark,shelfBookmark?.style??selectedBookmarkStyle);draftsRef.current.clear();chapterDraftsRef.current.clear();chapterInsertionsRef.current.clear();draftPagesRef.current.clear();editingSourceRef.current=null;editingReflowedRef.current=false;setEditing(false);setLeafRevision(value=>value+1);}catch{setEditError('저장하지 못했어요. 다시 시도하세요.');}finally{setSaving(false);}
   }
   function currentAnchor(){return bookmarkAnchor(pagesRef.current,Math.min(selectedLeaf??pageIndex,pagesRef.current.length-1),contentCount);}
   requestCloseRef.current=()=>{
@@ -877,7 +1001,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
       <button className="reader-back" onClick={()=>requestCloseRef.current()} aria-label="책을 닫고 서재로 돌아가기" title="서재로 돌아가기" disabled={editing||saving}><ChevronLeft size={19} /><span>서재</span></button>
       <div className="reader-toolbar-title"><span>{book.title}</span><small>{book.author || readerCopy.unknownAuthor}</small></div>
       <div className="reader-tools">
-        {onSaveBook&&<button className={`reader-icon-button ${editing?'reader-active':''}`} aria-label="본문 편집" title="페이지에서 편집" aria-pressed={editing} disabled={saving} onClick={()=>{if(editing){cancelEditing();return;}setPanel(null);draftsRef.current.clear();chapterDraftsRef.current.clear();chapterInsertionsRef.current.clear();setEditError('');setDrawerOpen(false);setEditing(true);}}><Pencil size={18}/></button>}
+        {onSaveBook&&<button className={`reader-icon-button ${editing?'reader-active':''}`} aria-label="본문 편집" title="페이지에서 편집" aria-pressed={editing} disabled={saving} onClick={()=>{if(editing){cancelEditing();return;}setPanel(null);draftsRef.current.clear();chapterDraftsRef.current.clear();chapterInsertionsRef.current.clear();setEditError('');setDrawerOpen(false);editingSourceRef.current=bookRef.current;editingReflowedRef.current=false;editBookmarkRef.current=shelfBookmark?.bookId===book.id?shelfBookmark:null;setEditing(true);}}><Pencil size={18}/></button>}
         {onBookmarkChange&&<button className={`reader-icon-button ${activeBookmarked?'reader-active':''}`} aria-label={bookmarkAction} title={bookmarkAction} aria-pressed={activeBookmarked} disabled={editing||saving||bookmarkBusy||loading||(!activeBookmarked&&!bookmarkAnchor(pages,activeLeaf,contentCount))} onClick={()=>void toggleBookmark(activeLeaf)}><Bookmark size={18} fill={activeBookmarked?'currentColor':'none'}/></button>}
         <button ref={windowModeButtonRef} className="reader-icon-button" aria-label={fullscreen?'전체창 해제':'전체창'} title={fullscreen?'전체창 해제':'전체창'} disabled={editing} onClick={()=>fullscreen?exitFullwindow():enterFullwindow()}><Maximize size={18}/></button>
         <button ref={element => { panelButtonRefs.current.contents = element; }} className={`reader-icon-button ${panel === 'contents' ? 'reader-active' : ''}`} aria-label="목차 보기" title="목차" disabled={editing} aria-expanded={panel === 'contents'} aria-controls="reader-contents" onClick={() => togglePanel('contents')}><List size={20} /></button>
@@ -893,7 +1017,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
       <div className="reader-stage" ref={stageRef} aria-busy={loading} data-book-closed={pages.slice(pageIndex,pageIndex+spread).some(page=>page.kind==='back-cover'||page.kind==='front-cover')}>
         <div className="reader-book-mount" ref={mountRef} onPointerDownCapture={event=>{const page=(event.target as HTMLElement).closest<HTMLElement>('[data-reader-page-index]');if(page&&!page.dataset.flipCopy)setSelectedLeaf(Number(page.dataset.readerPageIndex));}}/>
         {!loading&&peekBookmark&&shelfBookmark&&<div className={`reader-bookmark-peek reader-bookmark-peek-${markedPage<pageIndex?'before':'after'}`} aria-label="페이지 사이 책갈피"><BookmarkSlip {...bookmarkInteraction} style={ribbonStyle} icon={ribbonIcon} image={ribbonImage} title={shelfBookmark.title} color={book.color} side={markedPage<pageIndex?'before':'after'}/></div>}
-      {editing&&<div className="reader-edit-navigation" data-no-flip><button type="button" aria-label="편집 이전 페이지" disabled={saving||loading||pageIndex===0} onClick={()=>jump(Math.max(0,pageIndex-spread))}><span aria-hidden="true">&lt;</span></button><button type="button" aria-label="편집 다음 페이지" disabled={saving||loading||pageIndex+spread>=pages.length} onClick={()=>jump(Math.min(pages.length-1,pageIndex+spread))}><span aria-hidden="true">&gt;</span></button></div>}
+      {editing&&<div className="reader-edit-navigation" data-no-flip><button type="button" aria-label="편집 이전 페이지" disabled={saving||loading||pageIndex===0} onClick={()=>jump(Math.max(0,pageIndex-spread))}><span aria-hidden="true">&lt;</span></button><button type="button" aria-label={pageIndex+spread>=proseStart+contentCount?"빈 페이지 추가":"편집 다음 페이지"} title={pageIndex+spread>=proseStart+contentCount?"본문 끝에 빈 페이지 추가":undefined} data-add-page={pageIndex+spread>=proseStart+contentCount||undefined} disabled={saving||loading} onPointerDown={event=>event.preventDefault()} onClick={()=>pageIndex+spread>=proseStart+contentCount?insertPageRef.current(proseStart+contentCount-1):jump(Math.min(pages.length-1,pageIndex+spread))}><span aria-hidden="true">{pageIndex+spread>=proseStart+contentCount?"+":">"}</span></button></div>}
         {loading && <div className="reader-loading" role="status"><BookOpen size={25} /><span>읽던 곳을 펼치고 있어요…</span></div>}
       </div>
       {error && <p className="reader-error" role="status">{error}</p>}
@@ -942,7 +1066,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
         </>}
       </div>
     </>}
-    {assetPreview&&<div className={`reader-asset-preview${assetPreview.pinned?' reader-asset-preview-pinned':''}`} data-no-flip onPointerDown={event=>event.stopPropagation()} onClick={()=>setAssetPreview(null)} role="region" aria-label="이미지 미리보기"><div key={assetPreview.owner} className="reader-asset-preview-expand" style={{left:assetPreview.left,top:assetPreview.top,width:assetPreview.width,height:assetPreview.height,'--preview-start':`${assetPreview.size}px`,'--preview-end':`${assetPreview.height}px`,'--preview-width':`${assetPreview.width}px`} as CSSProperties}><img src={assetPreview.asset.src} alt={assetPreview.asset.name} onClick={event=>event.stopPropagation()} draggable={false}/>{assetPreview.pinned&&<button type="button" autoFocus aria-label="이미지 미리보기 닫기" onClick={()=>setAssetPreview(null)}><X size={22}/></button>}</div></div>}
+    {assetPreview&&<div className={`reader-asset-preview${assetPreview.pinned?' reader-asset-preview-pinned':''}`} data-no-flip onPointerDown={event=>event.stopPropagation()} role="region" aria-label="이미지 미리보기"><button type="button" key={assetPreview.owner} className="reader-asset-preview-expand" tabIndex={assetPreview.pinned?0:-1} aria-label="이미지 미리보기 접기" onClick={()=>{hoverSuppressedRef.current.add(assetPreview.owner);setAssetPreview(null);}} style={{left:assetPreview.left,top:assetPreview.top,width:assetPreview.width,height:assetPreview.height,'--preview-start':`${assetPreview.size}px`,'--preview-end':`${assetPreview.height}px`,'--preview-width':`${assetPreview.width}px`,'--preview-clip-x':`${Math.max(0,(assetPreview.width-assetPreview.size)/2)}px`,'--preview-clip-bottom':`${Math.max(0,assetPreview.height-assetPreview.size)}px`} as CSSProperties}><img src={assetPreview.asset.src} alt={assetPreview.asset.name} draggable={false}/></button></div>}
     <div ref={measureRef} className="reader-measure reader-page-content" aria-hidden="true" />
     {leaveConfirm&&<LeaveDialog moving={!!shelfBookmark} busy={bookmarkBusy} error={leaveError} onCancel={()=>{setLeaveConfirm(false);setLeaveError('');}} onLeave={()=>closeRef.current()} onSave={()=>void saveBeforeLeaving()}/>}
     {nextConfirm&&onNextVolume&&<NextVolumeDialog title={nextVolumeTitle} onClose={()=>setNextConfirm(false)} onConfirm={()=>{setNextConfirm(false);onNextVolume();}}/>}

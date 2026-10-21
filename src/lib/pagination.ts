@@ -4,7 +4,7 @@ import { systemRanges, visibleProse } from './prose';
 
 export type Anchor = { message: number; char: number };
 export type Fragment = Anchor & { end: number; name: string; text: string; hidden?: boolean; chapter?: number; asset?: BookAsset; assetSize?: number };
-export type PaperPage = { fragments: Fragment[]; intro: boolean; asset?: BookAsset; chapter?: number; chapterTitle?: string; chapterMessage?: number; pageNumber?:number; kind?: 'paper' | 'asset' | 'padding' | 'endpaper' | 'back-cover' | 'end' | 'front-cover' | 'front-endpaper' | 'colophon' };
+export type PaperPage = { fragments: Fragment[]; intro: boolean; asset?: BookAsset; chapter?: number; chapterTitle?: string; chapterMessage?: number; pageNumber?:number; draftPage?:string; kind?: 'paper' | 'asset' | 'padding' | 'endpaper' | 'back-cover' | 'end' | 'front-cover' | 'front-endpaper' | 'colophon' };
 
 export const CHAPTER_HEADER_RATIO = .25;
 export const PAGE_LAYOUT_VERSION = 4;
@@ -102,6 +102,7 @@ export function paginate(book: Book, measure: HTMLDivElement, options: Paginatio
   });
   if(tail>=0)chapterTails.add(tail);
   book.messages.forEach((message, messageIndex) => {
+    if(message.pageBreakBefore&&current.fragments.some(fragment=>!fragment.hidden))nextPage();
     if (startsChapter(book, messageIndex)) {
       number++; pendingHeading = true; pendingOpening = true;
       pendingChapterMessage = messageIndex; pendingChapterTitle = message.chapterTitle;
@@ -138,7 +139,7 @@ export function paginate(book: Book, measure: HTMLDivElement, options: Paginatio
       if (cursor < segment.end) pieces.push({ type: 'text', text: content.slice(cursor, segment.end), start: cursor, end: segment.end });
       return pieces;
     });
-    if (!content.length) { current.fragments.push({ message: messageIndex, char: 0, end: 0, name, text: '', hidden: true }); return; }
+    if(!content.length){if(pendingHeading){current.chapter=number;current.chapterMessage=pendingChapterMessage;current.chapterTitle=pendingChapterTitle;pendingHeading=false;}current.fragments.push({message:messageIndex,char:0,end:0,name,text:'',hidden:!(message.pageBreakBefore||message.pageBreakAfter||current.chapter!==undefined)});if(message.pageBreakAfter&&messageIndex+1<book.messages.length)nextPage();return;}
     for (const segment of segments) {
       if (segment.type === 'text' && 'hidden' in segment && segment.hidden) {
         current.fragments.push({ message: messageIndex, char: segment.start, end: segment.end, name,
@@ -199,6 +200,7 @@ export function paginate(book: Book, measure: HTMLDivElement, options: Paginatio
         if (offset < segment.end) nextPage();
       }
     }
+    if(message.pageBreakAfter&&messageIndex+1<book.messages.length&&current.fragments.length)nextPage();
   });
   if (pages.length > 1 && !current.fragments.length && current.kind !== 'asset') pages.pop();
   return pages;

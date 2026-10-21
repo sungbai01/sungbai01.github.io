@@ -1,16 +1,16 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, useId, type CSSProperties, type ReactNode } from 'react';
-import { ArrowDownToLine, ArrowRight, BookOpen, Bookmark, Check, ChevronDown, Ellipsis, Library, LoaderCircle, Menu, Pencil, Images, Plus, Search, Trash2, Upload, X } from 'lucide-react';
+import { ArrowDownToLine, ArrowRight, BookOpen, Bookmark, Check, ChevronDown, Ellipsis, Library, LoaderCircle, Menu, Pencil, Images, Plus, RotateCcw, Search, Trash2, Upload, X } from 'lucide-react';
 import { loadBooks, repackSeries, updateBookmarks, deleteBook, deleteBooks, importChatFile, BOOK_COLORS, type Book } from './lib/library';
 import { groupBooks } from './lib/volumes';
 import { prepareBooks,measureBookPageCount } from './lib/prepareBooks';
 import {PAGE_LAYOUT_VERSION} from './lib/pagination';
 import ShelfAssets from './components/ShelfAssets';
-import AssetImage from './components/AssetImage';
+import Cover from './components/BookCover';
 import BookIntake,{type IntakeRequest} from './components/BookIntake';
 import ThemePicker from './components/ThemePicker';
 import AuthorPicker from './components/AuthorPicker';
 import BookRibbon from './components/BookRibbon';
-import SpineTitle,{CoverTitle} from './components/SpineTitle';
+import SpineTitle from './components/SpineTitle';
 import {readTheme,saveTheme,THEME_EVENT,type Theme} from './lib/appearance';
 import { importAssetFile, normalizeAssets, portraitPalette } from './lib/assets';
 import {normalizeImageRules,type ImageRule} from './lib/imageRules';
@@ -82,7 +82,7 @@ function reuseBookReferences(book:Book,previous:Book|undefined):Book{
   if(!previous||book===previous)return book;
   const next={...book};
   const messages=book.messages.map((message,index)=>JSON.stringify(message.originalMap)===JSON.stringify(previous.messages[index]?.originalMap)?{...message,originalMap:previous.messages[index]?.originalMap}:message);
-  if(equalRows(messages,previous.messages,['role','name','content','chapter','chapterTitle','chapterStart','originalContent','originalMap']))next.messages=previous.messages;
+  if(equalRows(messages,previous.messages,['role','name','content','chapter','chapterTitle','chapterStart','pageBreakBefore','pageBreakAfter','originalContent','originalMap']))next.messages=previous.messages;
   if(equalRows(book.assets,previous.assets,['id','name','src','type']))next.assets=previous.assets;
   if(equalRows(book.bookmarks,previous.bookmarks,['message','char','label','progress']))next.bookmarks=previous.bookmarks;
   if(book.imageRules===previous.imageRules||JSON.stringify(book.imageRules)===JSON.stringify(previous.imageRules))next.imageRules=previous.imageRules;
@@ -107,11 +107,11 @@ async function storeBooks(incoming:Book[],existing:Book[]){
   return normalizeShelfBookmarks([...existing.map(book=>byId.get(book.id)??book),...incoming.filter(book=>!existingIds.has(book.id))]);
 }
 
-function Modal({title, children, onClose, wide=false, locked=false}: {title:string; children:ReactNode; onClose:()=>void; wide?:boolean; locked?:boolean}) {
+function Modal({title, children, onClose, wide=false, locked=false,headerAction}: {title:string; children:ReactNode; onClose:()=>void; wide?:boolean; locked?:boolean;headerAction?:ReactNode}) {
   const ref = useRef<HTMLDialogElement>(null);const titleId=useId();
   useEffect(()=>{const dialog=ref.current!; dialog.showModal(); return ()=>dialog.close();},[]);
   return <dialog className={`modal ${wide?'modal-wide':''}`} ref={ref} aria-labelledby={titleId} onCancel={e=>{e.preventDefault();if(!locked)onClose();}} onClick={e=>{if(!locked&&e.target===e.currentTarget)onClose();}}>
-    <div className="modal-header"><h2 id={titleId}>{title}</h2><button className="icon-btn" title="닫기" aria-label="닫기" disabled={locked} onClick={onClose}><X size={20}/></button></div>{children}
+    <div className="modal-header"><h2 id={titleId}>{title}</h2><div className="modal-header-actions">{headerAction}<button className="icon-btn" title="닫기" aria-label="닫기" disabled={locked} onClick={onClose}><X size={20}/></button></div></div>{children}
   </dialog>;
 }
 
@@ -145,23 +145,16 @@ function LibraryDrawer({children,onClose}:{children:ReactNode;onClose:()=>void})
   return <dialog ref={ref} id="library-drawer" className="library-drawer" aria-label="서재 메뉴" onCancel={event=>{event.preventDefault();onClose();}} onClick={event=>{if(event.target===event.currentTarget)onClose();}}><div className="drawer-panel"><header><span>내 서재</span><button className="icon-btn" aria-label="서재 메뉴 닫기" onClick={onClose}><X size={19}/></button></header>{children}</div></dialog>;
 }
 
-function Cover({book, small=false}: {book:Book;small?:boolean}) {
-  const icon=portrait(book);
-  return <div className={`book-cover ${small?'cover-small':''}`} style={{'--cover':book.color || colors[0]} as CSSProperties}>
-    {book.cover && <AssetImage className="cover-image" src={book.cover} alt=""/>}
-    <div className="cover-content"><CoverTitle title={displayBookTitle(book)} small={small}/><div className="cover-portrait">{icon?<AssetImage src={icon} alt={`${book.author||'캐릭터'} 초상`}/>:<span className="cover-ornament" aria-hidden="true">✳</span>}</div><span className="cover-volume">{String(book.volumeNumber??1).padStart(2,'0')}</span></div>
-  </div>;
-}
 
 function EditBook({book,onSave,onClose,scope='book'}:{book:Book;onSave:(book:Book,reset:boolean)=>Promise<void>;onClose:()=>void;scope?:'book'|'shelf'}){
   const [draft,setDraft]=useState(()=>({...book,author:book.author?.trim()?book.author:book.aiModel??book.author??''}));const [reset,setReset]=useState(false);const [busy,setBusy]=useState(false);const [error,setError]=useState('');
   function defaults(){setReset(true);setDraft(previous=>({...previous,color:colors[0]!,customColor:undefined,cover:undefined,backCover:undefined,characterIcon:undefined,assets:previous.assets?.map(asset=>asset.type==='icon'?{...asset,type:'asset' as const}:asset)}));}
-  return <Modal title={scope==='shelf'?'책 꾸미기':`책 꾸미기 · ${String(book.volumeNumber??1).padStart(2,'0')}`} onClose={onClose} wide locked={busy}><form onSubmit={async e=>{e.preventDefault();setBusy(true);setError('');try{await onSave({...draft,title:draft.title.trim()},reset);onClose();}catch(e){setError(e instanceof Error?e.message:'저장하지 못했어요.');}finally{setBusy(false);}}}>
+  return <Modal title={scope==='shelf'?'책 꾸미기':`책 꾸미기 · ${String(book.volumeNumber??1).padStart(2,'0')}`} onClose={onClose} wide locked={busy} headerAction={<button type="button" className="icon-btn" aria-label="표지 기본값 복원" title="표지와 초상을 기본값으로" disabled={busy} onClick={defaults}><RotateCcw size={18}/></button>}><form onSubmit={async e=>{e.preventDefault();setBusy(true);setError('');try{await onSave({...draft,title:draft.title.trim()},reset);onClose();}catch(e){setError(e instanceof Error?e.message:'저장하지 못했어요.');}finally{setBusy(false);}}}>
     <div className="edit-layout"><div className="cover-previews"><Cover book={draft}/></div><div className="space-y-4">
       <label className="field">책 제목<input required maxLength={100} value={draft.title} onChange={e=>setDraft({...draft,title:e.target.value})}/></label>
       <AuthorPicker value={draft.author} disabled={busy} onChange={author=>setDraft({...draft,author})}/>
       <div className="field">표지 색<div className="cover-swatches">{colors.map(color=><button key={color} type="button" className="swatch" aria-label={`${color} 표지`} aria-pressed={draft.color===color} style={{background:color}} onClick={()=>setDraft({...draft,color})}>{draft.color===color&&<Check size={15}/>}</button>)}<label className="swatch custom-color-swatch" title="사용자 지정 색" style={{background:draft.customColor??draft.color}}><input type="color" aria-label="사용자 지정 표지 색" value={draft.customColor??draft.color} onChange={e=>setDraft({...draft,color:e.target.value,customColor:e.target.value})}/>{draft.color===draft.customColor?<Check size={15}/>:<Plus size={13}/>}</label></div></div>
-      <button type="button" className="secondary-btn" title="표지와 캐릭터 초상을 기본값으로 되돌리기" disabled={busy} onClick={defaults}>기본값으로</button>
+      
     </div></div>
     {error&&<p className="error-message" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-btn" disabled={busy} onClick={onClose}>취소</button><button className="primary-btn" disabled={busy||!draft.title.trim()}>{busy?<LoaderCircle size={16} className="animate-spin"/>:<Check size={16}/>} 저장하기</button></div>
   </form></Modal>;

@@ -25,6 +25,8 @@ export interface Message {
   chapter?: string;
   chapterTitle?: string;
   chapterStart?: boolean;
+  pageBreakBefore?:boolean;
+  pageBreakAfter?:boolean;
 }
 
 export interface Book {
@@ -70,6 +72,9 @@ export class LibraryError extends Error {
 export const BOOK_COLORS = [jade.jade12, bronze.bronze11, iris.iris12, gold.gold11];
 const DB_NAME = 'risu-bookshelf';
 const STORE = 'books';
+const MARKS='book-marks';
+type StoredMark={id:string;bookmarks?:BookBookmark[];bookmarkStyle?:Book['bookmarkStyle'];updatedAt?:string;messageLengths:number[]};
+const markRecord=(book:Book):StoredMark=>({id:book.id,bookmarks:book.bookmarks??[],bookmarkStyle:book.bookmarkStyle,updatedAt:book.updatedAt,messageLengths:book.messages.map(message=>message.content.length)});
 type RecordValue = Record<string, unknown>;
 
 function record(value: unknown): value is RecordValue {
@@ -139,6 +144,8 @@ function normalizeMessage(value: unknown, index: number, character: string, user
     ...(typeof value.chapter === 'string' ? { chapter: value.chapter } : {}),
     ...(typeof value.chapterTitle === 'string' ? { chapterTitle: value.chapterTitle } : {}),
     ...(typeof value.chapterStart === 'boolean' ? { chapterStart: value.chapterStart } : {}),
+    ...(typeof value.pageBreakBefore==='boolean'?{pageBreakBefore:value.pageBreakBefore}:{}),
+    ...(typeof value.pageBreakAfter==='boolean'?{pageBreakAfter:value.pageBreakAfter}:{}),
   };
 }
 
@@ -168,7 +175,9 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
         ...(Array.isArray(row.originalMap) ? { originalMap: row.originalMap as Message['originalMap'] } : {}),
         ...(typeof row.chapter === 'string' ? { chapter: row.chapter } : {}),
         ...(typeof row.chapterTitle === 'string' ? { chapterTitle: row.chapterTitle } : {}),
-        ...(typeof row.chapterStart === 'boolean' ? { chapterStart: row.chapterStart } : {}) };
+        ...(typeof row.chapterStart === 'boolean' ? { chapterStart: row.chapterStart } : {}),
+        ...(typeof row.pageBreakBefore==='boolean'?{pageBreakBefore:row.pageBreakBefore}:{}),
+        ...(typeof row.pageBreakAfter==='boolean'?{pageBreakAfter:row.pageBreakAfter}:{}) };
     }
     return normalizeMessage(row, i, character, user, context.names);
   });
@@ -364,12 +373,14 @@ function openDatabase(): Promise<IDBDatabase> {
     if (typeof indexedDB === 'undefined') { reject(new LibraryError('이 환경에서는 IndexedDB 저장소를 사용할 수 없습니다.')); return; }
     let request: IDBOpenDBRequest;
     let settled = false;
-    try { request = indexedDB.open(DB_NAME, 3); }
+    try { request = indexedDB.open(DB_NAME, 4); }
     catch (error) { reject(storageError(error)); return; }
     request.onupgradeneeded = () => {
       const db = request.result;
       const transaction = request.transaction!;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });
+      const migrateMarks=!db.objectStoreNames.contains(MARKS);
+      if(migrateMarks)db.createObjectStore(MARKS,{keyPath:'id'});
       // This schema deletion and every cursor update share the atomic upgrade
       // transaction. An abort leaves the v2 schema and all book records intact.
       if (db.objectStoreNames.contains('reading-progress')) db.deleteObjectStore('reading-progress');
@@ -378,6 +389,7 @@ function openDatabase(): Promise<IDBDatabase> {
         const cursor = cursorRequest.result;
         if (!cursor) return;
         const value: unknown = cursor.value;
+        if(migrateMarks&&record(value)&&typeof value.id==='string'&&Array.isArray(value.messages))transaction.objectStore(MARKS).put(markRecord(value as unknown as Book));
         // Do not normalize/revalidate historical content during migration.
         // Remove only the obsolete property, preserving IDs and every other
         // field, including timestamps, message offsets and manual bookmarks.
@@ -407,7 +419,7 @@ async function withBooks<T>(mode: IDBTransactionMode, action: (transaction: IDBT
   const db = await openDatabase();
   try {
     return await new Promise<T>((resolve, reject) => {
-      const transaction = db.transaction(STORE, mode);
+      const transaction = db.transaction([STORE,MARKS], mode);
       let result: T;
       let failure: unknown;
       transaction.oncomplete = () => resolve(result);
@@ -439,6 +451,8 @@ function validateBook(book: Book): void {
       (message.chapter === undefined || typeof message.chapter === 'string') &&
       (message.chapterTitle === undefined || typeof message.chapterTitle === 'string') &&
       (message.chapterStart === undefined || typeof message.chapterStart === 'boolean') &&
+      (message.pageBreakBefore===undefined||typeof message.pageBreakBefore==='boolean') &&
+      (message.pageBreakAfter===undefined||typeof message.pageBreakAfter==='boolean') &&
       (message.originalContent === undefined || typeof message.originalContent === 'string') &&
       (message.originalMap === undefined || (Array.isArray(message.originalMap) && message.originalMap.every((point, index, points) =>
         record(point) && Number.isSafeInteger(point.source) && point.source >= 0 && point.source <= (message.originalContent ?? message.content).length &&
@@ -492,7 +506,15 @@ function sanitizedBook(book: Book): Book {
 }
 
 export async function loadBooks(): Promise<Book[]> {
-  const records = await withBooks<Book[]>('readonly', transaction => transaction.objectStore(STORE).getAll());
+  const db=await openDatabase();
+  let records:Book[]=[];
+  try{records=await new Promise<Book[]>((resolve,reject)=>{
+    const transaction=db.transaction([STORE,MARKS],'readonly');let books:Book[]=[],marks:StoredMark[]=[];
+    transaction.objectStore(STORE).getAll().onsuccess=event=>{books=(event.target as IDBRequest<Book[]>).result;};
+    transaction.objectStore(MARKS).getAll().onsuccess=event=>{marks=(event.target as IDBRequest<StoredMark[]>).result;};
+    transaction.oncomplete=()=>{const byId=new Map(marks.map(mark=>[mark.id,mark]));resolve(books.map(book=>{const mark=byId.get(book.id);return mark?{...book,bookmarks:mark.bookmarks??[],bookmarkStyle:mark.bookmarkStyle,updatedAt:mark.updatedAt??book.updatedAt}:book;}));};
+    transaction.onabort=()=>reject(storageError(transaction.error));transaction.onerror=()=>{};
+  });}finally{db.close();}
   records.forEach(validateBook);
   const books = records.map(sanitizedBook);
   return books.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
@@ -503,6 +525,7 @@ export async function saveBook(book: Book): Promise<void> {
   validateBook(book);
   const stored = sanitizedBook(book);
   await withBooks('readwrite', (transaction) => {
+    transaction.objectStore(MARKS).put(markRecord(stored));
     const request = transaction.objectStore(STORE).put(stored);
     return request;
   });
@@ -540,8 +563,8 @@ export async function updateBookmarks(updates: BookmarkUpdate[]): Promise<void> 
   const db = await openDatabase();
   try {
     await new Promise<void>((resolve, reject) => {
-      const transaction = db.transaction(STORE, 'readwrite');
-      const books = transaction.objectStore(STORE);
+      const transaction = db.transaction(MARKS, 'readwrite');
+      const books = transaction.objectStore(MARKS);
       let failure: unknown;
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => { failure ??= transaction.error; };
@@ -555,8 +578,8 @@ export async function updateBookmarks(updates: BookmarkUpdate[]): Promise<void> 
             const current: unknown = request.result;
             if (!record(current) || current.id !== patch.id) throw new LibraryError(`책갈피를 저장할 책을 찾지 못했습니다: ${patch.id}`);
             for (const mark of patch.bookmarks ?? []) {
-              const message = Array.isArray(current.messages) ? current.messages[mark.message] : undefined;
-              if (!record(message) || typeof message.content !== 'string' || mark.char > message.content.length) throw new LibraryError('책의 현재 본문과 책갈피 위치가 맞지 않습니다.');
+              const length=Array.isArray(current.messageLengths)?current.messageLengths[mark.message]:undefined;
+              if (typeof length!=='number'||mark.char>length) throw new LibraryError('책의 현재 본문과 책갈피 위치가 맞지 않습니다.');
             }
             const next = { ...current };
             for (const key of ['bookmarks', 'bookmarkStyle'] as const) if (has(patch, key)) {
@@ -603,10 +626,11 @@ export async function repackSeries(originalId: string, volumes: Book[], obsolete
     const books = transaction.objectStore(STORE);
     let request!: IDBRequest<IDBValidKey>;
     for (const book of stored) {
+      transaction.objectStore(MARKS).put(markRecord(book));
       request = books.put(book);
     }
     for (const id of new Set(obsoleteIds)) {
-      if (!ids.has(id)) books.delete(id);
+      if (!ids.has(id)){books.delete(id);transaction.objectStore(MARKS).delete(id);}
     }
     return request;
   });
@@ -621,6 +645,7 @@ export async function deleteBooks(ids: string[]): Promise<void> {
   await withBooks('readwrite', transaction => {
     let request!: IDBRequest<undefined>;
     for (const id of new Set(ids)) {
+      transaction.objectStore(MARKS).delete(id);
       request = transaction.objectStore(STORE).delete(id);
     }
     return request;
@@ -630,6 +655,7 @@ export async function deleteBooks(ids: string[]): Promise<void> {
 /** Idempotent: deleting a missing id succeeds. */
 export async function deleteAllBooks(): Promise<void> {
   await withBooks('readwrite', transaction => {
+    transaction.objectStore(MARKS).clear();
     const request=transaction.objectStore(STORE).clear();
     return request;
   });
@@ -639,6 +665,7 @@ export async function deleteAllBooks(): Promise<void> {
 export async function deleteBook(id: string): Promise<void> {
   if (typeof id !== 'string' || !id.trim()) throw new LibraryError('삭제할 책의 ID가 필요합니다.');
   await withBooks('readwrite', (transaction) => {
+    transaction.objectStore(MARKS).delete(id);
     const request = transaction.objectStore(STORE).delete(id);
     return request;
   });

@@ -10,12 +10,12 @@ export const fragmentKey=(fragment:Fragment)=>`${fragment.message}:${fragment.ch
 /** Apply fragment drafts once, then split at the new chapter boundaries.
  * The returned mapper preserves bookmarks and the reader anchor through both
  * text replacement and changes to message indexes. Nothing is saved here. */
-export function editedMessages(book:Book,drafts:Map<string,string>,chapterDrafts:Map<number,ChapterDraft>,insertions:ChapterInsertion[],fragments:Fragment[]){
- const patches=new Map<number,{start:number;end:number;text:string}[]>();
- const seen=new Set<string>();
+export type PageInsertion={id:string;before:Anchor;fragment:Fragment;after?:boolean};
+export function editedMessages(book:Book,drafts:Map<string,string>,chapterDrafts:Map<number,ChapterDraft>,insertions:ChapterInsertion[],fragments:Fragment[],pageInsertions:PageInsertion[]=[],trimEdges=true){
+ const patches=new Map<number,{start:number;end:number;text:string}[]>(),seen=new Set<string>();
  for(const fragment of fragments){
   const key=fragmentKey(fragment),value=drafts.get(key);
-  if(value===undefined||seen.has(key))continue;
+  if(fragment.message<0||value===undefined||seen.has(key))continue;
   seen.add(key);const list=patches.get(fragment.message)??[];
   list.push({start:fragment.char,end:fragment.end,text:value});patches.set(fragment.message,list);
  }
@@ -30,43 +30,68 @@ export function editedMessages(book:Book,drafts:Map<string,string>,chapterDrafts
   return char+delta;
  };
  const messages:Message[]=[],ranges:{message:number;start:number;end:number;target:number;leading:number}[]=[];
+ const emit=(source:Message,sourceIndex:number,start:number,end:number,text:string,chapterStart:boolean,title?:string)=>{
+  const leading=trimEdges&&chapterStart?(/^(?:[\t ]*(?:\r\n?|\n))+/.exec(text)?.[0].length??0):0;
+  const content=text.slice(leading);
+  ranges.push({message:sourceIndex,start,end,target:messages.length,leading});
+  const original=start===0&&end===source.content.length&&content===source.content?{}:{originalContent:content,originalMap:undefined};
+  messages.push({...source,content,chapterStart,chapterTitle:title,...original});
+ };
+ const emitPage=(page:PageInsertion)=>{
+  const content=drafts.get(fragmentKey(page.fragment))??'';
+  const chapters=insertions.filter(entry=>entry.fragment.message===page.fragment.message).sort((a,b)=>a.offset-b.offset);
+  const cuts=[...new Set([0,content.length,...chapters.map(entry=>Math.min(content.length,entry.offset))])].sort((a,b)=>a-b);
+  const first=messages.length;
+  for(let index=0;index<cuts.length;index++){
+   const start=cuts[index]!,end=cuts[index+1]??content.length,chapter=chapters.find(entry=>entry.offset===start);
+   if(start===end&&content.length&&!chapter)continue;
+   emit({role:'assistant',name:page.fragment.name,content:''},page.fragment.message,start,end,content.slice(start,end),!!chapter,chapter?.chapterTitle);
+  }
+  if(messages.length===first)emit({role:'assistant',name:page.fragment.name,content:''},page.fragment.message,0,0,'',false);
+  messages[first]!.pageBreakBefore=true;messages[messages.length-1]!.pageBreakAfter=true;
+ };
  book.messages.forEach((source,index)=>{
   let content=source.content;
   for(const patch of [...(patches.get(index)??[])].reverse())content=content.slice(0,patch.start)+patch.text+content.slice(patch.end);
   const chapterPatch=chapterDrafts.get(index);
-  const boundaries=insertions.filter(entry=>entry.fragment.message===index).map(entry=>({
-   char:Math.min(content.length,mapChar(index,entry.fragment.char)+entry.offset),title:entry.chapterTitle,
-  })).sort((a,b)=>a.char-b.char);
-  const atStart=boundaries.find(entry=>entry.char===0);
-  const pieces=[{char:0,title:atStart?atStart.title:chapterPatch?.chapterTitle??source.chapterTitle,first:!atStart},...boundaries.filter(entry=>entry.char>0).map(entry=>({...entry,first:false}))];
-  for(let part=0;part<pieces.length;part++){
-   const start=pieces[part]!,end=pieces[part+1]?.char??content.length;
-   if(part&&start.char===pieces[part-1]!.char)continue;
-   const chapterStart=start.first?(chapterPatch?.chapterStart??startsChapter(book,index)):true;
-   const raw=content.slice(start.char,end),leading=chapterStart?(/^(?:[\t ]*(?:\r\n?|\n))+/.exec(raw)?.[0].length??0):0;
-   const text=raw.slice(leading),changed=content!==source.content||boundaries.length>0||leading>0;
-   ranges.push({message:index,start:start.char,end,target:messages.length,leading});
-   messages.push({...source,...chapterPatch,content:text,chapterStart,chapterTitle:start.title,
-    ...(changed?{originalContent:text,originalMap:undefined}:{})});
+  const chapters=insertions.filter(entry=>entry.fragment.message===index).map(entry=>({char:Math.min(content.length,mapChar(index,entry.fragment.char)+entry.offset),title:entry.chapterTitle}));
+  const sheets=pageInsertions.filter(page=>page.before.message===index).map(page=>({char:Math.min(content.length,mapChar(index,page.before.char)),page}));
+  const cuts=[...new Set([0,content.length,...chapters.map(entry=>entry.char),...sheets.map(entry=>entry.char)])].sort((a,b)=>a-b);
+  if(!content.length&&sheets.length&&sheets.every(entry=>entry.page.after)){
+   emit(source,index,0,0,'',chapterPatch?.chapterStart??startsChapter(book,index),chapterPatch?.chapterTitle??source.chapterTitle);
+   for(const sheet of sheets)emitPage(sheet.page);
+   return;
   }
+  const first=messages.length;
+  for(let part=0;part<cuts.length;part++){
+   const start=cuts[part]!,end=cuts[part+1]??content.length,chapter=chapters.find(entry=>entry.char===start);
+   for(const sheet of sheets.filter(entry=>entry.char===start))emitPage(sheet.page);
+   if(start===end&&content.length&&!chapter)continue;
+   const begins=!!chapter||start===0&&(chapterPatch?.chapterStart??startsChapter(book,index));
+   const title=chapter?chapter.title:start===0?(chapterPatch?.chapterTitle??source.chapterTitle):undefined;
+   emit({...source,pageBreakBefore:start===0?source.pageBreakBefore:undefined,pageBreakAfter:end===content.length?source.pageBreakAfter:undefined},index,start,end,content.slice(start,end),begins,title);
+  }
+  if(messages.length===first)emit(source,index,0,0,'',chapterPatch?.chapterStart??startsChapter(book,index),chapterPatch?.chapterTitle??source.chapterTitle);
  });
- // Strip only chapter-tail whitespace. Interior paragraph spacing is retained.
- let tail=-1;
- let blankTails:number[]=[];
+ // Edge cleanup is deferred while typing so Enter can flow to a new leaf.
+ if(trimEdges){
+ let tail=-1;let blankTails:number[]=[];
  for(let index=0;index<=messages.length;index++){
   if(index===messages.length||messages[index]!.chapterStart){
-   if(tail>=0){const message=messages[tail]!;const content=message.content.trimEnd();if(content!==message.content)messages[tail]={...message,content,originalContent:content,originalMap:undefined};}
+   if(tail>=0){const message=messages[tail]!,content=message.content.trimEnd();if(content!==message.content)messages[tail]={...message,content,originalContent:content,originalMap:undefined};}
    for(const blank of blankTails)messages[blank]={...messages[blank]!,content:'',originalContent:'',originalMap:undefined};
    tail=-1;blankTails=[];
   }
   if(index<messages.length&&messages[index]!.content.trim()){tail=index;blankTails=[];}
   else if(index<messages.length)blankTails.push(index);
  }
- const mapAnchor=(anchor:Anchor):Anchor=>{
-  const char=mapChar(anchor.message,anchor.char);
-  const candidates=ranges.filter(range=>range.message===anchor.message);
+ }
+ const locate=(message:number,char:number):Anchor=>{
+  const candidates=ranges.filter(range=>range.message===message);
   const range=[...candidates].reverse().find(range=>char>=range.start)??candidates[0];
-  return range?{message:range.target,char:Math.max(0,Math.min(char-range.start-range.leading,messages[range.target]!.content.length))}:anchor;
+  return range?{message:range.target,char:Math.max(0,Math.min(char-range.start-range.leading,messages[range.target]!.content.length))}:{message,char};
  };
- return {messages,mapAnchor};
+ const mapAnchor=(anchor:Anchor):Anchor=>locate(anchor.message,mapChar(anchor.message,anchor.char));
+ const mapDraftOffset=(fragment:Fragment,offset:number):Anchor=>locate(fragment.message,mapChar(fragment.message,fragment.char)+offset);
+ return {messages,mapAnchor,mapDraftOffset};
 }
