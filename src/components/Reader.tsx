@@ -328,8 +328,8 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
         activeMessagesRef.current=currentBook.messages;
       }
       const count = readerPageCount(dimensions.width, viewport);
-      const width = Math.max(120, Math.min(fullscreen?Infinity:540, Math.floor((dimensions.width - 16) / count)));
-      const height = Math.max(100, Math.min(fullscreen?Infinity:790, dimensions.height - Math.min(56, dimensions.height * .12)));
+      const width = Math.max(120, fullscreen?dimensions.width/count:Math.min(540, Math.floor((dimensions.width - 16) / count)));
+      const height = Math.max(100, fullscreen?dimensions.height:Math.min(790, dimensions.height - Math.min(56, dimensions.height * .12)));
       const padding = width < 350 ? 22 : width < 440 ? 32 : 46;
       const {top:contentTop,bottom:contentBottom} = pageTextInsets(height,fontSize);
       const measure = measureRef.current;
