@@ -681,11 +681,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
         <button ref={element => { panelButtonRefs.current.appearance = element; }} className={`reader-icon-button ${panel === 'appearance' ? 'reader-active' : ''}`} aria-label="독서 화면 설정" title="독서 화면 설정" disabled={editing} aria-expanded={panel === 'appearance'} aria-controls="reader-appearance" onClick={() => togglePanel('appearance')}><Type size={21} /></button>
       </div>
     </header>
-    <footer className="reader-footer">
-      <div className="reader-progress-label"><span>{pages.length ? pageIndex>=contentCount?'끝':`전체 ${contentCount}쪽 중 ${pageIndex + 1}${Math.min(visibleEnd,contentCount) > pageIndex + 1 ? `–${Math.min(visibleEnd,contentCount)}` : ''}쪽` : '책장을 준비하고 있어요'}</span><span>{percent}% 읽음</span></div>
-      <input className="reader-progress" type="range" min={0} max={Math.max(0, pages.length - 1)} value={Math.min(pageIndex, Math.max(0, pages.length - 1))} disabled={editing || loading || pages.length < 2} onChange={event => jump(Number(event.target.value))} aria-label="읽는 위치 이동" aria-valuetext={pages.length ? `전체 ${pages.length}쪽 중 ${pageIndex + 1}쪽` : '책장을 준비하고 있어요'} style={{ '--reader-progress': `${percent}%` } as CSSProperties} />
-      <span className="reader-sr-only" aria-live="polite">{!loading && `전체 ${pages.length}쪽 중 ${pageIndex + 1}쪽`}</span>
-    </footer>
+
     {fullscreen&&<button className="reader-drawer-close reader-icon-button" aria-label="메뉴 닫기" onClick={closeDrawer}><X size={18}/></button>}
     </div>
 
@@ -700,6 +696,12 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
       {editing&&<div className="reader-inline-actions"><span>페이지 편집</span><button disabled={saving} onClick={cancelEditing}>취소</button><button disabled={saving} onClick={()=>void saveEditing()}><Check size={16}/>{saving?'저장 중…':'저장'}</button></div>}
 
     </main>
+
+    <footer className="reader-footer">
+      <div className="reader-progress-label"><span>{pages.length ? pageIndex>=contentCount?'끝':`전체 ${contentCount}쪽 중 ${pageIndex + 1}${Math.min(visibleEnd,contentCount) > pageIndex + 1 ? `–${Math.min(visibleEnd,contentCount)}` : ''}쪽` : '책장을 준비하고 있어요'}</span><span>{percent}% 읽음</span></div>
+      <input className="reader-progress" type="range" min={0} max={Math.max(0, pages.length - 1)} value={Math.min(pageIndex, Math.max(0, pages.length - 1))} disabled={editing || loading || pages.length < 2} onChange={event => jump(Number(event.target.value))} aria-label="읽는 위치 이동" aria-valuetext={pages.length ? `전체 ${pages.length}쪽 중 ${pageIndex + 1}쪽` : '책장을 준비하고 있어요'} style={{ '--reader-progress': `${percent}%` } as CSSProperties} />
+      <span className="reader-sr-only" aria-live="polite">{!loading && `전체 ${pages.length}쪽 중 ${pageIndex + 1}쪽`}</span>
+    </footer>
 
 
 
