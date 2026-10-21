@@ -15,6 +15,7 @@ import BookRibbon from './components/BookRibbon';
 import SpineTitle from './components/SpineTitle';
 import ShelfBox from './components/ShelfBox';
 import GoogleAccount from './components/GoogleAccount';
+import BookOpening from './components/BookOpening';
 import './components/library-drawer.css';
 import {readTheme,saveTheme,THEME_EVENT,type Theme} from './lib/appearance';
 import { importAssetFile, normalizeAssets, portraitPalette } from './lib/assets';
@@ -210,6 +211,9 @@ function AccountApp({owner}:{owner:string|null}) {
   const [books,setBooks]=useState<Book[]>([]); const [loading,setLoading]=useState(true);const [error,setError]=useState(''); const [toast,setToast]=useState('');
   const [route,setRoute]=useState(currentBookId);const [readerStart,setReaderStart]=useState<{bookId:string;anchor:BookmarkAnchor}|null>(null); const [query,setQuery]=useState('');const [sort,setSort]=useState('recent');const canEdit=accountReady&&!loading;
   const [readyRoute,setReadyRoute]=useState<string|null>(null);const [openError,setOpenError]=useState('');const [openAttempt,setOpenAttempt]=useState(0);
+  const [readerReady,setReaderReady]=useState<string|null>(null);
+  const onReaderReady=useCallback(()=>setReaderReady(route),[route]);
+  useEffect(()=>{setReaderReady(null);},[route]);
   const [drawerOpen,setDrawerOpen]=useState(false);const [intakeMode,setIntakeMode]=useState<'file'|'text'>('file');const [importing,setImporting]=useState(false);const [busy,setBusy]=useState(false);const [theme,setTheme]=useState<Theme>(readTheme);const [backupOpen,setBackupOpen]=useState(false);const [edit,setEdit]=useState<Book|null>(null);const [remove,setRemove]=useState<Book|null>(null);const [menu,setMenu]=useState<string|null>(null);const [view,setView]=useState<'covers'|'spines'>('covers');
   const [clearConfirm,setClearConfirm]=useState<{title:string;ids:string[]}|null>(null);const [deleting,setDeleting]=useState(false);const [clearError,setClearError]=useState('');
   const [creating,setCreating]=useState<ShelfTarget|null>(null);const [renaming,setRenaming]=useState<ShelfTarget|null>(null);const [assetShelf,setAssetShelf]=useState<ShelfTarget|null>(null);
@@ -260,7 +264,7 @@ function AccountApp({owner}:{owner:string|null}) {
   useEffect(()=>{if(!toast)return;const timer=setTimeout(()=>setToast(''),3600);return()=>clearTimeout(timer);},[toast]);
   useEffect(()=>{if(!menu)return;const close=()=>setMenu(null);document.addEventListener('click',close);return()=>document.removeEventListener('click',close);},[menu]);
   const openBook=useCallback((book:Book)=>{
-    library.assertCurrent();setReadyRoute(null);setOpenError('');
+    library.assertCurrent();setReadyRoute(null);setReaderReady(null);setOpenError('');
     const mark=canonicalBookmark(shelfBooks(latestBooks.current,bookShelf(book)));
     setReaderStart(mark?.bookId===book.id?{bookId:book.id,anchor:{message:mark.message,char:mark.char}}:null);
     setRoute(book.id);location.hash=`/book/${encodeURIComponent(book.id)}`;
@@ -494,7 +498,7 @@ function AccountApp({owner}:{owner:string|null}) {
   }
   async function reloadLibrary(){
     if(busy||route||edit||renaming||assetShelf||importing||creating)return;
-    setLoading(true);setReadyRoute(null);
+    setLoading(true);setReadyRoute(null);setReaderReady(null);
     try{await library.reload();library.assertCurrent();setAccountReady(true);setError('');}
     catch(cause){setError(cause instanceof Error?cause.message:'목록을 불러오지 못했어요.');}finally{setLoading(false);}
   }
@@ -518,8 +522,18 @@ function AccountApp({owner}:{owner:string|null}) {
   },[]);
   const nextVolume=selected?.seriesId?groupBooks(books).find(group=>group.id===selected.seriesId)?.books.find(book=>(book.volumeNumber??1)>(selected.volumeNumber??1)):undefined;
   const onNextVolume=useCallback(()=>{if(nextVolume)openBook(nextVolume);},[nextVolume,openBook]);
-  if(owner&&route&&!loading&&(readyRoute!==route||!selected))return <div className="loading-screen" role="status"><div>{openError||'책을 불러오고 있어요.'}<div><button className="secondary-btn" onClick={()=>{setRoute(null);location.hash='/';}}>서재로</button>{openError&&<button className="secondary-btn" onClick={()=>setOpenAttempt(value=>value+1)}>다시 시도</button>}</div></div></div>;
-  if(route&&!loading&&selected)return <><Suspense fallback={<div className="loading-screen"><LoaderCircle className="animate-spin"/> 책을 펼치고 있어요</div>}><Reader book={selected} onClose={closeBook} onSaveBook={canEdit?updateBook:undefined} shelfBookmark={selectedBookmark} bookmarkStyle={selectedBookmark?.style??selected.bookmarkStyle??shelfBooks(books,bookShelf(selected)).find(book=>book.bookmarkStyle)?.bookmarkStyle} bookmarkImage={bookmarkImage(selected)} characterIcon={portrait(selected)??shelfBooks(books,bookShelf(selected)).map(portrait).find(Boolean)} onBookmarkChange={(anchor,style)=>changeBookmark(selected,anchor,style)} onBookmarkStyleChange={style=>changeBookmarkStyle(selected,style)} initialBookmark={readerStart?.bookId===selected.id?readerStart.anchor:undefined} onNextVolume={nextVolume?onNextVolume:undefined} nextVolumeTitle={nextVolume?.title}/></Suspense>{toast&&<div className="toast" role="status">{toast}</div>}</>;
+  if(route&&(loading||owner||selected)){
+    const dataReady=!loading&&selected&&(!owner||readyRoute===route);
+    const openingError=openError||(!loading&&!accountReady?error:'');
+    const revealed=readerReady===route&&!!dataReady;
+    return <>
+      <div inert={!revealed} aria-hidden={!revealed||undefined} style={{visibility:revealed?'visible':'hidden'}}>
+        <Suspense fallback={null}>{dataReady&&selected&&<Reader key={route} book={selected} onReady={onReaderReady} onClose={closeBook} onSaveBook={canEdit?updateBook:undefined} shelfBookmark={selectedBookmark} bookmarkStyle={selectedBookmark?.style??selected.bookmarkStyle??shelfBooks(books,bookShelf(selected)).find(book=>book.bookmarkStyle)?.bookmarkStyle} bookmarkImage={bookmarkImage(selected)} characterIcon={portrait(selected)??shelfBooks(books,bookShelf(selected)).map(portrait).find(Boolean)} onBookmarkChange={(anchor,style)=>changeBookmark(selected,anchor,style)} onBookmarkStyleChange={style=>changeBookmarkStyle(selected,style)} initialBookmark={readerStart?.bookId===selected.id?readerStart.anchor:undefined} onNextVolume={nextVolume?onNextVolume:undefined} nextVolumeTitle={nextVolume?.title}/>}</Suspense>
+      </div>
+      {!revealed&&<BookOpening error={openingError} onBack={()=>{setRoute(null);location.hash='/';}} onRetry={()=>{setReaderReady(null);if(accountReady)setOpenAttempt(value=>value+1);else location.reload();}}/>}
+      {toast&&<div className="toast" role="status">{toast}</div>}
+    </>;
+  }
   return <div className="app-shell">
     <header className="site-header" inert={deleting}><button className="drawer-trigger" aria-label="서재 메뉴 열기" title="내 서재" aria-expanded={drawerOpen} aria-controls="library-drawer" onClick={()=>setDrawerOpen(true)}><Menu size={20}/></button><a href="#/" className="brand" aria-label="갈피 서재"><span className="brand-mark"><BookOpen size={23} strokeWidth={1.4}/><span/></span><span>갈피<span className="brand-en">galpi</span></span></a></header>
     <div className="workspace" inert={deleting}>

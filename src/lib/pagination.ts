@@ -4,7 +4,7 @@ import { systemRanges, visibleProse } from './prose';
 
 export type Anchor = { message: number; char: number };
 export type Fragment = Anchor & { end: number; name: string; text: string; hidden?: boolean; chapter?: number; asset?: BookAsset; assetSize?: number };
-export type PaperPage = { fragments: Fragment[]; intro: boolean; asset?: BookAsset; chapter?: number; chapterTitle?: string; chapterMessage?: number; pageNumber?:number; draftPage?:string; kind?: 'paper' | 'asset' | 'padding' | 'endpaper' | 'back-cover' | 'end' | 'front-cover' | 'front-endpaper' | 'colophon' };
+export type PaperPage = { fragments: Fragment[]; intro: boolean; asset?: BookAsset; chapter?: number; chapterTitle?: string; chapterMessage?: number; pageNumber?:number; draftPage?:string; kind?: 'paper' | 'asset' | 'padding' | 'endpaper' | 'opening-endpaper' | 'back-cover' | 'end' | 'front-cover' | 'front-endpaper' | 'colophon' };
 
 export const CHAPTER_HEADER_RATIO = .25;
 export const PAGE_LAYOUT_VERSION = 4;

@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { Check, CircleAlert, LoaderCircle, LogOut, RotateCcw, Upload, UserRound } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Check, CircleAlert, LoaderCircle, LogOut, RotateCcw, Upload, UserRound, X } from 'lucide-react';
 import { clearAuthSession, getAuthSession, setAuthSession, subscribeAuthSession } from '../lib/auth';
 import type { CloudStatus } from '../lib/cloudLibrary';
 import './google-account.css';
@@ -71,6 +72,8 @@ export function GoogleAccount({ className = '', disabled = false, syncStatus, on
 }) {
   const titleId = useId();
   const googleButton = useRef<HTMLDivElement>(null);
+  const loginDialog = useRef<HTMLDialogElement>(null);
+  const [loginOpen, setLoginOpen] = useState(false);
   const attempt = useRef(0);
   const request = useRef<AbortController | null>(null);
   const [session, updateSession] = useState(getAuthSession);
@@ -83,6 +86,26 @@ export function GoogleAccount({ className = '', disabled = false, syncStatus, on
   const [reloadError, setReloadError] = useState('');
   const disabledRef = useRef(disabled);
   disabledRef.current = disabled;
+
+  useEffect(() => {
+    if (!loginOpen) return;
+    const dialog = loginDialog.current;
+    dialog?.showModal();
+    void startLogin();
+    return () => {
+      attempt.current += 1;
+      request.current?.abort();
+      dialog?.close();
+    };
+  }, [loginOpen]);
+
+  function closeLogin() {
+    attempt.current += 1;
+    request.current?.abort();
+    setLoginOpen(false);
+    setPhase('idle');
+    setMessage('');
+  }
 
   useEffect(() => {
     const unsubscribe = subscribeAuthSession(() => {
@@ -103,7 +126,8 @@ export function GoogleAccount({ className = '', disabled = false, syncStatus, on
   }, []);
 
   async function startLogin() {
-    if (disabledRef.current || !apiBase || phase === 'loading' || phase === 'verifying') return;
+    if (disabledRef.current || phase === 'loading' || phase === 'verifying') return;
+    if (!apiBase) { setPhase('pending'); setMessage('로그인 연결을 준비 중이에요.'); return; }
     const current = ++attempt.current;
     request.current?.abort();
     const controller = new AbortController();
@@ -153,7 +177,7 @@ export function GoogleAccount({ className = '', disabled = false, syncStatus, on
       if (!googleButton.current) return;
       identity.renderButton(googleButton.current, {
         type: 'standard', theme: 'outline', size: 'large', text: 'signin_with', locale: 'ko',
-        width: Math.min(320, Math.max(200, googleButton.current.clientWidth)),
+        width: Math.min(320, Math.max(200, googleButton.current.parentElement?.clientWidth ?? 320)),
       });
       setPhase('ready');
     } catch {
@@ -181,6 +205,7 @@ export function GoogleAccount({ className = '', disabled = false, syncStatus, on
       const verified: unknown = await response.json();
       if (current !== attempt.current) return;
       if (disabledRef.current) throw new Error('Local save in progress');
+      setLoginOpen(false);
       setAuthSession(verified);
       googleButton.current?.replaceChildren();
       setMessage('로그인되었어요.');
@@ -224,7 +249,6 @@ export function GoogleAccount({ className = '', disabled = false, syncStatus, on
   }
 
   const busy = phase === 'loading' || phase === 'verifying';
-  const pending = !apiBase || phase === 'pending';
   return <section className={`google-account ${className}`} aria-labelledby={titleId}>
     <h2 id={titleId} className="google-account-label">계정</h2>
     <div className="google-account-heading">
@@ -234,18 +258,17 @@ export function GoogleAccount({ className = '', disabled = false, syncStatus, on
     </div>
 
     <div className="google-account-actions" aria-busy={busy}>
-      {session ? null : <>
-        {phase !== 'ready' && <span className="google-account-login" title={pending ? '로그인 연결 준비 중' : undefined}>
-          <button type="button" className="google-account-button" disabled={disabled || pending || busy} onClick={() => void startLogin()}>
-            {busy && <LoaderCircle className="google-account-spinner" size={14} aria-hidden="true" />}
-            {phase === 'loading' ? '로그인 준비 중…' : phase === 'verifying' ? '로그인 확인 중…' : phase === 'error' ? '다시 시도' : 'Google로 로그인'}
-          </button>
-        </span>}
-        {phase === 'pending' && <button type="button" disabled={disabled} className="google-account-retry" onClick={() => void startLogin()}>연결 다시 확인</button>}
-        <div ref={googleButton} className="google-account-provider" hidden={phase !== 'ready'} inert={disabled} />
-        {phase === 'ready' && <button type="button" disabled={disabled} className="google-account-retry" onClick={() => void startLogin()}>로그인 버튼 다시 불러오기</button>}
-      </>}
+      {!session&&<button type="button" className="google-account-button" disabled={disabled} onClick={()=>setLoginOpen(true)}>Google로 로그인</button>}
     </div>
+    {loginOpen&&createPortal(<dialog ref={loginDialog} className="modal google-login-modal" aria-label="Google 로그인" onCancel={event=>{event.preventDefault();closeLogin();}} onClick={event=>{if(event.target===event.currentTarget)closeLogin();}}>
+      <div className="modal-header"><h2>Google 로그인</h2><button type="button" className="icon-btn" aria-label="닫기" onClick={closeLogin}><X size={19}/></button></div>
+      <div className="google-login-slot" aria-busy={busy}>
+        {(phase==='idle'||busy)&&<div className="google-login-progress" role="status"><LoaderCircle size={20} className="google-account-spinner"/><span>{phase==='verifying'?'로그인 확인 중…':'연결 중…'}</span></div>}
+        <div ref={googleButton} className="google-account-provider" hidden={phase!=='ready'} inert={disabled}/>
+        {(phase==='error'||phase==='pending')&&<button type="button" className="google-account-button" disabled={disabled} onClick={()=>void startLogin()}>다시 시도</button>}
+      </div>
+      <p className="google-account-message" role={phase==='error'?'alert':'status'} aria-live="polite">{message}</p>
+    </dialog>,document.body)}
     {session ? <div className="google-account-library">
       {syncStatus && <p className="google-account-library-status" role="status" aria-live="polite">{syncStatus.phase==='error'?<CircleAlert size={12} aria-hidden="true"/>:syncStatus.phase==='loading'||syncStatus.phase==='saving'?<LoaderCircle size={12} className="google-account-spinner" aria-hidden="true"/>:<Check size={12} aria-hidden="true"/>}{syncStatus.message}</p>}
       {onSyncRetry && <button type="button" className="google-account-row" disabled={(disabled&&syncStatus?.phase!=='error')||importBusy||reloadBusy||syncStatus?.phase==='loading'||syncStatus?.phase==='saving'} onClick={()=>void reloadLibrary()}><RotateCcw size={15} className={reloadBusy?'google-account-spinner':undefined}/>{reloadBusy?'불러오는 중…':'목록 새로고침'}</button>}
@@ -255,7 +278,7 @@ export function GoogleAccount({ className = '', disabled = false, syncStatus, on
       {importError && <p className="google-account-message" role="alert">{importError}</p>}
       {reloadError && <p className="google-account-message" role="alert">{reloadError}</p>}
     </div> : null}
-    <p className="google-account-message" role={phase === 'error' ? 'alert' : 'status'} aria-live="polite">{message || (phase === 'ready' ? 'Google 버튼을 눌러 로그인해 주세요.' : '')}</p>
+    {!loginOpen&&<p className="google-account-message" role={phase === 'error' ? 'alert' : 'status'} aria-live="polite">{message}</p>}
   </section>;
 }
 

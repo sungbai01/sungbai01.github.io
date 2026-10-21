@@ -27,6 +27,7 @@ import './reader.css';
 export interface ReaderProps {
   book: Book;
   onClose: () => void;
+  onReady?: () => void;
   initialBookmark?: { message: number; char: number };
   onNextVolume?: () => void;
   nextVolumeTitle?: string;
@@ -93,7 +94,7 @@ function pageForAnchor(pages: PaperPage[], anchor: Anchor) {
   return bodyStart(pages);
 }
 
-function bodyStart(pages:PaperPage[]){return pages[0]?.kind==='front-endpaper'?2:pages[0]?.kind==='front-cover'?1:0;}
+function bodyStart(pages:PaperPage[]){const first=pages.findIndex(page=>!page.kind||page.kind==='paper'||page.kind==='asset');return Math.max(0,first);}
 // Physical page numbers start at one; bookmark leaves are always 2, 4, 6…
 function evenBookmarkLeaf(pages:PaperPage[],index:number){
  const start=bodyStart(pages);if(index<start)return -1;
@@ -269,7 +270,7 @@ function PageLeaf({page,book,query,index,onNext,onClose,mobile,editing,onEdit,dr
  if(page.kind==='back-cover')return <div className="reader-back-cover reader-true-back" style={{'--book-cover':book.color} as CSSProperties}><div className="reader-back-imprint"><span className="reader-back-colophon">{cleanText(book.author)}</span><span className="reader-back-mark">{cleanText(book.title).replace(/\s*·\s*\d+권\s*$/,'')}</span><span className="reader-back-volume">{book.volumeNumber?String(book.volumeNumber).padStart(2,'0'):''}</span><BackBarcode/>{mobile&&action}</div></div>;
  if(page.kind==='front-endpaper')return <div className="reader-front-outside"/>;
  if(page.kind==='end')return <div className="reader-end-half">{action}</div>;
- if(page.kind==='padding'||page.kind==='endpaper')return <div className={`reader-paper-shell${page.kind==='endpaper'?' reader-endpaper':''}`}>{bookmark&&<BookmarkSlip {...bookmark}/>}</div>;
+ if(page.kind==='padding'||page.kind==='endpaper'||page.kind==='opening-endpaper')return <div className={`reader-paper-shell${page.kind!=='padding'?' reader-endpaper':''}`}>{bookmark&&<BookmarkSlip {...bookmark}/>}</div>;
  return <div className="reader-paper-shell">{bookmark&&<BookmarkSlip {...bookmark}/>} {showChapter&&<div className="reader-chapter-heading">{editing&&chapterMessage!==undefined?<ChapterHeading message={chapterMessage} title={chapterTitle} draft={chapterDraft} onChange={onChapterEdit}/>:chapterTitle}</div>}<div className={`reader-page-content${showChapter?' reader-page-chapter-content':''}${editing?' reader-page-content-editing':''}`}><PageContent page={page} query={query} editing={editing} onEdit={onEdit} drafts={drafts} onPreview={onPreview}/></div><div className="reader-page-number">{page.pageNumber??index+1}</div></div>;
 }
 
@@ -284,7 +285,7 @@ function NextVolumeDialog({title,onConfirm,onClose}:{title?:string;onConfirm:()=
   return <dialog ref={dialog} className="reader-next-dialog" aria-label="다음 권 읽기" onCancel={e=>{e.preventDefault();onClose();}}><h2>다음 권을 읽을까요?</h2><p>{title}</p><div><button autoFocus onClick={onClose}>취소</button><button onClick={onConfirm}>읽기<ArrowRight size={17}/></button></div></dialog>;
 }
 
-export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolumeTitle, onSaveBook, shelfBookmark, onBookmarkChange, onBookmarkStyleChange, bookmarkStyle, characterIcon, bookmarkImage }: ReaderProps) {
+export function Reader({ book, onClose, onReady, initialBookmark, onNextVolume, nextVolumeTitle, onSaveBook, shelfBookmark, onBookmarkChange, onBookmarkStyleChange, bookmarkStyle, characterIcon, bookmarkImage }: ReaderProps) {
   const [editing,setEditing]=useState(false);
   const [assetPreview,setAssetPreview]=useState<AssetPreview|null>(null);
   const assetPreviewRef=useRef(assetPreview);assetPreviewRef.current=assetPreview;
@@ -361,6 +362,8 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
   const [viewport, setViewport] = useState(readReaderViewport);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [loading, setLoading] = useState(true);
+  const openedRef=useRef(false);
+  useEffect(()=>{if(!loading&&pagesReadyRef.current){openedRef.current=true;onReady?.();}},[loading,onReady]);
   const [error, setError] = useState('');
   const stageRef = useRef<HTMLDivElement>(null);
   const mountRef = useRef<HTMLDivElement>(null);
@@ -474,16 +477,17 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
 
   // Font loading can change wrapping independently of the viewport.
   const [fontRevision, setFontRevision] = useState(0);
+  const [fontsReady,setFontsReady]=useState(false);
   useEffect(() => {
     let alive = true;
-    const refresh = () => { if (alive&&!blockedRef.current) setFontRevision(value => value + 1); };
+    const refresh = () => { if (alive&&!blockedRef.current) { setFontsReady(true);setFontRevision(value => value + 1); } };
     void document.fonts.ready.then(refresh);
     document.fonts.addEventListener('loadingdone', refresh);
     return () => { alive = false; document.fonts.removeEventListener('loadingdone', refresh); };
   }, []);
 
   useEffect(() => {
-    if (!dimensions.width || !dimensions.height) return;
+    if (!fontsReady || !dimensions.width || !dimensions.height) return;
     let cancelled = false;
     let instance: PageFlip | null = null;
     let pageRoots: Root[] = [];
@@ -501,9 +505,9 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
         activeMessagesRef.current=currentBook.messages;
       }
       const count = readerPageCount(dimensions.width, viewport);
-      const height = Math.max(100, fullscreen?dimensions.height:Math.min(790, dimensions.height - Math.min(56, dimensions.height * .12)));
+      const height = Math.max(100, fullscreen?dimensions.height-10:Math.min(790, dimensions.height - Math.min(56, dimensions.height * .12)));
       // Editing reuses this pagination and only scales its presentation for rails.
-      const sideSpace=fullscreen?0:16;
+      const sideSpace=fullscreen?10:16;
       const availablePageWidth=Math.max(1,(dimensions.width-sideSpace)/count);
       // A 120px lower bound could overflow the reserved rails on a narrow
       // window. The actual stage width must always win over a preferred minimum.
@@ -519,6 +523,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
       body.forEach((page,index)=>{page.pageNumber=index+1;});
       let bodyCount=body.length;
       const prefix:PaperPage[]=count===2?[{fragments:[],intro:false,kind:'front-endpaper'},{fragments:[],intro:false,kind:'front-cover'}]:[{fragments:[],intro:false,kind:'front-cover'}];
+      prefix.push({fragments:[],intro:false,kind:'opening-endpaper'},{fragments:[],intro:false,kind:'opening-endpaper'});
       const nextPages:PaperPage[]=[...prefix,...body,{fragments:[],intro:false,kind:'endpaper'}];
       if(count===2&&nextPages.length%2)nextPages.push({fragments:[],intro:false,kind:'endpaper'});
       nextPages[nextPages.length-1]!.kind='colophon';
@@ -718,7 +723,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
         host?.remove();
       });
     };
-  }, [book.id, contentKey, dimensions.width, dimensions.height, fontSize, fontRevision,fullscreen,viewport]);
+  }, [book.id, contentKey, dimensions.width, dimensions.height, fontSize, fontRevision,fontsReady,fullscreen,viewport]);
 
   // Highlighting does not repaginate: marks have exactly the same font metrics.
   useEffect(() => {
@@ -998,7 +1003,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
   const atFront=pageIndex<proseStart,atEnd=pageIndex>=proseStart+contentCount;
   const percent = !pages.length||atFront?0:atEnd?100:Math.round(Math.min(1,bodyPosition/Math.max(1,contentCount-1))*100);
   const positionLabel=!pages.length?'책장을 준비하고 있어요':atFront?'표지':atEnd?'끝':`전체 ${contentCount}쪽 중 ${bodyPosition+1}${visibleEnd>bodyPosition+1?`–${visibleEnd}`:''}쪽`;
-  const style = { '--reader-font-size': `${fontSize}px` } as CSSProperties;
+  const style = { '--reader-font-size': `${fontSize}px`, '--book-cover':book.color } as CSSProperties;
 
   return <div ref={readerRef} className={`reader reader-theme-${theme}${theme === 'dark' ? ' dark' : ''}${fullscreen?' reader-fullscreen':''}${editing?' reader-is-editing':''}`} data-page-layout={spread===2?'spread':'single'} data-bookmark-current={markedPage>=pageIndex&&markedPage<pageIndex+spread||undefined} style={style} lang="ko">
     {fullscreen&&<button ref={drawerHandleRef} className="reader-drawer-handle" data-no-flip aria-label="독서 메뉴" aria-expanded={drawerOpen} aria-controls="reader-drawer" onPointerDown={startDrawerDrag} onPointerMove={moveDrawerDrag} onPointerUp={endDrawerDrag} onPointerCancel={event=>{suppressHandleClick.current=true;endDrawerDrag(event);}} onLostPointerCapture={()=>{drawerDrag.current=null;}} onClick={()=>{if(suppressHandleClick.current){suppressHandleClick.current=false;return;}if(drawerOpen)closeDrawer();else setDrawerOpen(true);}}><span/></button>}
@@ -1022,10 +1027,11 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
 
     <main className="reader-main" aria-label={`${book.title} 읽기`}>
       <div className="reader-stage" ref={stageRef} aria-busy={loading} data-book-closed={pages.slice(pageIndex,pageIndex+spread).some(page=>page.kind==='back-cover'||page.kind==='front-cover')}>
+        {!loading&&<div className="reader-book-casing" aria-hidden="true"/>}
         <div className="reader-book-mount" ref={mountRef} onPointerDownCapture={event=>{const page=(event.target as HTMLElement).closest<HTMLElement>('[data-reader-page-index]');if(page&&!page.dataset.flipCopy)setSelectedLeaf(Number(page.dataset.readerPageIndex));}}/>
         {!loading&&peekBookmark&&shelfBookmark&&<div className={`reader-bookmark-peek reader-bookmark-peek-${markedPage<pageIndex?'before':'after'}`} aria-label="페이지 사이 책갈피"><BookmarkSlip {...bookmarkInteraction} style={ribbonStyle} icon={ribbonIcon} image={ribbonImage} title={shelfBookmark.title} color={book.color} side={markedPage<pageIndex?'before':'after'}/></div>}
       {editing&&<div className="reader-edit-navigation" data-no-flip><button type="button" aria-label="편집 이전 페이지" disabled={saving||loading||pageIndex===0} onClick={()=>jump(Math.max(0,pageIndex-spread))}><span aria-hidden="true">&lt;</span></button><button type="button" aria-label={pageIndex+spread>=proseStart+contentCount?"빈 페이지 추가":"편집 다음 페이지"} title={pageIndex+spread>=proseStart+contentCount?"본문 끝에 빈 페이지 추가":undefined} data-add-page={pageIndex+spread>=proseStart+contentCount||undefined} disabled={saving||loading} onPointerDown={event=>event.preventDefault()} onClick={()=>pageIndex+spread>=proseStart+contentCount?insertPageRef.current(proseStart+contentCount-1):jump(Math.min(pages.length-1,pageIndex+spread))}><span aria-hidden="true">{pageIndex+spread>=proseStart+contentCount?"+":">"}</span></button></div>}
-        {loading && <div className="reader-loading" role="status"><BookOpen size={25} /><span>읽던 곳을 펼치고 있어요…</span></div>}
+        {loading && (!onReady||openedRef.current) && <div className="reader-loading" role="status"><BookOpen size={25} /><span>책을 펼치고 있어요…</span></div>}
       </div>
       {error && <p className="reader-error" role="status">{error}</p>}
       {editError&&<p className="reader-error" role="alert">{editError}</p>}

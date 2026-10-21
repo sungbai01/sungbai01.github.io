@@ -26,5 +26,12 @@
 .google-account-row:hover:enabled{background:var(--sand-3);color:var(--sand-12)}
 .google-account-row svg{flex:none;stroke-width:1.6}
 .google-account-spinner{animation:google-account-spin 1s linear infinite}
+.google-login-modal{width:min(380px,calc(100vw - 32px))}
+.google-login-slot{display:flex;align-items:center;justify-content:center;min-height:100px;padding:14px 0}
+.google-login-slot>.google-account-provider{display:flex;justify-content:center}
+.google-login-slot>.google-account-provider[hidden]{display:none}
+.google-login-slot>.google-account-button{max-width:260px}
+.google-login-progress{display:flex;align-items:center;gap:10px;color:var(--sand-11);font-size:12px}
+.google-login-modal .google-account-message{margin:0;min-height:19px;text-align:center}
 @keyframes google-account-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.google-account-spinner{animation:none}}
