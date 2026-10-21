@@ -159,6 +159,10 @@ export class BookmarkMotion {
         const destination = this.geometry(target);
         this.capture(target);
         if (this.floating) {
+          // Adopt the destination face before descending, not when the moving
+          // copy is replaced by the real bookmark at the end of the animation.
+          const ribbon = this.floating.firstElementChild as HTMLElement | null;
+          if (ribbon) ribbon.dataset.bookmarkSide = target.dataset.bookmarkSide ?? 'after';
           if (this.plane) this.plane.style.clipPath = 'none';
           const from = wasDetached ? {
             left: this.floating.style.left, top: this.floating.style.top,
