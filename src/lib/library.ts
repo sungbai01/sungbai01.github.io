@@ -49,6 +49,7 @@ export interface Book {
   characterIcon?: string;
   bookmarkStyle?: 'normal' | 'character' | 'image';
   bookmarkAssetId?: string;
+  shareCardAssetId?: string;
   assets?: BookAsset[];
   imageRules?: ImageRule[];
   displayRules?: DisplayRule[];
@@ -221,6 +222,7 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
   if (characterIcon) book.characterIcon = characterIcon;
   if (value.bookmarkStyle === 'normal' || value.bookmarkStyle === 'character' || value.bookmarkStyle === 'image') book.bookmarkStyle = value.bookmarkStyle;
   if (typeof value.bookmarkAssetId === 'string') book.bookmarkAssetId = value.bookmarkAssetId;
+  if (typeof value.shareCardAssetId === 'string') book.shareCardAssetId = value.shareCardAssetId;
   if (Array.isArray(value.assets)) book.assets = assets;
   if (Array.isArray(value.imageRules)) book.imageRules=imageRules;
   if (Array.isArray(value.displayRules)) book.displayRules = !value.displayRules.length && imageRules.length && !messages.some(message => message.originalContent !== undefined)
@@ -478,6 +480,7 @@ function validateBook(book: Book): void {
     (book.characterIcon !== undefined && typeof book.characterIcon !== 'string') ||
     (book.bookmarkStyle !== undefined && book.bookmarkStyle !== 'normal' && book.bookmarkStyle !== 'character' && book.bookmarkStyle !== 'image') ||
     (book.bookmarkAssetId !== undefined && typeof book.bookmarkAssetId !== 'string') ||
+    (book.shareCardAssetId !== undefined && typeof book.shareCardAssetId !== 'string') ||
     (book.aiModel !== undefined && typeof book.aiModel !== 'string') ||
     (book.uploadedAt!==undefined&&(typeof book.uploadedAt!=='string'||!Number.isFinite(Date.parse(book.uploadedAt)))) ||
     (book.assets !== undefined && (!Array.isArray(book.assets) || !book.assets.every(asset => record(asset) &&

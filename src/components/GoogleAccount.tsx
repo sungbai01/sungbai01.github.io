@@ -4,6 +4,7 @@ import { Check, CircleAlert, LoaderCircle, LogOut, RotateCcw, Upload, UserRound,
 import { clearAuthSession, getAuthSession, setAuthSession, subscribeAuthSession } from '../lib/auth';
 import type { CloudStatus } from '../lib/cloudLibrary';
 import './google-account.css';
+import AccountSummary from './AccountSummary';
 
 interface GoogleIdentity {
   initialize(options: {
@@ -62,9 +63,10 @@ const apiBase = (import.meta.env.VITE_AUTH_API_URL as string | undefined)?.trim(
 type Phase = 'idle' | 'loading' | 'ready' | 'verifying' | 'pending' | 'error';
 
 /** Standalone account section for the main drawer. No library access is gated. */
-export function GoogleAccount({ className = '', disabled = false, syncStatus, onSyncRetry, onImportGuest }: {
+export function GoogleAccount({ className = '', disabled = false, compact=false, syncStatus, onSyncRetry, onImportGuest }: {
   className?: string;
   disabled?: boolean;
+  compact?: boolean;
   syncStatus?: CloudStatus;
   /** Reloads API metadata only; historical prop name retained for App integration. */
   onSyncRetry?: () => void | Promise<unknown>;
@@ -250,12 +252,12 @@ export function GoogleAccount({ className = '', disabled = false, syncStatus, on
 
   const busy = phase === 'loading' || phase === 'verifying';
   return <section className={`google-account ${className}`} aria-labelledby={titleId}>
-    <h2 id={titleId} className="google-account-label">계정</h2>
-    <div className="google-account-heading">
+    <h2 id={titleId} className={compact?'sr-only':'google-account-label'}>계정</h2>
+    {compact?<AccountSummary connected={!!session} disabled={disabled||importBusy} onLogout={logout}/>:<div className="google-account-heading">
       <span className="google-account-avatar"><UserRound size={19} aria-hidden="true" /></span>
       <div className="google-account-identity"><strong>{session?'Google 계정':'게스트'}</strong><span>{session?'텍스트 · 클라우드 보관':'이 브라우저에 보관'}</span></div>
       {session && <button type="button" className="icon-btn google-account-logout" aria-label="로그아웃" title="로그아웃" disabled={disabled||importBusy} onClick={logout}><LogOut size={16} aria-hidden="true"/></button>}
-    </div>
+    </div>}
 
     <div className="google-account-actions" aria-busy={busy}>
       {!session&&<button type="button" className="google-account-button" disabled={disabled} onClick={()=>setLoginOpen(true)}>Google로 로그인</button>}
@@ -269,7 +271,7 @@ export function GoogleAccount({ className = '', disabled = false, syncStatus, on
       </div>
       <p className="google-account-message" role={phase==='error'?'alert':'status'} aria-live="polite">{message}</p>
     </dialog>,document.body)}
-    {session ? <div className="google-account-library">
+    {session&&!compact ? <div className="google-account-library">
       {syncStatus && <p className="google-account-library-status" role="status" aria-live="polite">{syncStatus.phase==='error'?<CircleAlert size={12} aria-hidden="true"/>:syncStatus.phase==='loading'||syncStatus.phase==='saving'?<LoaderCircle size={12} className="google-account-spinner" aria-hidden="true"/>:<Check size={12} aria-hidden="true"/>}{syncStatus.message}</p>}
       {onSyncRetry && <button type="button" className="google-account-row" disabled={(disabled&&syncStatus?.phase!=='error')||importBusy||reloadBusy||syncStatus?.phase==='loading'||syncStatus?.phase==='saving'} onClick={()=>void reloadLibrary()}><RotateCcw size={15} className={reloadBusy?'google-account-spinner':undefined}/>{reloadBusy?'불러오는 중…':'목록 새로고침'}</button>}
       {onImportGuest && <div className="google-account-guest-import">
@@ -278,7 +280,7 @@ export function GoogleAccount({ className = '', disabled = false, syncStatus, on
       {importError && <p className="google-account-message" role="alert">{importError}</p>}
       {reloadError && <p className="google-account-message" role="alert">{reloadError}</p>}
     </div> : null}
-    {!loginOpen&&<p className="google-account-message" role={phase === 'error' ? 'alert' : 'status'} aria-live="polite">{message}</p>}
+    {!loginOpen&&(!compact||!session)&&<p className="google-account-message" role={phase === 'error' ? 'alert' : 'status'} aria-live="polite">{message}</p>}
   </section>;
 }
 

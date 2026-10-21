@@ -13,7 +13,8 @@ async function canonicalImages(request:Request,book:Book){
  let size=0;const chunks:Uint8Array[]=[];
  try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>1_000_000){await reader.cancel();throw new Error('Too large');}chunks.push(value);}}finally{reader.releaseLock();}
  const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
- const input=JSON.parse(new TextDecoder().decode(bytes)) as {references:unknown};
+ const input=JSON.parse(new TextDecoder().decode(bytes)) as {references:unknown;bookmarkStyle?:unknown};
+ if(input.bookmarkStyle!==undefined){if(!['normal','image','character'].includes(input.bookmarkStyle as string))throw new Error('Invalid bookmark style');book.bookmarkStyle=input.bookmarkStyle as Book['bookmarkStyle'];}
  if(!Array.isArray(input.references)||input.references.length>10000)throw new Error('Invalid references');
  const references=new Map<number,{start:number;end:number;name:string}[]>();
  for(const item of input.references){
@@ -27,7 +28,12 @@ async function canonicalImages(request:Request,book:Book){
  }
  for(const [index,list] of references){
   list.sort((a,b)=>b.start-a.start);let boundary=book.messages[index].content.length;
-  for(const item of list){if(item.end>boundary)throw new Error('Overlapping references');const message=book.messages[index];message.content=message.content.slice(0,item.start)+`{{img::${item.name}}}`+message.content.slice(item.end);boundary=item.start;}
+  for(const item of list){
+   if(item.end>boundary)throw new Error('Overlapping references');
+   const message=book.messages[index],replacement=`{{img::${item.name}}}`;
+   for(const mark of book.bookmarks??[])if(mark.message===index){if(mark.char>=item.end)mark.char+=replacement.length-(item.end-item.start);else if(mark.char>item.start)mark.char=item.start;}
+   message.content=message.content.slice(0,item.start)+replacement+message.content.slice(item.end);boundary=item.start;
+  }
  }
 }
 
@@ -45,6 +51,7 @@ export async function publicShare(request:Request,db:TextDatabase,origin:string,
  const unique=[...new Map(results.map(image=>[image.name,image])).values()];
  book.assets=unique.map(image=>({id:image.image_id,name:image.name,type:image.role==='icon'?'icon':'asset',src:`${new URL(request.url).origin}/share-media/${id}/${image.image_id}`}));
  book.characterIcon=book.assets.find(image=>image.type==='icon')?.src;
+ book.bookmarkAssetId=book.assets.find(image=>image.name==='__galpi_bookmark__')?.id;
  return reply({book},200,origin);
 }
 
@@ -67,21 +74,24 @@ export async function manageShare(request:Request,db:TextDatabase,owner:string,b
  if(!await allowShareAction(db,owner,'publish'))return reply({error:'공유 생성·갱신은 1분에 한 번, 하루 30회까지 가능해요. 잠시 후 다시 시도해 주세요.'},429,origin);
  const book=cloudBook(JSON.parse(source.body) as Book);
  try{await canonicalImages(request,book);}catch{return reply({error:'이미지 참조를 확인하지 못했어요.'},400,origin);}
- delete book.bookmarks;delete book.seriesId;delete book.pageLayoutVersion;
+ delete book.seriesId;delete book.pageLayoutVersion;
  book.description='';
  const body=JSON.stringify(book),bytes=new TextEncoder().encode(body).byteLength;
  if(bytes>1_500_000)return reply({error:'공유할 텍스트 용량이 너무 커요.'},413,origin);
  const id=Array.from(crypto.getRandomValues(new Uint8Array(32)),b=>String.fromCharCode(b)).join('');
  const shareId=btoa(id).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
  const now=Date.now();
- await db.prepare('DELETE FROM book_shares WHERE owner_id=?1 AND book_id=?2 AND last_access_at<=?3').bind(owner,bookId,now-SHARE_IDLE_MS).run();
+ await db.batch([
+  db.prepare('INSERT OR IGNORE INTO share_history(share_id,owner_id,book_id,title,created_at,expired_at) SELECT share_id,owner_id,book_id,title,created_at,last_access_at+?4 FROM book_shares WHERE owner_id=?1 AND book_id=?2 AND last_access_at<=?3').bind(owner,bookId,now-SHARE_IDLE_MS,SHARE_IDLE_MS),
+  db.prepare('DELETE FROM book_shares WHERE owner_id=?1 AND book_id=?2 AND last_access_at<=?3').bind(owner,bookId,now-SHARE_IDLE_MS),
+ ]);
  // Quotas checked inside the write, including concurrent create requests.
- const result=await db.prepare(`INSERT INTO book_shares(share_id,owner_id,book_id,body,bytes,created_at,updated_at,last_access_at)
- SELECT ?1,?2,?3,?4,?5,?6,?6,?6
+ const result=await db.prepare(`INSERT INTO book_shares(share_id,owner_id,book_id,body,bytes,created_at,updated_at,last_access_at,title)
+ SELECT ?1,?2,?3,?4,?5,?6,?6,?6,?7
  WHERE ((SELECT COUNT(*) FROM book_shares WHERE owner_id=?2)<20 OR EXISTS(SELECT 1 FROM book_shares WHERE owner_id=?2 AND book_id=?3))
  AND (SELECT COALESCE(SUM(bytes),0) FROM book_shares WHERE owner_id=?2 AND book_id!=?3)+?5<=20000000
  AND (SELECT COALESCE(SUM(bytes),0) FROM book_shares WHERE NOT(owner_id=?2 AND book_id=?3))+?5<=100000000
- ON CONFLICT(owner_id,book_id) DO UPDATE SET body=excluded.body,bytes=excluded.bytes,updated_at=excluded.updated_at`).bind(shareId,owner,bookId,body,bytes,now).run();
+ ON CONFLICT(owner_id,book_id) DO UPDATE SET body=excluded.body,bytes=excluded.bytes,updated_at=excluded.updated_at,title=excluded.title`).bind(shareId,owner,bookId,body,bytes,now,book.title.slice(0,200)).run();
  if(!result.meta.changes)return reply({error:'공유 보관 한도에 도달했어요. 기존 공유를 종료해 주세요.'},413,origin);
  const row=await db.prepare('SELECT share_id, updated_at FROM book_shares WHERE owner_id = ?1 AND book_id = ?2').bind(owner,bookId).first<{share_id:string;updated_at:number}>();
  if(row)await db.prepare("DELETE FROM share_media WHERE share_id=?1 AND role!='card'").bind(row.share_id).run();

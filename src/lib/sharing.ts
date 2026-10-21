@@ -7,7 +7,7 @@ export function shareUrl(id:string){return `${location.origin}${location.pathnam
 export async function shareRequest(bookId:string,method='GET',signal?:AbortSignal,book?:Book):Promise<ShareInfo|null>{
  const session=getAuthSession();if(!session)throw new Error('공유하려면 Google 로그인이 필요해요.');
  if(!apiBase)throw new Error('공유 서버에 연결하지 못했어요.');
- const response=await fetch(`${apiBase}/library/books/${encodeURIComponent(bookId)}/share`,{method,credentials:'omit',cache:'no-store',signal,headers:{Authorization:`Bearer ${session.token}`,...(method==='POST'?{'Content-Type':'application/json'}:{})},...(method==='POST'?{body:JSON.stringify({references:book?book.messages.flatMap((message,index)=>extractAssetSegments(message.content,book.assets??[],book.imageRules??[]).flatMap(segment=>segment.type==='asset'?[{message:index,start:segment.start,end:segment.end,name:segment.asset.name}]:[])):[]})}:{})});
+ const response=await fetch(`${apiBase}/library/books/${encodeURIComponent(bookId)}/share`,{method,credentials:'omit',cache:'no-store',signal,headers:{Authorization:`Bearer ${session.token}`,...(method==='POST'?{'Content-Type':'application/json'}:{})},...(method==='POST'?{body:JSON.stringify({bookmarkStyle:book?.bookmarkStyle??'normal',references:book?book.messages.flatMap((message,index)=>extractAssetSegments(message.content,book.assets??[],book.imageRules??[]).flatMap(segment=>segment.type==='asset'?[{message:index,start:segment.start,end:segment.end,name:segment.asset.name}]:[])):[]})}:{})});
  const result=await response.json() as {share?:ShareInfo|null;error?:string};
  if(!response.ok)throw new Error(result.error||'공유를 완료하지 못했어요.');
  if(getAuthSession()?.user.id!==session.user.id)throw new Error('계정이 변경되었어요.');
@@ -29,6 +29,8 @@ export function cardHtml(book:Book,url:string,imageUrl:string){
 
 /** Portable raster card; hyperlink is supplied separately by the wrapping HTML. */
 export async function makeShareCard(book:Book):Promise<Blob>{
+ const selected=book.assets?.find(asset=>asset.id===book.shareCardAssetId);
+ if(selected)return shareImageBlob(selected.src);
  await document.fonts.ready;
  const canvas=document.createElement('canvas');canvas.width=1440;canvas.height=810;
  const ctx=canvas.getContext('2d');if(!ctx)throw new Error('카드 이미지를 만들지 못했어요.');
@@ -70,14 +72,16 @@ async function shareImageBlob(src:string):Promise<Blob>{
  const context=canvas.getContext('2d');if(!context)throw new Error('이미지를 만들지 못했어요.');context.drawImage(image,0,0,canvas.width,canvas.height);
  return new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(new Error('이미지를 만들지 못했어요.')),'image/webp',.9));
 }
-export function usedShareAssets(book:Book){
+export function usedShareAssets(book:Book,includeBody=true){
  const used=new Map<string,NonNullable<Book['assets']>[number]>();
- for(const message of book.messages)for(const segment of extractAssetSegments(message.content,book.assets??[],book.imageRules??[]))if(segment.type==='asset')used.set(segment.asset.name,segment.asset);
+ if(includeBody)for(const message of book.messages)for(const segment of extractAssetSegments(message.content,book.assets??[],book.imageRules??[]))if(segment.type==='asset')used.set(segment.asset.name,segment.asset);
  const icon=book.characterIcon??book.assets?.find(asset=>asset.type==='icon')?.src;
  if(icon)used.set('__galpi_cover_icon__',{id:'cover-icon',name:'__galpi_cover_icon__',src:icon,type:'icon'});
+ const mark=book.assets?.find(asset=>asset.id===book.bookmarkAssetId)?.src??icon;
+ if(book.bookmarks?.length&&book.bookmarkStyle!=='normal'&&mark)used.set('__galpi_bookmark__',{id:'bookmark-image',name:'__galpi_bookmark__',src:mark,type:'asset'});
  return [...used.values()];
 }
-export async function uploadBookShareAssets(book:Book,onProgress:(done:number,total:number)=>void){
- const assets=usedShareAssets(book);if(assets.length>40)throw new Error('공유 이미지는 한 권에 40개까지 넣을 수 있어요.');
+export async function uploadBookShareAssets(book:Book,onProgress:(done:number,total:number)=>void,includeBody=true){
+ const assets=usedShareAssets(book,includeBody);if(assets.length>40)throw new Error('공유 이미지는 한 권에 40개까지 넣을 수 있어요.');
  let done=0;for(const asset of assets){const blob=await shareImageBlob(asset.src);await uploadShareMedia(book,blob,asset.name,asset.type==='icon'?'icon':'asset');onProgress(++done,assets.length);}
 }

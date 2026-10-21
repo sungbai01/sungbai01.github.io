@@ -1,6 +1,6 @@
 import type {Book} from './library';
 
-type Images=Pick<Book,'assets'|'cover'|'backCover'|'characterIcon'|'bookmarkStyle'|'bookmarkAssetId'|'imageRules'|'displayRules'>;
+type Images=Pick<Book,'assets'|'cover'|'backCover'|'characterIcon'|'bookmarkStyle'|'bookmarkAssetId'|'shareCardAssetId'|'imageRules'|'displayRules'>;
 type RecordValue=Images&{id:string};
 const database='galpi-device-images';
 function open(){return new Promise<IDBDatabase>((resolve,reject)=>{
@@ -9,7 +9,7 @@ function open(){return new Promise<IDBDatabase>((resolve,reject)=>{
  request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(new Error('이 기기 이미지 저장소를 열지 못했어요.'));
 });}
 function key(owner:string,id:string){if(!/^u_[A-Za-z0-9_-]{43}$/.test(owner))throw new Error('계정이 올바르지 않아요.');return owner+':'+id;}
-function images(book:Book):Images{return {assets:book.assets,cover:book.cover,backCover:book.backCover,characterIcon:book.characterIcon,bookmarkStyle:book.bookmarkStyle,bookmarkAssetId:book.bookmarkAssetId,imageRules:book.imageRules,displayRules:book.displayRules};}
+function images(book:Book):Images{return {assets:book.assets,cover:book.cover,backCover:book.backCover,characterIcon:book.characterIcon,bookmarkStyle:book.bookmarkStyle,bookmarkAssetId:book.bookmarkAssetId,shareCardAssetId:book.shareCardAssetId,imageRules:book.imageRules,displayRules:book.displayRules};}
 async function transaction<T>(mode:IDBTransactionMode,action:(store:IDBObjectStore)=>IDBRequest<T>,name='images'){
  const db=await open();try{return await new Promise<T>((resolve,reject)=>{
   const tx=db.transaction(name,mode),request=action(tx.objectStore(name));let result:T;
@@ -28,7 +28,7 @@ export async function saveAccountImages(owner:string,book:Book){
  const value=images(book),id=key(owner,book.id);
  if(!Object.values(value).some(item=>item!==undefined))return;
  await transaction('readwrite',store=>store.put({id,...value}));
- const preview={...value,assets:value.assets?.filter(asset=>asset.type==='icon'||asset.id===value.bookmarkAssetId),imageRules:undefined,displayRules:undefined};
+ const preview={...value,assets:value.assets?.filter(asset=>asset.type==='icon'||asset.id===value.bookmarkAssetId||asset.id===value.shareCardAssetId),imageRules:undefined,displayRules:undefined};
  await transaction('readwrite',store=>store.put({id,...preview}),'previews');
 }
 export async function deleteAccountImages(owner:string,id:string){await transaction('readwrite',store=>store.delete(key(owner,id)));await transaction('readwrite',store=>store.delete(key(owner,id)),'previews');}

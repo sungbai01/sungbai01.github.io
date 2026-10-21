@@ -156,8 +156,8 @@ export class CloudLibrary {
     const clean = cloudBook(book);
     return { ...clean, description: clean.description.slice(0, 160), messages: [],
       cover: book.cover, backCover: book.backCover, characterIcon: book.characterIcon,
-      bookmarkAssetId: book.bookmarkAssetId, bookmarkStyle: book.bookmarkStyle,
-      assets: book.assets?.filter(asset => asset.type === 'icon' || asset.id === book.bookmarkAssetId),
+      bookmarkAssetId: book.bookmarkAssetId, shareCardAssetId:book.shareCardAssetId, bookmarkStyle: book.bookmarkStyle,
+      assets: book.assets?.filter(asset => asset.type === 'icon' || asset.id === book.bookmarkAssetId || asset.id === book.shareCardAssetId),
     };
   }
   private async put(book: Book) {
@@ -169,7 +169,7 @@ export class CloudLibrary {
       this.revisions.set(book.id, result.revision);
     }
     this.bodies.set(book.id, book);this.metadata.set(book.id, this.toMetadata(book));
-    const imageFields = ['assets','cover','backCover','characterIcon','bookmarkStyle','bookmarkAssetId','imageRules','displayRules'] as const;
+    const imageFields = ['assets','cover','backCover','characterIcon','bookmarkStyle','bookmarkAssetId','shareCardAssetId','imageRules','displayRules'] as const;
     if (existing && imageFields.every(field=>existing[field]===book[field])) return;
     try { await saveAccountImages(this.owner!, book);this.assertCurrent(); }
     catch(error) { this.publish();throw new Error(`책의 서버 저장은 완료했지만 이 기기 이미지를 저장하지 못했어요. ${error instanceof Error ? error.message : ''}`); }

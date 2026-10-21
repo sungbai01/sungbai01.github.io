@@ -6,7 +6,12 @@ export const SHARE_STORAGE_BYTES=1_000_000_000;
  * batch stays below Worker subrequest limits and resumes safely next tick. */
 export async function cleanExpiredShares(db:TextDatabase,bucket:ShareBucket){
  const now=Date.now();
- await db.prepare('DELETE FROM book_shares WHERE share_id IN (SELECT share_id FROM book_shares WHERE last_access_at<=?1 ORDER BY last_access_at LIMIT 100)').bind(now-SHARE_IDLE_MS).run();
+ await db.batch([
+  db.prepare(`INSERT OR IGNORE INTO share_history(share_id,owner_id,book_id,title,created_at,expired_at)
+  SELECT share_id,owner_id,book_id,title,created_at,last_access_at+?2 FROM book_shares
+  WHERE last_access_at<=?1 ORDER BY last_access_at LIMIT 100`).bind(now-SHARE_IDLE_MS,SHARE_IDLE_MS),
+  db.prepare('DELETE FROM book_shares WHERE share_id IN (SELECT share_id FROM book_shares WHERE last_access_at<=?1 ORDER BY last_access_at LIMIT 100)').bind(now-SHARE_IDLE_MS),
+ ]);
  const {results}=await db.prepare(`SELECT object_key,bytes FROM share_objects WHERE created_at<?1 AND
  (NOT EXISTS(SELECT 1 FROM book_shares WHERE book_shares.share_id=share_objects.share_id)
  OR NOT EXISTS(SELECT 1 FROM share_media WHERE share_media.object_key=share_objects.object_key))
