@@ -33,7 +33,7 @@ type MeasuredPage = {
  * every source offset. Long chapters fall back to exactly 200 measured pages.
  */
 export function splitBookByPages(book: Book, pages: MeasuredPage[]): Book[] {
-  if (pages.length <= MAX_VOLUME_PAGES) return [book];
+  if (pages.length <= MAX_VOLUME_PAGES) return [{...book,pageCount:pages.length}];
   const starts = chapterStarts(book);
   const boundaries = new Set<number>();
   let nextStart = 0;
@@ -103,7 +103,7 @@ export function splitBookByPages(book: Book, pages: MeasuredPage[]): Book[] {
       ...book,
       id: index === 0 ? book.id : `${book.id}--part-${volumeNumber}`,
       title: `${seriesTitle} · ${volumeNumber}권`, seriesId, seriesTitle,
-      volumeNumber, volumeCount: ranges.length, messages,
+      volumeNumber, volumeCount: ranges.length, messages, pageCount:end-start,
       ...(book.assets === undefined ? {} : { assets: book.assets.map(asset => ({ ...asset })) }),
       ...(book.bookmarks === undefined ? {} : { bookmarks: book.bookmarks.flatMap(mark => {
         const span = spans.find(span => span.source === mark.message && mark.char >= span.start &&

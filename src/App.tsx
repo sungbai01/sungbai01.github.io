@@ -1,8 +1,8 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, useId, type CSSProperties, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, useId, type CSSProperties, type ReactNode } from 'react';
 import { ArrowDownToLine, ArrowRight, BookOpen, Bookmark, Check, ChevronDown, Ellipsis, Library, LoaderCircle, Menu, Pencil, Images, Plus, Search, Trash2, Upload, X } from 'lucide-react';
 import { loadBooks, repackSeries, updateBookmarks, deleteBook, deleteBooks, importChatFile, BOOK_COLORS, type Book } from './lib/library';
 import { groupBooks } from './lib/volumes';
-import { prepareBooks } from './lib/prepareBooks';
+import { prepareBooks,measureBookPageCount } from './lib/prepareBooks';
 import ShelfAssets from './components/ShelfAssets';
 import BookIntake,{type IntakeRequest} from './components/BookIntake';
 import ThemePicker from './components/ThemePicker';
@@ -80,7 +80,7 @@ function reuseBookReferences(book:Book,previous:Book|undefined):Book{
   if(!previous||book===previous)return book;
   const next={...book};
   const messages=book.messages.map((message,index)=>JSON.stringify(message.originalMap)===JSON.stringify(previous.messages[index]?.originalMap)?{...message,originalMap:previous.messages[index]?.originalMap}:message);
-  if(equalRows(messages,previous.messages,['role','name','content','chapter','originalContent','originalMap']))next.messages=previous.messages;
+  if(equalRows(messages,previous.messages,['role','name','content','chapter','chapterTitle','chapterStart','originalContent','originalMap']))next.messages=previous.messages;
   if(equalRows(book.assets,previous.assets,['id','name','src','type']))next.assets=previous.assets;
   if(equalRows(book.bookmarks,previous.bookmarks,['message','char','label','progress']))next.bookmarks=previous.bookmarks;
   if(book.imageRules===previous.imageRules||JSON.stringify(book.imageRules)===JSON.stringify(previous.imageRules))next.imageRules=previous.imageRules;
@@ -99,6 +99,7 @@ function download(name: string, data: unknown) {
 }
 
 async function storeBooks(incoming:Book[],existing:Book[]){
+  for(let index=0;index<incoming.length;index++){const book=incoming[index]!;if(book.pageCount!==undefined)continue;incoming[index]={...book,pageCount:await measureBookPageCount(book)};await new Promise<void>(resolve=>setTimeout(resolve,0));}
   if(incoming.length)await repackSeries(incoming[0]!.id,incoming,[]);
   const byId=new Map(incoming.map(book=>[book.id,book]));const existingIds=new Set(existing.map(book=>book.id));
   return normalizeShelfBookmarks([...existing.map(book=>byId.get(book.id)??book),...incoming.filter(book=>!existingIds.has(book.id))]);
@@ -120,6 +121,21 @@ function SortMenu({value,onChange}:{value:string;onChange:(value:string)=>void})
     <button ref={trigger} className="sort-trigger" type="button" aria-label="책 정렬" aria-haspopup="listbox" aria-expanded={open} aria-controls={id} onClick={()=>setOpen(previous=>!previous)} onKeyDown={event=>{if(!open&&['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();setOpen(true);}}}>{options.find(option=>option.value===value)?.label}<ChevronDown size={13}/></button>
     {open&&<div id={id} role="listbox" aria-label="책 정렬" className="sort-options">{options.map(option=><button key={option.value} type="button" role="option" aria-selected={value===option.value} onClick={()=>{onChange(option.value);setOpen(false);trigger.current?.focus();}}><span>{option.label}</span>{value===option.value&&<Check size={14}/>}</button>)}</div>}
   </div>;
+}
+function BookActions({book,open,onOpen,onClose,onEdit,onExport,onDelete}:{book:Book;open:boolean;onOpen:()=>void;onClose:()=>void;onEdit:()=>void;onExport:()=>void;onDelete:()=>void}){
+ const popup=useRef<HTMLDivElement>(null);const trigger=useRef<HTMLButtonElement>(null);const id=useId();
+ useLayoutEffect(()=>{
+  const element=popup.current;if(!element)return;
+  if(!open){if(element.matches(':popover-open'))element.hidePopover();return;}
+  function position(){const anchor=trigger.current?.getBoundingClientRect();if(!anchor||!element)return;const width=Math.min(158,innerWidth-16);const height=Math.min(138,innerHeight-16);const above=innerHeight-anchor.bottom<height+10&&anchor.top>height+10;element.style.width=`${width}px`;element.style.maxHeight=`${height}px`;element.style.left=`${Math.max(8,Math.min(anchor.right-width,innerWidth-width-8))}px`;element.style.top=`${Math.max(8,Math.min(above?anchor.top-height-6:anchor.bottom+6,innerHeight-height-8))}px`;}
+  element.showPopover();position();element.querySelector<HTMLButtonElement>('button')?.focus({preventScroll:true});
+  const scrolled=(event:Event)=>{if(!element.contains(event.target as Node))position();};window.addEventListener('resize',position);window.addEventListener('scroll',scrolled,true);
+  return()=>{window.removeEventListener('resize',position);window.removeEventListener('scroll',scrolled,true);if(element.matches(':popover-open'))element.hidePopover();};
+ },[open]);
+ return <div className={`book-menu-wrap ${open?'menu-open':''}`}><button ref={trigger} className="icon-btn" title="책 관리" aria-label={`${book.title} 관리`} aria-haspopup="menu" aria-controls={id} aria-expanded={open} onClick={event=>{event.stopPropagation();if(open)onClose();else onOpen();}}><Ellipsis size={19}/></button><div ref={popup} id={id} popover="auto" role="menu" aria-label={`${book.title} 관리`} className="book-actions-popover" onToggle={event=>{if(event.newState==='closed'&&open)onClose();}} onKeyDown={event=>{
+  if(event.key==='Escape'){event.preventDefault();event.stopPropagation();onClose();trigger.current?.focus({preventScroll:true});}
+  if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();const items=Array.from(popup.current!.querySelectorAll<HTMLButtonElement>('button'));const index=items.indexOf(document.activeElement as HTMLButtonElement);items[event.key==='Home'?0:event.key==='End'?items.length-1:(index+(event.key==='ArrowDown'?1:items.length-1))%items.length]?.focus({preventScroll:true});}
+ }}><button role="menuitem" onClick={()=>{onClose();onEdit();}}>꾸미기</button><button role="menuitem" onClick={()=>{onClose();onExport();trigger.current?.focus({preventScroll:true});}}>내보내기</button><button role="menuitem" className="danger-text" onClick={()=>{onClose();onDelete();}}>삭제</button></div></div>;
 }
 function LibraryDrawer({children,onClose}:{children:ReactNode;onClose:()=>void}){
   const ref=useRef<HTMLDialogElement>(null);
@@ -176,6 +192,13 @@ export default function App() {
       const demos=data.filter(book=>retiredDemoIds.has(book.id));
       if(demos.length){await deleteBooks(demos.map(book=>book.id));data=data.filter(book=>!retiredDemoIds.has(book.id));}
       data=await normalizeShelfBookmarks(data);
+      for(let index=0;index<data.length;index++){
+        const book=data[index]!;
+        if(book.pageCount!==undefined)continue;
+        const counted={...book,pageCount:await measureBookPageCount(book)};
+        await repackSeries(book.id,[counted],[]);data[index]=counted;
+        await new Promise<void>(resolve=>setTimeout(resolve,0));
+      }
       return data;
     })();
     void initialLoad.current.then(data=>{if(active){latestBooks.current=data;setBooks(data);}})
@@ -192,12 +215,12 @@ export default function App() {
     setRoute(book.id);location.hash=`/book/${encodeURIComponent(book.id)}`;
   },[]);
   const closeBook=useCallback(()=>{setReaderStart(null);location.hash='/';},[]);
-  async function commitBooks(ids:string[],make:(current:Book[])=>Book[]){
+  async function commitBooks(ids:string[],make:(current:Book[])=>Book[]|Promise<Book[]>){
     if(deletingRef.current||editingShelf.current||preparingAssets.current||splittingBooks.current.size>0)throw new Error('책을 저장 중이에요. 잠시 후 다시 시도해 주세요.');
     editingShelf.current=true;for(const id of ids)splittingBooks.current.add(id);setBusy(true);
     try{
   
-      const current=await loadBooks();const updated=make(current);
+      const current=await loadBooks();const updated=await make(current);
       if(!updated.length)throw new Error('책장을 찾지 못했어요.');
       await repackSeries(updated[0]!.id,updated,[]);
       const byId=new Map(updated.map(book=>[book.id,book]));
@@ -221,9 +244,11 @@ export default function App() {
     if(book.bookmarks!==baseline.bookmarks)patch.bookmarks=book.bookmarks;
 
     if(book.updatedAt!==baseline.updatedAt)patch.updatedAt=book.updatedAt;
-    await commitBooks([book.id],current=>{
+    await commitBooks([book.id],async current=>{
       const stored=current.find(item=>item.id===book.id);if(!stored)throw new Error('책을 찾지 못했어요.');
-      return [{...stored,...patch}];
+      const updated={...stored,...patch};
+      if(updated.pageCount===undefined||!equalRows(updated.messages,stored.messages,['role','name','content','chapter','chapterTitle','chapterStart']))updated.pageCount=await measureBookPageCount(updated);
+      return [updated];
     });
   };
   async function changeBookmark(book:Book,anchor:BookmarkAnchor|null,style?:Book['bookmarkStyle']){
@@ -325,7 +350,9 @@ export default function App() {
       for(const book of snapshot){
         const imageId=assets.some(asset=>asset.id===bookmarkAssetId)?bookmarkAssetId:undefined;
         const styled={...book,assets,imageRules,displayRules,bookmarkAssetId:imageId,bookmarkStyle:imageId&&imageId!==book.bookmarkAssetId?'image' as const:!imageId&&book.bookmarkStyle==='image'?'normal' as const:book.bookmarkStyle,characterIcon:icon?.src,...(palette?{color:palette,customColor:palette}:assets.length?{}:{cover:undefined,backCover:undefined,color:colors[0]!,customColor:undefined})};
-        processed.set(book.id,await applyBookDisplayRules(styled,displayRules));
+        const ruled=await applyBookDisplayRules(styled,displayRules);
+        if(ruled.pageCount===undefined||!equalRows(ruled.messages,book.messages,['role','name','content','chapter','chapterTitle','chapterStart'])||!equalRows(ruled.assets,book.assets,['id','name','src','type']))ruled.pageCount=await measureBookPageCount(ruled);
+        processed.set(book.id,ruled);
       }
       // Release only our processing guard immediately before acquiring commitBooks' guard.
       preparingAssets.current=false;
@@ -396,9 +423,9 @@ export default function App() {
               <button className="book-read" aria-label={`${book.title} 읽기`} title={`${book.title} 읽기`} onClick={()=>openBook(book)}>
                 <div className="book-stage"><div className="book-open">{mark?.bookId===book.id&&<BookRibbon book={book} mark={mark} view={view}/>}{view==='covers'?<Cover book={book}/>:<div className="book-spine"><SpineTitle title={displayBookTitle(book)}/><span className="spine-volume">{String(book.volumeNumber??1).padStart(2,'0')}</span></div>}</div></div>
                 <div className="book-caption"><div><span className="book-title">{book.title}</span><p>{book.author || '저자 모델 미상'}</p></div></div>
-                <div className="book-meta"><span>{book.messages.length.toLocaleString()}개의 대화</span><span>{mark?.bookId===book.id?'책갈피':''}</span></div>
+                <div className="book-meta"><span>{book.pageCount?.toLocaleString()??'…'}페이지</span><span>{mark?.bookId===book.id?'책갈피':''}</span></div>
               </button>
-              {canEdit&&<div className={`book-menu-wrap ${menu===book.id?'menu-open':''}`}><button className="icon-btn" title="책 관리" aria-label={`${book.title} 관리`} aria-expanded={menu===book.id} onClick={e=>{e.stopPropagation();setMenu(menu===book.id?null:book.id);}}><Ellipsis size={19}/></button>{menu===book.id&&<div className="dropdown"><button onClick={()=>setEdit(book)}>꾸미기</button><button onClick={()=>download(`${book.title}.json`,[book])}>내보내기</button><button className="danger-text" onClick={()=>setRemove(book)}>삭제</button></div>}</div>}
+              {canEdit&&<BookActions book={book} open={menu===book.id} onOpen={()=>setMenu(book.id)} onClose={()=>setMenu(previous=>previous===book.id?null:previous)} onEdit={()=>setEdit(book)} onExport={()=>download(`${book.title}.json`,[book])} onDelete={()=>setRemove(book)}/>}
             </article>)}{view==='spines'&&<span className="shelf-bookstop shelf-bookstop-end" aria-hidden="true"/>}{canEdit&&<button className={`add-book-card ${view==='spines'?'add-spine-card':''}`} aria-label={`${shelf.title} 새 책 쓰기`} title="직접 쓴 이야기 추가" disabled={busy} onClick={()=>{setIntakeMode('text');setCreating({id:shelf.id,title:shelf.title,ungrouped:shelf===singletons});}}><span className="add-book-outline"><Plus size={24} strokeWidth={1.2}/></span><span className="sr-only">새 책 쓰기</span></button>}</div>
           </section>;})}</div>:<div className="empty-state"><BookOpen size={38} strokeWidth={1}/><h3>{query?'검색 결과 없음':'책이 없어요'}</h3>{canEdit&&!query&&<div className="empty-actions"><button className="secondary-btn" onClick={()=>{setIntakeMode('text');setCreating({id:'ungrouped',title:'단권',ungrouped:true});}}><Plus size={17}/>새 책 쓰기</button><button className="secondary-btn" onClick={()=>{setIntakeMode('file');setCreating(null);setImporting(true);}}><Upload size={17}/>로그 가져오기</button></div>}</div>}
 

@@ -4,7 +4,7 @@ import { systemRanges, visibleProse } from './prose';
 
 export type Anchor = { message: number; char: number };
 export type Fragment = Anchor & { end: number; name: string; text: string; hidden?: boolean; chapter?: number };
-export type PaperPage = { fragments: Fragment[]; intro: boolean; asset?: BookAsset; chapter?: number; kind?: 'paper' | 'asset' | 'padding' | 'endpaper' | 'back-cover' | 'end' };
+export type PaperPage = { fragments: Fragment[]; intro: boolean; asset?: BookAsset; chapter?: number; chapterTitle?: string; chapterMessage?: number; kind?: 'paper' | 'asset' | 'padding' | 'endpaper' | 'back-cover' | 'end' };
 
 export const CHAPTER_HEADER_RATIO = .25;
 
@@ -20,6 +20,7 @@ export function pageTextInsets(height: number, fontSize: number): { top: number;
 /** Only contiguous, nonblank explicit chapter IDs group messages together. */
 export function startsChapter(book: Book, index: number): boolean {
   if (index < 0 || index >= book.messages.length) return false;
+  if (book.messages[index]!.chapterStart !== undefined) return book.messages[index]!.chapterStart!;
   if (index === 0) return true;
   const chapter = book.messages[index]!.chapter?.trim();
   return !chapter || chapter !== book.messages[index - 1]!.chapter?.trim();
@@ -82,12 +83,15 @@ export function paginate(book: Book, measure: HTMLDivElement, options: Paginatio
   let current = pages[0]!;
   let number = 0;
   let pendingHeading = false;
+  let pendingChapterMessage = 0;
+  let pendingChapterTitle: string | undefined;
   measure.replaceChildren();
   const nextPage = () => { current = { fragments: [], intro: false }; pages.push(current); measure.replaceChildren(); measure.style.height = `${baseHeight}px`; };
   try {
   book.messages.forEach((message, messageIndex) => {
     if (startsChapter(book, messageIndex)) {
       number++; pendingHeading = true;
+      pendingChapterMessage = messageIndex; pendingChapterTitle = message.chapterTitle;
       if (current.fragments.length) nextPage();
     }
     const content = message.content || '', name = speakerName(message);
@@ -138,7 +142,7 @@ export function paginate(book: Book, measure: HTMLDivElement, options: Paginatio
       let offset = segment.start;
       while (offset < segment.end) {
         const heading = pendingHeading;
-        if (heading) { current.chapter = number; measure.style.height = `${chapterHeight}px`; }
+        if (heading) { current.chapter = number; current.chapterMessage = pendingChapterMessage; current.chapterTitle = pendingChapterTitle; measure.style.height = `${chapterHeight}px`; }
         const section = document.createElement('section'); section.className = 'reader-fragment';
         const paragraph = document.createElement('p'); paragraph.className = heading ? 'reader-prose reader-chapter-opening' : 'reader-prose';
         if (heading) paragraph.style.textIndent = '1em';
@@ -153,7 +157,7 @@ export function paginate(book: Book, measure: HTMLDivElement, options: Paginatio
           if (end > offset && /[\uD800-\uDBFF]/.test(content.charAt(end - 1))) end--;
           if (end === offset) {
             section.remove();
-            if (current.fragments.some(fragment => !fragment.hidden)) { if (heading) delete current.chapter; nextPage(); continue; }
+            if (current.fragments.some(fragment => !fragment.hidden)) { if (heading) { delete current.chapter; delete current.chapterMessage; delete current.chapterTitle; } nextPage(); continue; }
             end = offset + (content.codePointAt(offset)! > 0xffff ? 2 : 1); measure.append(section);
           } else {
             const tail = content.slice(offset, end), boundary = Math.max(tail.lastIndexOf('\n'), tail.lastIndexOf(' '), tail.lastIndexOf('\t'));

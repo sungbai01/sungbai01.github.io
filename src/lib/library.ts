@@ -23,6 +23,8 @@ export interface Message {
   originalContent?: string;
   originalMap?: { source: number; output: number }[];
   chapter?: string;
+  chapterTitle?: string;
+  chapterStart?: boolean;
 }
 
 export interface Book {
@@ -53,6 +55,7 @@ export interface Book {
   volumeNumber?: number;
   volumeCount?: number;
   volumePolicy?: 'chapters-100-v1' | 'chapters-200-v1';
+  pageCount?: number;
 }
 
 export class LibraryError extends Error {
@@ -132,6 +135,8 @@ function normalizeMessage(value: unknown, index: number, character: string, user
     originalContent: typeof value.originalContent === 'string' ? value.originalContent : content,
     ...(Array.isArray(value.originalMap) ? { originalMap: value.originalMap as Message['originalMap'] } : {}),
     ...(typeof value.chapter === 'string' ? { chapter: value.chapter } : {}),
+    ...(typeof value.chapterTitle === 'string' ? { chapterTitle: value.chapterTitle } : {}),
+    ...(typeof value.chapterStart === 'boolean' ? { chapterStart: value.chapterStart } : {}),
   };
 }
 
@@ -159,7 +164,9 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
       return { role: row.role, name: row.name, content: row.content,
         ...(typeof row.originalContent === 'string' ? { originalContent: row.originalContent } : {}),
         ...(Array.isArray(row.originalMap) ? { originalMap: row.originalMap as Message['originalMap'] } : {}),
-        ...(typeof row.chapter === 'string' ? { chapter: row.chapter } : {}) };
+        ...(typeof row.chapter === 'string' ? { chapter: row.chapter } : {}),
+        ...(typeof row.chapterTitle === 'string' ? { chapterTitle: row.chapterTitle } : {}),
+        ...(typeof row.chapterStart === 'boolean' ? { chapterStart: row.chapterStart } : {}) };
     }
     return normalizeMessage(row, i, character, user, context.names);
   });
@@ -217,6 +224,7 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
     if (typeof value.volumeNumber === 'number' && Number.isSafeInteger(value.volumeNumber) && value.volumeNumber > 0) book.volumeNumber = value.volumeNumber;
     if (typeof value.volumeCount === 'number' && Number.isSafeInteger(value.volumeCount) && value.volumeCount > 0) book.volumeCount = value.volumeCount;
     if (value.volumePolicy === 'chapters-100-v1' || value.volumePolicy === 'chapters-200-v1') book.volumePolicy = value.volumePolicy;
+    if (typeof value.pageCount === 'number' && Number.isSafeInteger(value.pageCount) && value.pageCount >= 1) book.pageCount = value.pageCount;
   }
   return book;
 }
@@ -425,6 +433,8 @@ function validateBook(book: Book): void {
     typeof book.updatedAt !== 'string' || !Number.isFinite(Date.parse(book.updatedAt)) || !Array.isArray(book.messages) ||
     !book.messages.every((message) => record(message) && ['role', 'name', 'content'].every((key) => typeof (message as unknown as RecordValue)[key] === 'string') &&
       (message.chapter === undefined || typeof message.chapter === 'string') &&
+      (message.chapterTitle === undefined || typeof message.chapterTitle === 'string') &&
+      (message.chapterStart === undefined || typeof message.chapterStart === 'boolean') &&
       (message.originalContent === undefined || typeof message.originalContent === 'string') &&
       (message.originalMap === undefined || (Array.isArray(message.originalMap) && message.originalMap.every((point, index, points) =>
         record(point) && Number.isSafeInteger(point.source) && point.source >= 0 && point.source <= (message.originalContent ?? message.content).length &&
@@ -434,6 +444,7 @@ function validateBook(book: Book): void {
     (book.seriesTitle !== undefined && typeof book.seriesTitle !== 'string') ||
     (book.volumeNumber !== undefined && (!Number.isSafeInteger(book.volumeNumber) || book.volumeNumber < 1)) ||
     (book.volumeCount !== undefined && (!Number.isSafeInteger(book.volumeCount) || book.volumeCount < 1)) ||
+    (book.pageCount !== undefined && (!Number.isSafeInteger(book.pageCount) || book.pageCount < 1)) ||
     (book.backCover !== undefined && typeof book.backCover !== 'string') ||
     (book.characterIcon !== undefined && typeof book.characterIcon !== 'string') ||
     (book.bookmarkStyle !== undefined && book.bookmarkStyle !== 'normal' && book.bookmarkStyle !== 'character' && book.bookmarkStyle !== 'image') ||

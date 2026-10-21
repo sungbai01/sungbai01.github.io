@@ -313,3 +313,8 @@ html[data-library-theme=dark]{color-scheme:dark;background:var(--sand-2)}
 @media(min-width:1450px){.bookshelf-grid{--display-stage:247px}}
 @media(max-width:560px){.bookshelf-grid{--display-stage:226px;padding:40px 12px 22px;column-gap:24px}}
 @media(max-width:355px){.bookshelf-grid{--display-stage:208px;column-gap:20px}}
+
+.book-actions-popover{position:fixed;inset:auto;margin:0;padding:5px;border:1px solid var(--sand-5);border-radius:6px;background:var(--sand-1);color:var(--sand-12);box-shadow:0 8px 28px color-mix(in srgb,var(--sand-12),transparent 82%);overflow:auto;overscroll-behavior:contain}
+.book-actions-popover button{display:block;width:100%;padding:10px;text-align:left;border-radius:3px;font-size:11px}
+.book-actions-popover button:hover,.book-actions-popover button:focus-visible{background:var(--sand-4)}
+.book-actions-popover::backdrop{background:transparent;pointer-events:none}

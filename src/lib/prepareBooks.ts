@@ -78,7 +78,7 @@ function preprocessBook(book: Book, options: PrepareBooksOptions): Book {
  * including unresolved references, are always protected; curly system prose
  * is still removed. Normal text between HTML tags is retained.
  */
-export async function prepareBooks(books: Book[], options: PrepareBooksOptions = {}): Promise<Book[]> {
+async function withFixedMeasurement<T>(task:(measure:HTMLDivElement,insets:{top:number;bottom:number})=>Promise<T>):Promise<T> {
   if (typeof document === 'undefined' || !document.body) throw new Error('가져오기 준비는 브라우저에서 사용해 주세요.');
   const host = document.createElement('div');
   host.className = 'reader reader-theme-paper';
@@ -103,18 +103,34 @@ export async function prepareBooks(books: Book[], options: PrepareBooksOptions =
       await Promise.race([faces.then(() => document.fonts.ready), new Promise<void>(resolve => { timeout = setTimeout(resolve, 2500); })]);
       if (timeout) clearTimeout(timeout);
     }
+    return await task(measure,insets);
+  } finally { if (timeout) clearTimeout(timeout); host.remove(); }
+}
+
+/** Counts body leaves only: no preprocessing, splitting, bookmark remapping or storage. */
+export async function measureBookPageCount(book:Book):Promise<number>{
+  return withFixedMeasurement(async(measure,insets)=>paginate(book,measure,{pageHeight:IMPORT_PAGE_LAYOUT.height,contentTop:insets.top}).length);
+}
+export async function prepareBooks(books:Book[],options:PrepareBooksOptions={}):Promise<Book[]>{
+  return withFixedMeasurement(async(measure,insets)=>{
     const result: Book[] = [];
     for (const source of books) {
       // Already prepared volumes keep their grouping if a caller submits them
       // again. Backup restores must bypass this API to preserve all content.
       const ruled = source.displayRules?.length ? await applyBookDisplayRules(source, source.displayRules) : source;
-      if (source.volumePolicy === 'chapters-100-v1' || source.volumePolicy === CURRENT_VOLUME_POLICY) { result.push(ruled); continue; }
+      if (source.volumePolicy === 'chapters-100-v1' || source.volumePolicy === CURRENT_VOLUME_POLICY) { result.push({...ruled,pageCount:paginate(ruled,measure,{pageHeight:IMPORT_PAGE_LAYOUT.height,contentTop:insets.top}).length}); continue; }
       const book = preprocessBook(ruled, options);
-      result.push(...splitBookByPages(book, paginate(book, measure, { pageHeight: IMPORT_PAGE_LAYOUT.height, contentTop: insets.top })).map(volume => ({ ...volume, volumePolicy: CURRENT_VOLUME_POLICY })));
+      const volumes=splitBookByPages(book,paginate(book,measure,{pageHeight:IMPORT_PAGE_LAYOUT.height,contentTop:insets.top}));
+      for(const volume of volumes){
+        // A continuation volume may gain a heading/parity leaf at its new start.
+        const pageCount=volumes.length>1?paginate(volume,measure,{pageHeight:IMPORT_PAGE_LAYOUT.height,contentTop:insets.top}).length:volume.pageCount!;
+        result.push({...volume,pageCount,volumePolicy:CURRENT_VOLUME_POLICY});
+        if(volumes.length>1)await new Promise<void>(resolve=>setTimeout(resolve,0));
+      }
       await new Promise<void>(resolve => setTimeout(resolve, 0));
     }
     return result;
-  } finally { if (timeout) clearTimeout(timeout); host.remove(); }
+  });
 }
 
 export default prepareBooks;
