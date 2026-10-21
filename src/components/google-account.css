@@ -1,25 +1,30 @@
-.google-account{padding:20px 0;border-top:1px solid var(--sand-5);color:var(--sand-12);font-size:12px}
-.google-account-heading{display:flex;align-items:center;gap:8px;color:var(--jade-11)}
-.google-account-heading h2{margin:0;font-size:12px;font-weight:500}
-.google-account-connected{display:inline-flex;align-items:center;gap:4px;margin-left:auto;font-size:10px}
-.google-account-description{margin:13px 0 4px;line-height:1.8;color:var(--sand-11);word-break:keep-all}
-.google-account-future{margin:0;line-height:1.8;font-size:11px;color:var(--sand-11);word-break:keep-all}
-.google-account-actions{display:flex;flex-direction:column;align-items:flex-start;gap:9px;margin-top:15px;min-width:0}
+.google-account{margin-top:24px;padding-top:22px;border-top:1px solid var(--sand-5);color:var(--sand-12);font-size:12px}
+.google-account-label{margin:0 12px 14px;color:var(--sand-10);font-size:10px;font-weight:500;letter-spacing:.08em}
+.google-account-heading{display:flex;align-items:center;gap:10px;padding:0 10px}
+.google-account-avatar{display:grid;place-items:center;flex:none;width:38px;height:38px;border:1px solid var(--sand-5);border-radius:50%;background:var(--sand-3);color:var(--jade-11)}
+.google-account-identity{display:flex;flex:1;min-width:0;flex-direction:column;gap:4px}
+.google-account-identity strong{font-size:12px;font-weight:500}
+.google-account-identity>span{font-size:10px;color:var(--sand-10)}
+.google-account-logout{flex:none;color:var(--sand-10)}
+.google-account-actions{display:flex;flex-direction:column;align-items:stretch;gap:9px;margin:14px 10px 0;min-width:0}
+.google-account-actions:empty{display:none}
 .google-account-login{display:inline-flex;max-width:100%}
-.google-account-button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:36px;padding:8px 12px;border:1px solid var(--sand-6);border-radius:5px;background:var(--sand-3);color:var(--jade-11);font-size:11px}
+.google-account-button{display:inline-flex;align-items:center;justify-content:center;gap:7px;width:100%;min-height:38px;padding:8px 12px;border:1px solid var(--sand-6);border-radius:5px;background:var(--sand-2);color:var(--sand-12);font-size:11px}
 .google-account-button:hover:enabled{background:var(--sand-4)}
-.google-account-button:disabled{cursor:default;opacity:.6}
+.google-account-button:disabled,.google-account-row:disabled{cursor:default;opacity:.5}
 .google-account-login[title] .google-account-button{pointer-events:none}
 .google-account-provider{width:100%;min-width:0;max-width:320px}
 .google-account-provider[hidden]{display:none}
 .google-account-retry{padding:3px 0;color:var(--sand-11);font-size:10px;text-decoration:underline;text-underline-offset:3px;text-align:left}
-.google-account-privacy{margin:12px 0 0;color:var(--sand-11);font-size:10px;line-height:1.7}
-.google-account-message{margin:7px 0 0;color:var(--jade-11);font-size:11px;line-height:1.7;overflow-wrap:anywhere}
+.google-account-message{margin:9px 10px 0;color:var(--jade-11);font-size:11px;line-height:1.7;overflow-wrap:anywhere}
 .google-account-message:empty{display:none}
 .google-account-message[role=alert]{color:var(--bronze-11)}
-.google-account-library-status{margin:8px 0 4px;color:var(--jade-11);font-size:11px;line-height:1.7;word-break:keep-all}
-.google-account-guest-import{margin-top:14px}
-.google-account-guest-import p{margin:7px 0 0;font-size:10px;color:var(--sand-11);line-height:1.7}
+.google-account-library{margin-top:12px}
+.google-account-library-status{display:flex;align-items:flex-start;gap:6px;margin:0 12px 8px;color:var(--sand-10);font-size:10px;line-height:1.7;word-break:keep-all}
+.google-account-library-status svg{flex:none;margin-top:2px}
+.google-account-row{display:flex;align-items:center;gap:12px;width:100%;min-height:39px;padding:10px 12px;border-radius:5px;color:var(--sand-11);font-size:11px;text-align:left}
+.google-account-row:hover:enabled{background:var(--sand-3);color:var(--sand-12)}
+.google-account-row svg{flex:none;stroke-width:1.6}
 .google-account-spinner{animation:google-account-spin 1s linear infinite}
 @keyframes google-account-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.google-account-spinner{animation:none}}

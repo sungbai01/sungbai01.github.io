@@ -1,10 +1,23 @@
 <!doctype html>
-<html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>개인정보 안내 · 갈피</title>
-<style>body{max-width:640px;margin:64px auto;padding:0 24px;background:#f9f9f8;color:#282826;font:15px/1.9 system-ui,sans-serif}h1{font-size:24px}h2{font-size:17px;margin-top:32px}a{color:inherit}</style>
-<main><a href="/">서재로</a><h1>개인정보 안내</h1><p>적용일 · 2026년 10월 21일</p>
-<h2>내 서재</h2><p>로그인하지 않은 내 서재는 브라우저에만 저장됩니다. 로그인하면 해당 계정의 책 본문·챕터·제목·저자 모델·책장 구성·수동 책갈피를 Cloudflare D1에 저장하여 다른 기기에서도 API로 조회합니다. 책 목록은 본문과 분리하여 불러오고, 본문은 책을 열 때 해당 권만 가져옵니다. 로그인한 책의 본문은 브라우저 저장소에 보관하지 않습니다. 이미지 파일·표지 이미지·이미지 책갈피는 업로드하지 않고 기기에만 남습니다. 기존 비로그인 서재는 자동으로 업로드하지 않으며, 사용자가 가져오기를 선택할 때 계정 서재로 복사합니다.</p>
-<h2>Google 로그인</h2><p>로그인 버튼을 누르면 Google 로그인 도구를 불러옵니다. 인증 서버는 Google이 발급한 토큰을 검증하며, 토큰에 포함될 수 있는 이메일·이름·사진은 저장하지 않습니다. Google 계정 식별자를 서비스 전용 식별자로 변환하여 로그인 상태 구분에 사용합니다. 이 식별자는 익명 정보가 아닌 가명 식별자입니다.</p>
-<h2>보관과 로그아웃</h2><p>로그인 토큰은 브라우저 메모리에만 유지하며 새로고침·탭 닫기·로그아웃 또는 최대 1시간 뒤 만료 시 제거됩니다. 로그아웃 이전에 발급된 토큰은 만료 전까지 유효할 수 있습니다. 서버에는 계정 식별자와 연결된 텍스트 책이 사용자가 삭제할 때까지 보관됩니다. 책 삭제가 서버에서 완료되면 서버의 본문은 제거되며, 다른 기기에서 삭제된 책이 되살아나지 않도록 책 ID·계정 식별자·버전·삭제 시각은 남습니다. 제공자의 백업에는 복구 보관 기간 동안 이전 데이터가 남을 수 있습니다. 로그인 상태의 책 본문은 화면 메모리에만 유지되며 새로고침·탭 닫기·로그아웃 시 제거됩니다. 이미지와 이미지 표시 규칙은 계정별로 이 기기에만 보관되며 사이트 데이터를 지우면 제거됩니다.</p>
-<h2>외부 서비스</h2><p>사이트는 GitHub Pages, 인증 서버는 Cloudflare Workers, 계정 인증은 Google을 이용합니다. 접속 IP 등 운영 정보는 각 제공자의 정책에 따라 처리될 수 있습니다. 인증 서버는 애플리케이션 요청 로그와 인증 토큰·본문 로그를 저장하도록 구성하지 않습니다.</p>
-<p><a href="https://policies.google.com/privacy">Google 개인정보처리방침</a> · <a href="https://www.cloudflare.com/privacypolicy/">Cloudflare 개인정보처리방침</a> · <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub 개인정보처리방침</a></p>
-<p>현재 서버의 책은 로그인한 본인만 접근할 수 있습니다. 공개 링크 공유 기능은 제공하지 않습니다. 공개 공유를 도입할 때에는 별도로 안내합니다.</p></main></html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>개인정보 안내 · 갈피</title>
+  <style>
+    *{box-sizing:border-box}body{max-width:600px;margin:72px auto;padding:0 24px;background:#fdfdfc;color:#21201c;font:14px/1.8 system-ui,sans-serif}a{color:#208368;text-decoration:none}a:hover{text-decoration:underline}h1{margin:40px 0 28px;font-size:25px;font-weight:500;letter-spacing:-.04em}dl{margin:0}dl>div{padding:18px 0;border-top:1px solid #e9e8e6}dt{margin-bottom:5px;font-weight:600;font-size:12px}dd{margin:0;color:#63635e;word-break:keep-all}small{font-size:10px;color:#6f6d66;font-weight:400}footer{margin-top:28px;color:#6f6d66;font-size:11px}@media(max-width:480px){body{margin:32px auto}}
+  </style>
+</head>
+<body><main>
+  <a href="/">← 서재</a>
+  <h1>개인정보 안내</h1>
+  <dl>
+    <div><dt>Google 로그인</dt><dd>식별자를 확인하고 서비스용 식별자로 변환해 저장합니다. 이메일·이름·사진은 저장하지 않습니다.</dd></div>
+    <div><dt>Cloudflare D1</dt><dd>책의 텍스트 전체와 책장·책갈피 정보를 저장합니다.</dd></div>
+    <div><dt>Cloudflare R2 <small>공유 기능 적용 예정</small></dt><dd>공유를 위한 이미지 일부를 저장할 예정입니다. 현재는 이미지를 업로드하지 않습니다.</dd></div>
+    <div><dt>에셋</dt><dd>로컬 브라우저에 저장합니다.</dd></div>
+    <div><dt>게스트</dt><dd>책·책장·책갈피·에셋을 모두 로컬 브라우저에 저장합니다.</dd></div>
+  </dl>
+  <footer>적용일 · 2026년 10월 21일</footer>
+</main></body>
+</html>

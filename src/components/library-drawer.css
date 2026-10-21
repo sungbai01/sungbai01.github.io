@@ -1,0 +1,28 @@
+/* Reference: Carbon UI shell left panel — aligned rows and one-level disclosure. */
+.library-drawer#library-drawer{width:min(320px,90vw);background:var(--sand-1)}
+.library-drawer .drawer-panel{display:flex;flex-direction:column;padding:0;overflow:hidden}
+.library-drawer .drawer-panel>header{flex:none;display:flex;align-items:center;justify-content:space-between;margin:0;padding:22px 22px 20px;border-bottom:1px solid var(--sand-5)}
+.drawer-brand{display:flex;align-items:center;gap:11px;color:var(--jade-11);font-family:var(--font-serif);font-size:24px;letter-spacing:1px}
+.drawer-brand svg{stroke-width:1.4}
+.drawer-content{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:22px 16px}
+.library-drawer .drawer-label{margin:0 12px 12px;color:var(--sand-10);font-size:10px;font-weight:500;letter-spacing:.08em}
+.drawer-navigation .nav-item{position:relative;min-height:46px;margin:3px 0;padding:12px;gap:12px;border-radius:6px;color:var(--sand-11);font-size:12px}
+.drawer-navigation .nav-item>svg{flex:none;stroke-width:1.6}
+.drawer-navigation .nav-item>span{flex:1}
+.drawer-navigation .nav-item.active{background:var(--jade-3);color:var(--jade-11);font-weight:500}
+.drawer-navigation .nav-item.active:before{content:'';position:absolute;left:0;top:14px;bottom:14px;width:2px;background:var(--jade-9);border-radius:2px}
+.drawer-navigation .nav-item small{min-width:22px;padding:2px 6px;border-radius:4px;background:var(--sand-1);font-size:10px;text-align:center;font-variant-numeric:tabular-nums}
+.drawer-chevron{transition:transform .18s ease}
+.nav-item[aria-expanded=true] .drawer-chevron{transform:rotate(180deg)}
+.library-drawer .drawer-backup{display:grid;gap:2px;margin:5px 12px 8px 20px;padding:2px 0 2px 20px;border-left:1px solid var(--sand-6)}
+.drawer-backup>button{display:flex;align-items:center;gap:11px;min-height:38px;padding:8px 12px;border-radius:5px;color:var(--sand-11);font-size:11px;text-align:left}
+.drawer-backup>button:hover:enabled{background:var(--sand-3);color:var(--sand-12)}
+.drawer-backup>button:disabled{opacity:.45;cursor:default}
+.library-drawer .drawer-appearance{margin:24px 0 0;padding:22px 0 0;border-top:1px solid var(--sand-5)}
+.library-drawer .theme-picker{gap:6px!important}
+.library-drawer .theme-choice{padding:11px 6px!important;font-size:10px!important}
+.drawer-footer{flex:none;margin:0 22px;padding:16px 6px 20px;border-top:1px solid var(--sand-5)}
+.drawer-footer a{display:flex;align-items:center;justify-content:space-between;min-height:28px;color:var(--sand-10);font-size:10px;text-decoration:none}
+.drawer-footer a:hover{color:var(--jade-11)}
+.library-drawer :is(button,a):focus-visible{outline:2px solid var(--jade-8);outline-offset:3px}
+@media(prefers-reduced-motion:reduce){.drawer-chevron{transition:none}}

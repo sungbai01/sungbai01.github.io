@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { Check, LoaderCircle, LogOut, UserRound } from 'lucide-react';
+import { Check, CircleAlert, LoaderCircle, LogOut, RotateCcw, Upload, UserRound } from 'lucide-react';
 import { clearAuthSession, getAuthSession, setAuthSession, subscribeAuthSession } from '../lib/auth';
 import type { CloudStatus } from '../lib/cloudLibrary';
 import './google-account.css';
@@ -226,16 +226,15 @@ export function GoogleAccount({ className = '', disabled = false, syncStatus, on
   const busy = phase === 'loading' || phase === 'verifying';
   const pending = !apiBase || phase === 'pending';
   return <section className={`google-account ${className}`} aria-labelledby={titleId}>
+    <h2 id={titleId} className="google-account-label">계정</h2>
     <div className="google-account-heading">
-      <UserRound size={16} aria-hidden="true" />
-      <h2 id={titleId}>계정</h2>
-      {session && <span className="google-account-connected"><Check size={12} aria-hidden="true" />로그인됨</span>}
+      <span className="google-account-avatar"><UserRound size={19} aria-hidden="true" /></span>
+      <div className="google-account-identity"><strong>{session?'Google 계정':'게스트'}</strong><span>{session?'텍스트 · 클라우드 보관':'이 브라우저에 보관'}</span></div>
+      {session && <button type="button" className="icon-btn google-account-logout" aria-label="로그아웃" title="로그아웃" disabled={disabled||importBusy} onClick={logout}><LogOut size={16} aria-hidden="true"/></button>}
     </div>
 
     <div className="google-account-actions" aria-busy={busy}>
-      {session ? <button type="button" className="google-account-button" disabled={disabled||importBusy} onClick={logout}>
-        <LogOut size={14} aria-hidden="true" />로그아웃
-      </button> : <>
+      {session ? null : <>
         {phase !== 'ready' && <span className="google-account-login" title={pending ? '로그인 연결 준비 중' : undefined}>
           <button type="button" className="google-account-button" disabled={disabled || pending || busy} onClick={() => void startLogin()}>
             {busy && <LoaderCircle className="google-account-spinner" size={14} aria-hidden="true" />}
@@ -248,17 +247,14 @@ export function GoogleAccount({ className = '', disabled = false, syncStatus, on
       </>}
     </div>
     {session ? <div className="google-account-library">
-      <p className="google-account-description">책과 책갈피는 서버에 저장해요. 이미지는 이 기기에만 보관해요.</p>
-      {syncStatus && <p className="google-account-library-status" role="status" aria-live="polite">{syncStatus.message}</p>}
-      {onSyncRetry && <button type="button" className="google-account-retry" disabled={(disabled&&syncStatus?.phase!=='error')||importBusy||reloadBusy||syncStatus?.phase==='loading'||syncStatus?.phase==='saving'} onClick={()=>void reloadLibrary()}>{reloadBusy?'목록 불러오는 중…':'서재 목록 다시 불러오기'}</button>}
+      {syncStatus && <p className="google-account-library-status" role="status" aria-live="polite">{syncStatus.phase==='error'?<CircleAlert size={12} aria-hidden="true"/>:syncStatus.phase==='loading'||syncStatus.phase==='saving'?<LoaderCircle size={12} className="google-account-spinner" aria-hidden="true"/>:<Check size={12} aria-hidden="true"/>}{syncStatus.message}</p>}
+      {onSyncRetry && <button type="button" className="google-account-row" disabled={(disabled&&syncStatus?.phase!=='error')||importBusy||reloadBusy||syncStatus?.phase==='loading'||syncStatus?.phase==='saving'} onClick={()=>void reloadLibrary()}><RotateCcw size={15} className={reloadBusy?'google-account-spinner':undefined}/>{reloadBusy?'불러오는 중…':'목록 새로고침'}</button>}
       {onImportGuest && <div className="google-account-guest-import">
-        <button type="button" className="google-account-button" disabled={disabled||importBusy} onClick={()=>void importGuest()}>{importBusy?<LoaderCircle className="google-account-spinner" size={14} aria-hidden="true"/>:null}이 기기 책 가져오기</button>
-        <p>로그인 전 서재의 책을 이 계정에 복사해요.</p>
+        <button type="button" className="google-account-row" title="게스트 서재의 책을 이 계정에 복사" disabled={disabled||importBusy} onClick={()=>void importGuest()}>{importBusy?<LoaderCircle className="google-account-spinner" size={15} aria-hidden="true"/>:<Upload size={15} aria-hidden="true"/>}이 기기 책 가져오기</button>
       </div>}
       {importError && <p className="google-account-message" role="alert">{importError}</p>}
       {reloadError && <p className="google-account-message" role="alert">{reloadError}</p>}
-    </div> : <p className="google-account-description">로그인 없이도 이 기기의 서재를 이용할 수 있어요.</p>}
-    <p className="google-account-privacy">이메일·이름은 저장하지 않아요. <a href="/privacy.html" target="_blank" rel="noopener noreferrer">개인정보 안내</a></p>
+    </div> : null}
     <p className="google-account-message" role={phase === 'error' ? 'alert' : 'status'} aria-live="polite">{message || (phase === 'ready' ? 'Google 버튼을 눌러 로그인해 주세요.' : '')}</p>
   </section>;
 }

@@ -15,6 +15,7 @@ import BookRibbon from './components/BookRibbon';
 import SpineTitle from './components/SpineTitle';
 import ShelfBox from './components/ShelfBox';
 import GoogleAccount from './components/GoogleAccount';
+import './components/library-drawer.css';
 import {readTheme,saveTheme,THEME_EVENT,type Theme} from './lib/appearance';
 import { importAssetFile, normalizeAssets, portraitPalette } from './lib/assets';
 import {normalizeImageRules,type ImageRule} from './lib/imageRules';
@@ -147,7 +148,13 @@ function BookActions({book,open,onOpen,onClose,onEdit,onExport,onDelete}:{book:B
 function LibraryDrawer({children,onClose}:{children:ReactNode;onClose:()=>void}){
   const ref=useRef<HTMLDialogElement>(null);
   useEffect(()=>{ref.current?.showModal();return()=>ref.current?.close();},[]);
-  return <dialog ref={ref} id="library-drawer" className="library-drawer" aria-label="서재 메뉴" onCancel={event=>{event.preventDefault();onClose();}} onClick={event=>{if(event.target===event.currentTarget)onClose();}}><div className="drawer-panel"><header><span>내 서재</span><button className="icon-btn" aria-label="서재 메뉴 닫기" onClick={onClose}><X size={19}/></button></header>{children}</div></dialog>;
+  return <dialog ref={ref} id="library-drawer" className="library-drawer" aria-label="서재 메뉴" onCancel={event=>{event.preventDefault();onClose();}} onClick={event=>{if(event.target===event.currentTarget)onClose();}}>
+    <div className="drawer-panel">
+      <header><span className="drawer-brand"><BookOpen size={21} aria-hidden="true"/>갈피</span><button className="icon-btn" title="닫기" aria-label="서재 메뉴 닫기" onClick={onClose}><X size={19}/></button></header>
+      <div className="drawer-content">{children}</div>
+      <footer className="drawer-footer"><a href="/privacy.html" target="_blank" rel="noopener noreferrer">개인정보 안내<ArrowRight size={13} aria-hidden="true"/></a></footer>
+    </div>
+  </dialog>;
 }
 
 
@@ -516,7 +523,20 @@ function AccountApp({owner}:{owner:string|null}) {
   return <div className="app-shell">
     <header className="site-header" inert={deleting}><button className="drawer-trigger" aria-label="서재 메뉴 열기" title="내 서재" aria-expanded={drawerOpen} aria-controls="library-drawer" onClick={()=>setDrawerOpen(true)}><Menu size={20}/></button><a href="#/" className="brand" aria-label="갈피 서재"><span className="brand-mark"><BookOpen size={23} strokeWidth={1.4}/><span/></span><span>갈피<span className="brand-en">galpi</span></span></a></header>
     <div className="workspace" inert={deleting}>
-      {drawerOpen&&<LibraryDrawer onClose={()=>setDrawerOpen(false)}><nav aria-label="서재 메뉴"><button className="nav-item active" onClick={()=>{setDrawerOpen(false);setQuery('');}}><Library size={18}/><span>내 서재</span><small>{groupBooks(books).length}</small></button><button className="nav-item" aria-expanded={backupOpen} aria-controls="drawer-backup" onClick={()=>setBackupOpen(value=>!value)}><ArrowDownToLine size={18}/><span>백업·복원</span><ChevronDown size={14}/></button>{backupOpen&&<div id="drawer-backup" className="drawer-backup"><button className="secondary-btn" disabled={busy||loading} onClick={()=>void exportLibrary()}><ArrowDownToLine size={15}/>백업</button><button className="secondary-btn" disabled={busy||!canEdit} onClick={()=>restore.current?.click()}><Upload size={15}/>복원</button></div>}</nav><GoogleAccount disabled={loading||busy||deleting||editingShelf.current||preparingAssets.current} syncStatus={syncStatus} onSyncRetry={()=>void reloadLibrary()} onImportGuest={importGuest}/><section className="drawer-appearance" aria-label="화면 설정"><h2>화면</h2><ThemePicker value={theme} onChange={changeTheme}/></section>{error&&<p className="error-message" role="alert">{error}</p>}</LibraryDrawer>}
+      {drawerOpen&&<LibraryDrawer onClose={()=>setDrawerOpen(false)}>
+        <nav className="drawer-navigation" aria-label="서재 메뉴">
+          <h2 className="drawer-label">서재</h2>
+          <button className="nav-item active" aria-current="page" onClick={()=>{setDrawerOpen(false);setQuery('');}}><Library size={18}/><span>내 서재</span><small title="책장 수">{groupBooks(books).length}</small></button>
+          <button className="nav-item" aria-expanded={backupOpen} aria-controls="drawer-backup" onClick={()=>setBackupOpen(value=>!value)}><ArrowDownToLine size={18}/><span>백업·복원</span><ChevronDown className="drawer-chevron" size={15}/></button>
+          {backupOpen&&<div id="drawer-backup" className="drawer-backup">
+            <button disabled={busy||loading} onClick={()=>void exportLibrary()}><ArrowDownToLine size={15}/>백업</button>
+            <button disabled={busy||!canEdit} onClick={()=>restore.current?.click()}><Upload size={15}/>복원</button>
+          </div>}
+        </nav>
+        <section className="drawer-appearance" aria-label="화면 설정"><h2 className="drawer-label">화면</h2><ThemePicker value={theme} onChange={changeTheme}/></section>
+        <GoogleAccount disabled={loading||busy||deleting||editingShelf.current||preparingAssets.current} syncStatus={syncStatus} onSyncRetry={()=>void reloadLibrary()} onImportGuest={importGuest}/>
+        {error&&<p className="error-message" role="alert">{error}</p>}
+      </LibraryDrawer>}
 
       <main className="main-content">
         <section className="library-intro"><h1>내 서재</h1>{canEdit&&<button className="primary-btn" title="로그 가져오기" onClick={()=>{setError('');setIntakeMode('file');setCreating(null);setImporting(true);}}><Upload size={17}/>로그 가져오기</button>}</section>
