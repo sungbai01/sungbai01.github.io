@@ -7,7 +7,7 @@ export type Fragment = Anchor & { end: number; name: string; text: string; hidde
 export type PaperPage = { fragments: Fragment[]; intro: boolean; asset?: BookAsset; chapter?: number; chapterTitle?: string; chapterMessage?: number; kind?: 'paper' | 'asset' | 'padding' | 'endpaper' | 'back-cover' | 'end' };
 
 export const CHAPTER_HEADER_RATIO = .25;
-export const PAGE_LAYOUT_VERSION = 3;
+export const PAGE_LAYOUT_VERSION = 4;
 
 export function inlineAssetSize(contentWidth: number, availableHeight: number): number {
   return Math.max(12, Math.floor(Math.min(300, contentWidth * .85, availableHeight * .65)));
@@ -115,7 +115,9 @@ export function paginate(book: Book, measure: HTMLDivElement, options: Paginatio
     // Ignore blank tail lines without changing source offsets or bookmark anchors.
     const trailing=chapterTails.has(messageIndex)?/\s+$/.exec(content):null;
     const tailRanges=trailing?[{start:trailing.index,end:content.length}]:[];
-    for (const range of [...systemRanges(content, references), ...unresolved, ...tailRanges].sort((a, b) => a.start - b.start)) {
+    const leading=startsChapter(book,messageIndex)?/^(?:[\t ]*(?:\r\n?|\n))+/.exec(content):null;
+    const leadingRanges=leading?[{start:0,end:leading[0].length}]:[];
+    for (const range of [...systemRanges(content, references), ...unresolved, ...tailRanges, ...leadingRanges].sort((a, b) => a.start - b.start)) {
       const previous = hiddenRanges[hiddenRanges.length - 1];
       if (previous && range.start <= previous.end) previous.end = Math.max(previous.end, range.end);
       else hiddenRanges.push({ ...range });

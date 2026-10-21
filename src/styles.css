@@ -318,3 +318,10 @@ html[data-library-theme=dark]{color-scheme:dark;background:var(--sand-2)}
 .book-actions-popover button{display:block;width:100%;padding:10px;text-align:left;border-radius:3px;font-size:11px}
 .book-actions-popover button:hover,.book-actions-popover button:focus-visible{background:var(--sand-4)}
 .book-actions-popover::backdrop{background:transparent;pointer-events:none}
+
+/* Size the library from its real contents, without a second viewport floor. */
+html,body{overflow-x:clip}
+.app-shell{display:flex;flex-direction:column;min-height:100dvh}
+.workspace{flex:1;min-height:0;width:100%}
+.drawer-panel{overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain}
+.book-meta>span:last-child{display:inline-flex;align-items:center}

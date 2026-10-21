@@ -9,7 +9,7 @@ import '../components/reader.css';
 /** Fixed import layout; reader font/viewport changes never regroup volumes. */
 export const IMPORT_PAGE_LAYOUT = { width: 400, height: 650, padding: 32, contentWidth: 336, contentHeight: 463.5, fontSize: 18 } as const;
 
-export type PrepareBooksOptions = { removeEmoji?: boolean; removeSquareBrackets?: boolean; removeAngleBrackets?: boolean };
+export type PrepareBooksOptions = { removeEmoji?: boolean; removeSquareBrackets?: boolean; removeAngleBrackets?: boolean; removeDollarLines?: boolean };
 
 function preprocessBook(book: Book, options: PrepareBooksOptions): Book {
   // Known image references are identifiers, not prose. Keep their original
@@ -25,6 +25,8 @@ function preprocessBook(book: Book, options: PrepareBooksOptions): Book {
     }
     if (cursor < content.length) segments.push({ type: 'text', start: cursor, end: content.length });
     const hidden = systemRanges(content, references);
+    const dollarRanges=options.removeDollarLines!==false?[...content.matchAll(/^[\t ]*\$[^\r\n]*(?:\r\n?|\n|$)/gm)].map(match=>({start:match.index!,end:match.index!+match[0].length})):[];
+    hidden.push(...dollarRanges);
     // Scan the complete source before slicing prefixes for bookmark/maps.
     // Even unresolved image identifiers survive so cards can be added later.
     let protectedIndex = 0, squareDepth = 0, squareStart = 0;
@@ -42,7 +44,7 @@ function preprocessBook(book: Book, options: PrepareBooksOptions): Book {
     return segments.map(segment => {
       const limit = Math.min(end, segment.end);
       if (segment.start >= limit) return '';
-      if (segment.type === 'asset')return content.slice(segment.start,limit);
+      if (segment.type === 'asset')return dollarRanges.some(range=>segment.start<range.end&&segment.end>range.start)?'':content.slice(segment.start,limit);
       let value = '', cursor = segment.start;
       for (const range of hidden) {
         if (range.end <= cursor || range.start >= limit) continue;

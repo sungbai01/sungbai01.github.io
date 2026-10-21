@@ -29,7 +29,7 @@ export function editedMessages(book:Book,drafts:Map<string,string>,chapterDrafts
   }
   return char+delta;
  };
- const messages:Message[]=[],ranges:{message:number;start:number;end:number;target:number}[]=[];
+ const messages:Message[]=[],ranges:{message:number;start:number;end:number;target:number;leading:number}[]=[];
  book.messages.forEach((source,index)=>{
   let content=source.content;
   for(const patch of [...(patches.get(index)??[])].reverse())content=content.slice(0,patch.start)+patch.text+content.slice(patch.end);
@@ -42,9 +42,10 @@ export function editedMessages(book:Book,drafts:Map<string,string>,chapterDrafts
   for(let part=0;part<pieces.length;part++){
    const start=pieces[part]!,end=pieces[part+1]?.char??content.length;
    if(part&&start.char===pieces[part-1]!.char)continue;
-   const text=content.slice(start.char,end),changed=content!==source.content||boundaries.length>0;
    const chapterStart=start.first?(chapterPatch?.chapterStart??startsChapter(book,index)):true;
-   ranges.push({message:index,start:start.char,end,target:messages.length});
+   const raw=content.slice(start.char,end),leading=chapterStart?(/^(?:[\t ]*(?:\r\n?|\n))+/.exec(raw)?.[0].length??0):0;
+   const text=raw.slice(leading),changed=content!==source.content||boundaries.length>0||leading>0;
+   ranges.push({message:index,start:start.char,end,target:messages.length,leading});
    messages.push({...source,...chapterPatch,content:text,chapterStart,chapterTitle:start.title,
     ...(changed?{originalContent:text,originalMap:undefined}:{})});
   }
@@ -65,7 +66,7 @@ export function editedMessages(book:Book,drafts:Map<string,string>,chapterDrafts
   const char=mapChar(anchor.message,anchor.char);
   const candidates=ranges.filter(range=>range.message===anchor.message);
   const range=[...candidates].reverse().find(range=>char>=range.start)??candidates[0];
-  return range?{message:range.target,char:Math.max(0,Math.min(char-range.start,messages[range.target]!.content.length))}:anchor;
+  return range?{message:range.target,char:Math.max(0,Math.min(char-range.start-range.leading,messages[range.target]!.content.length))}:anchor;
  };
  return {messages,mapAnchor};
 }

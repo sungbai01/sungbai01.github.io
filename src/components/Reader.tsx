@@ -18,6 +18,8 @@ import {visibleProse,systemRanges} from '../lib/prose';
 import {imageReferenceRanges} from '../lib/assets';
 import {chapterLabel,editedMessages,fragmentKey} from '../lib/bookEditing';
 import type {ChapterDraft,ChapterInsertion} from '../lib/bookEditing';
+import BookmarkTitle from './BookmarkTitle';
+import {squareAssetCrop} from '../lib/assetCrop';
 import './reader.css';
 
 export interface ReaderProps {
@@ -130,7 +132,7 @@ function EditableChunk({text,structure,opening,onInput,onAdd}:{text:string;struc
  const ref=useRef<HTMLParagraphElement>(null);
  const [hover,setHover]=useState<{offset:number;top:number}|null>(null);
  useEffect(()=>{if(ref.current)ref.current.textContent=text;},[structure]);
- return <div className="reader-edit-chunk" onPointerLeave={()=>setHover(null)} onPointerMove={event=>{
+ return <div className="reader-edit-chunk"><div className="reader-chapter-gutter" onPointerLeave={()=>setHover(null)} onPointerMove={event=>{
   if(event.pointerType==='touch'||!ref.current||event.target instanceof Element&&event.target.closest('button'))return;
   const paragraph=ref.current,box=paragraph.getBoundingClientRect();
   const scale=box.width/Math.max(1,paragraph.offsetWidth);
@@ -144,8 +146,9 @@ function EditableChunk({text,structure,opening,onInput,onAdd}:{text:string;struc
   const top=Math.max(-10,(rect.top-box.top)/Math.max(.1,scale)-10);
   setHover(previous=>previous?.offset===offset&&previous.top===top?previous:{offset,top});
  }}>
- <p ref={ref} className={`reader-prose reader-live-passage${opening?' reader-chapter-opening':''}`} role="textbox" aria-label="페이지 본문 편집" contentEditable="plaintext-only" suppressContentEditableWarning data-no-flip onInput={event=>onInput(event.currentTarget.innerText)} onPaste={event=>{event.preventDefault();document.execCommand('insertText',false,event.clipboardData.getData('text/plain'));}}/>
  <button type="button" className={`reader-add-chapter${hover?' reader-add-chapter-visible':''}`} style={{top:hover?.top??0}} aria-label="이 줄 앞에 챕터 추가" title="챕터 추가" data-no-flip onPointerDown={event=>event.preventDefault()} onClick={()=>{if(hover){onAdd(hover.offset);setHover(null);}else{const selection=window.getSelection();const paragraph=ref.current;if(selection?.rangeCount&&paragraph?.contains(selection.anchorNode)){const range=document.createRange();range.selectNodeContents(paragraph);range.setEnd(selection.anchorNode!,selection.anchorOffset);const offset=range.toString().length;if(offset||!opening)onAdd(offset);}else if(!opening)onAdd(0);}}}>&gt;&gt;</button>
+ </div>
+ <p ref={ref} className={`reader-prose reader-live-passage${opening?' reader-chapter-opening':''}`} role="textbox" aria-label="페이지 본문 편집" contentEditable="plaintext-only" suppressContentEditableWarning data-no-flip onInput={event=>onInput(event.currentTarget.innerText)} onPaste={event=>{event.preventDefault();document.execCommand('insertText',false,event.clipboardData.getData('text/plain'));}}/>
  </div>;
 }
 function EditablePassage({fragment,onEdit,draft}:{fragment:Fragment;onEdit:EditFragment;draft?:string}){
@@ -174,6 +177,8 @@ function InlineAsset({fragment,editing,onEdit,draft,onPreview}:{fragment:Fragmen
  const asset=fragment.asset!;
  const owner=`${fragment.message}:${fragment.char}`;
  const [removed,setRemoved]=useState(draft==='');
+ const [crop,setCrop]=useState<{src:string;width:number;height:number}|null>(null);
+ useEffect(()=>{let active=true;void squareAssetCrop(asset.src,fragment.assetSize??300).then(value=>{if(active)setCrop(value);});return()=>{active=false;};},[asset.src,fragment.assetSize]);
  const buttonRef=useRef<HTMLButtonElement>(null);
  const preview=useRef(onPreview);preview.current=onPreview;
  const eligible=()=>!editing&&!buttonRef.current?.closest('[data-flip-copy="true"],[inert],[aria-hidden="true"]');
@@ -181,7 +186,7 @@ function InlineAsset({fragment,editing,onEdit,draft,onPreview}:{fragment:Fragmen
  useEffect(()=>setRemoved(editing&&draft===''),[editing,draft]);
  return <div className="reader-inline-asset-body" data-no-flip>
  {removed?<button type="button" className="reader-inline-asset-undo" onClick={()=>{onEdit(fragment,fragment.text);setRemoved(false);}}>이미지 복원</button>:<>
- <button ref={buttonRef} data-asset-owner={owner} className="reader-inline-asset-open" type="button" aria-label={`${asset.name} 크게 보기`} onPointerDown={event=>event.stopPropagation()} onPointerEnter={event=>{if(event.pointerType!=='touch'&&eligible())onPreview(asset,owner);}} onPointerLeave={()=>{if(document.activeElement!==buttonRef.current)onPreview(null,owner);}} onFocus={()=>{if(eligible())onPreview(asset,owner);}} onBlur={()=>onPreview(null,owner)} onClick={event=>{event.stopPropagation();if(eligible())onPreview(asset,owner,true);}}><img src={asset.src} alt={asset.name} draggable={false}/></button>
+ <button ref={buttonRef} data-asset-owner={owner} data-original-width={crop?.width} data-original-height={crop?.height} className="reader-inline-asset-open" type="button" aria-label={`${asset.name} 크게 보기`} onPointerDown={event=>event.stopPropagation()} onPointerEnter={event=>{if(event.pointerType!=='touch'&&eligible())onPreview(asset,owner);}} onPointerLeave={()=>{if(document.activeElement!==buttonRef.current)onPreview(null,owner);}} onFocus={()=>{if(eligible())onPreview(asset,owner);}} onBlur={()=>onPreview(null,owner)} onClick={event=>{event.stopPropagation();if(eligible())onPreview(asset,owner,true);}}><img src={crop?.src??asset.src} alt={asset.name} draggable={false}/></button>
  {editing&&<button className="reader-inline-asset-remove" type="button" aria-label="본문 이미지 제거" title="본문에서 이미지 제거" onClick={()=>{onPreview(null,owner,true);onEdit(fragment,'');setRemoved(true);}}><X size={16}/></button>}
  </>}
  </div>;
@@ -226,7 +231,7 @@ function BookmarkSlip({style,icon,image,title,color,side='after',disabled,onActi
  onClick={event=>{event.stopPropagation();event.preventDefault();if(suppressClick.current){suppressClick.current=false;return;}if(allowed())actions.current.onActivate?.();}}
  onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.stopPropagation();event.preventDefault();if(!event.repeat&&allowed())actions.current.onActivate?.();}}}
  onDragStart={event=>event.preventDefault()}>
- {(style==='image'||style==='character')&&(image||icon)&&<img className="reader-bookmark-image-fill" src={image||icon} alt="" draggable={false}/>}<span className="reader-bookmark-punch"/><span className="reader-bookmark-string"/>{(style==='image'||style==='character')&&<strong>{cleanText(title).replace(/\s*·\s*\d+권\s*$/,'')}</strong>}
+ {(style==='image'||style==='character')&&(image||icon)&&<img className="reader-bookmark-image-fill" src={image||icon} alt="" draggable={false}/>}<span className="reader-bookmark-punch"/><span className="reader-bookmark-string"/>{(style==='image'||style==='character')&&<BookmarkTitle className="reader-bookmark-title" title={cleanText(title).replace(/\s*·\s*\d+권\s*$/,'')}/>}
  </span>;
 }
 
@@ -270,7 +275,9 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
     const element=readerRef.current?.querySelector<HTMLButtonElement>(`[data-asset-owner="${owner}"]`);
     if(!element)return null;
     const rect=element.getBoundingClientRect(),image=element.querySelector('img');
-    const ratio=image?.naturalWidth&&image.naturalHeight?image.naturalHeight/image.naturalWidth:1;
+    const originalWidth=Number(element.dataset.originalWidth)||image?.naturalWidth||1;
+    const originalHeight=Number(element.dataset.originalHeight)||image?.naturalHeight||1;
+    const ratio=originalHeight/originalWidth;
     const width=Math.min(rect.width,window.innerWidth-24,(window.innerHeight-24)/ratio),height=width*ratio;
     return {asset,owner,pinned,left:clamp(rect.left,12,window.innerWidth-width-12),top:clamp(rect.top,12,window.innerHeight-height-12),width,height,size:rect.height};
   });
