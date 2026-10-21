@@ -287,3 +287,6 @@
 .reader-fullscreen .reader-drawer:not([hidden]){animation:reader-drawer-enter .18s ease-out}
 @keyframes reader-drawer-enter{from{transform:translateY(-20px);opacity:0}to{transform:translateY(0);opacity:1}}
 @media(prefers-reduced-motion:reduce){.reader-fullscreen .reader-drawer:not([hidden]){animation:none}}
+
+/* Retain footer space so opening the drawer does not resize/reflow the book. */
+.reader-fullscreen .reader-footer-concealed{visibility:hidden;pointer-events:none}
