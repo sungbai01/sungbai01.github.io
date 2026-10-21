@@ -429,3 +429,10 @@
 .reader[data-bookmark-motion] .reader-bookmark-peek,
 .reader[data-bookmark-motion] .reader-bookmark-fold-layer{visibility:hidden}
 .reader-is-editing .reader-bookmark-loose{pointer-events:none}
+.reader[data-selecting-quote] .reader-prose{user-select:text;-webkit-user-select:text;touch-action:none;cursor:text}
+.reader[data-selecting-quote] .reader-prose *{user-select:text;-webkit-user-select:text}
+.reader[data-selecting-quote] :is(.reader-toolbar,.reader-drawer-handle){visibility:hidden;pointer-events:none}
+.reader[data-selecting-quote] :is(.reader-bookmark-slip,.reader-inline-asset){pointer-events:none}
+.reader-quote-tools{position:fixed;z-index:46;bottom:max(24px,env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:4px;width:max-content;max-width:calc(100vw - 20px);padding:6px;border:1px solid var(--reader-line);border-radius:10px;background:var(--reader-panel-bg);box-shadow:0 6px 24px #0002}
+.reader-quote-tools>span{font-size:11px;min-width:100px;text-align:center;color:var(--reader-muted)}
+.reader-quote-tools>.reader-icon-button{width:34px;height:38px}

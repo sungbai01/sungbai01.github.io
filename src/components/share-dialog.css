@@ -3,3 +3,7 @@
 .share-images-option{display:flex;align-items:center;gap:8px;margin-bottom:16px;color:var(--sand-11);font-size:11px}.share-images-option input{accent-color:var(--jade-10)}.share-card>.primary-btn,.share-card>.secondary-btn{margin:6px 8px 0 0}
 
 .share-book-heading{display:flex;align-items:center;gap:12px;margin-bottom:14px}.share-book-heading .share-book-title{flex:1;margin:0}.share-book-heading .icon-btn{flex:none}
+.share-quote-actions{display:flex;align-items:center;gap:8px;margin:0 0 12px}
+.share-quote-text{margin:0 0 16px;padding:10px 14px;border-left:2px solid var(--jade-7);color:var(--sand-11);font:12px/1.8 var(--font-serif);max-height:120px;overflow:auto;white-space:pre-wrap}
+.share-card>img{border:0;border-radius:0;aspect-ratio:2/1;object-fit:contain}
+.share-card-loading{aspect-ratio:2/1}

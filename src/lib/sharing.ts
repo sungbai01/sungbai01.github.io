@@ -27,34 +27,7 @@ export function cardHtml(book:Book,url:string,imageUrl:string){
  return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer"><img src="${escapeHtml(image.href)}" alt="${escapeHtml(book.title)} · 책 읽기" width="720" style="max-width:100%;height:auto;"></a>`;
 }
 
-/** Portable raster card; hyperlink is supplied separately by the wrapping HTML. */
-export async function makeShareCard(book:Book):Promise<Blob>{
- const selected=book.assets?.find(asset=>asset.id===book.shareCardAssetId);
- if(selected)return shareImageBlob(selected.src);
- await document.fonts.ready;
- const canvas=document.createElement('canvas');canvas.width=1440;canvas.height=810;
- const ctx=canvas.getContext('2d');if(!ctx)throw new Error('카드 이미지를 만들지 못했어요.');
- ctx.fillStyle='#f3f3f2';ctx.fillRect(0,0,1440,810);
- ctx.fillStyle=book.color;ctx.beginPath();ctx.roundRect(84,72,438,650,9);ctx.fill();
- ctx.fillStyle='#ffffff25';ctx.fillRect(98,78,3,638);
- ctx.fillStyle='#fff';ctx.textAlign='center';ctx.font='24px sans-serif';ctx.fillText(String(book.volumeNumber??1).padStart(2,'0'),303,675);
- const icon=book.characterIcon??book.assets?.find(a=>a.type==='icon')?.src;
- if(icon){try{
-  const image=new Image();image.crossOrigin='anonymous';image.referrerPolicy='no-referrer';
-  await new Promise<void>((resolve,reject)=>{const timeout=setTimeout(()=>{image.src='';reject(new Error('이미지 시간 초과'));},8000);image.onload=()=>{clearTimeout(timeout);resolve();};image.onerror=()=>{clearTimeout(timeout);reject(new Error('이미지 오류'));};image.src=icon;});
-  const size=Math.min(image.naturalWidth,image.naturalHeight);ctx.drawImage(image,(image.naturalWidth-size)/2,0,size,size,127,220,352,352);
- }catch{/* Keep a plain cover when the source cannot be embedded. */}}
- const wrap=(text:string,width:number,maxLines:number)=>{const lines:string[]=[];let line='';for(const char of text){if(ctx.measureText(line+char).width>width&&line){lines.push(line);line='';}line+=char;}if(line)lines.push(line);const cut=lines.slice(0,maxLines);if(lines.length>maxLines){let last=cut.at(-1)!;while(ctx.measureText(last+'…').width>width)last=last.slice(0,-1);cut[cut.length-1]=last+'…';}return cut;};
- const title=book.title.replace(/\s*·\s*\d+권\s*$/,'');
- ctx.font='30px "Gowun Batang",serif';wrap(title,342,2).forEach((line,i)=>ctx.fillText(line,303,133+i*45));
- ctx.textAlign='left';ctx.fillStyle='#208368';ctx.font='24px "Gowun Batang",serif';ctx.fillText('갈피',610,140);
- ctx.fillStyle='#21201c';ctx.font='48px "Gowun Batang",serif';wrap(title,725,3).forEach((line,i)=>ctx.fillText(line,610,272+i*73));
- ctx.fillStyle='#63635e';ctx.font='24px sans-serif';ctx.fillText((book.author?.trim()||'저자 모델 미상').slice(0,44),610,535);
- ctx.fillStyle='#d3d1cc';ctx.fillRect(610,585,700,1);
- ctx.fillStyle='#208368';ctx.font='28px sans-serif';ctx.fillText('책 읽기 →',610,665);
- ctx.textAlign='right';ctx.fillStyle='#63635e';ctx.font='20px sans-serif';ctx.fillText('GALPI · SHARED BOOK',1310,665);
- return new Promise<Blob>((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(new Error('카드를 저장하지 못했어요.')),'image/png'));
-}
+export {makeTicketCard as makeShareCard} from './shareTicket';
 
 async function uploadShareMedia(book:Book,blob:Blob,name:string,role:'asset'|'icon'|'card'){
  const session=getAuthSession();if(!session||!apiBase)throw new Error('다시 로그인해 주세요.');

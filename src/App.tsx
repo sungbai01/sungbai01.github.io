@@ -252,7 +252,13 @@ function AccountApp({owner}:{owner:string|null}) {
   useEffect(()=>{setReaderReady(null);},[route]);
   const [drawerOpen,setDrawerOpen]=useState(false);const [intakeMode,setIntakeMode]=useState<'file'|'text'>('file');const [importing,setImporting]=useState(false);const [busy,setBusy]=useState(false);const [theme,setTheme]=useState<Theme>(readTheme);const [backupOpen,setBackupOpen]=useState(false);const [edit,setEdit]=useState<Book|null>(null);const [remove,setRemove]=useState<Book|null>(null);const [menu,setMenu]=useState<string|null>(null);const [view,setView]=useState<'covers'|'spines'>('covers');
   const [clearConfirm,setClearConfirm]=useState<{title:string;ids:string[]}|null>(null);const [deleting,setDeleting]=useState(false);const [clearError,setClearError]=useState('');
-  const [sharing,setSharing]=useState<Book|null>(null);const [managingShares,setManagingShares]=useState(false);
+  const [sharing,setSharing]=useState<Book|null>(null);
+  const [shareQuotes,setShareQuotes]=useState<Record<string,string>>({});
+  const [quoteBook,setQuoteBook]=useState<string|null>(null);
+  const [cardBook,setCardBook]=useState<string|null>(null);
+  function selectShareQuote(book:Book){setCardBook(book.id);setQuoteBook(book.id);setSharing(null);if(route!==book.id)openBook(book);}
+  function finishShareQuote(text?:string){const book=latestBooks.current.find(item=>item.id===quoteBook);if(book){if(text!==undefined)setShareQuotes(previous=>({...previous,[book.id]:text}));setSharing(book);}setQuoteBook(null);}
+  const [managingShares,setManagingShares]=useState(false);
   const [creating,setCreating]=useState<ShelfTarget|null>(null);const [renaming,setRenaming]=useState<ShelfTarget|null>(null);const [assetShelf,setAssetShelf]=useState<ShelfTarget|null>(null);
   const deletingRef=useRef(false);const editingShelf=useRef(false);const preparingAssets=useRef(false);
   const restore=useRef<HTMLInputElement>(null);const latestBooks=useRef(books); latestBooks.current=books;
@@ -571,12 +577,12 @@ function AccountApp({owner}:{owner:string|null}) {
     const revealed=readerReady===route&&!!dataReady;
     return <>
       <div inert={!revealed} aria-hidden={!revealed||undefined} style={{visibility:revealed?'visible':'hidden'}}>
-        <Suspense fallback={null}>{dataReady&&selected&&<Reader key={route} book={selected} onReady={onReaderReady} onClose={closeBook} onShare={()=>setSharing(selected)} onSaveBook={canEdit?updateBook:undefined} shelfBookmark={selectedBookmark} bookmarkStyle={selectedBookmark?.style??selected.bookmarkStyle??shelfBooks(books,bookShelf(selected)).find(book=>book.bookmarkStyle)?.bookmarkStyle} bookmarkImage={bookmarkImage(selected)} characterIcon={portrait(selected)??shelfBooks(books,bookShelf(selected)).map(portrait).find(Boolean)} onBookmarkChange={(anchor,style)=>changeBookmark(selected,anchor,style)} onBookmarkStyleChange={style=>changeBookmarkStyle(selected,style)} initialBookmark={readerStart?.bookId===selected.id?readerStart.anchor:undefined} onNextVolume={nextVolume?onNextVolume:undefined} nextVolumeTitle={nextVolume?.title}/>}</Suspense>
+        <Suspense fallback={null}>{dataReady&&selected&&<Reader key={route} book={selected} onReady={onReaderReady} onClose={closeBook} onShare={()=>setSharing(selected)} selectingQuote={quoteBook===selected.id} onQuoteSelected={finishShareQuote} onSaveBook={canEdit?updateBook:undefined} shelfBookmark={selectedBookmark} bookmarkStyle={selectedBookmark?.style??selected.bookmarkStyle??shelfBooks(books,bookShelf(selected)).find(book=>book.bookmarkStyle)?.bookmarkStyle} bookmarkImage={bookmarkImage(selected)} characterIcon={portrait(selected)??shelfBooks(books,bookShelf(selected)).map(portrait).find(Boolean)} onBookmarkChange={(anchor,style)=>changeBookmark(selected,anchor,style)} onBookmarkStyleChange={style=>changeBookmarkStyle(selected,style)} initialBookmark={readerStart?.bookId===selected.id?readerStart.anchor:undefined} onNextVolume={nextVolume?onNextVolume:undefined} nextVolumeTitle={nextVolume?.title}/>}</Suspense>
       </div>
       {!revealed&&<BookOpening error={openingError} onBack={()=>{setRoute(null);location.hash='/';}} onRetry={()=>{setReaderReady(null);if(accountReady)setOpenAttempt(value=>value+1);else location.reload();}}/>}
       {assetManager}
       {managingShares&&<ShareManager onClose={()=>setManagingShares(false)}/>}
-    {sharing&&<ShareDialog book={sharing} onClose={()=>setSharing(null)} onManageAssets={()=>{if(sharing)void openAssets(bookShelf(sharing));}} onLogin={()=>{setSharing(null);setRoute(null);location.hash='/';setDrawerOpen(true);}}/>}
+    {sharing&&<ShareDialog book={sharing} quote={shareQuotes[sharing.id]??''} initialMode={cardBook===sharing.id?'card':'url'} onSelectQuote={()=>selectShareQuote(sharing)} onClearQuote={()=>setShareQuotes(previous=>({...previous,[sharing.id]:''}))} onClose={()=>setSharing(null)} onManageAssets={()=>{if(sharing)void openAssets(bookShelf(sharing));}} onLogin={()=>{setSharing(null);setRoute(null);location.hash='/';setDrawerOpen(true);}}/>}
       {toast&&<div className="toast" role="status">{toast}</div>}
     </>;
   }
@@ -639,7 +645,7 @@ function AccountApp({owner}:{owner:string|null}) {
       </div>
     </Modal>}
     {managingShares&&<ShareManager onClose={()=>setManagingShares(false)}/>}
-    {sharing&&<ShareDialog book={sharing} onClose={()=>setSharing(null)} onManageAssets={()=>{if(sharing)void openAssets(bookShelf(sharing));}} onLogin={()=>{setSharing(null);setDrawerOpen(true);}}/>}
+    {sharing&&<ShareDialog book={sharing} quote={shareQuotes[sharing.id]??''} initialMode={cardBook===sharing.id?'card':'url'} onSelectQuote={()=>selectShareQuote(sharing)} onClearQuote={()=>setShareQuotes(previous=>({...previous,[sharing.id]:''}))} onClose={()=>setSharing(null)} onManageAssets={()=>{if(sharing)void openAssets(bookShelf(sharing));}} onLogin={()=>{setSharing(null);setDrawerOpen(true);}}/>}
     {canEdit&&remove&&<Modal title="책 삭제" onClose={()=>setRemove(null)}><p className="modal-description">‘{remove.title}’을 삭제할까요?</p><div className="modal-actions"><button className="secondary-btn" title="삭제 전 이 책을 백업" onClick={()=>void exportOne(remove)}><ArrowDownToLine size={16}/> 백업</button><button className="danger-btn" title="대화와 책갈피를 삭제합니다" disabled={busy} onClick={async()=>{if(!canEdit||deletingRef.current||editingShelf.current||preparingAssets.current||splittingBooks.current.size)return;const assertAccount=accountGuard();deletingRef.current=true;setBusy(true);try{await library.edit(store=>store.deleteBook(remove.id));assertAccount();const next=latestBooks.current.filter(b=>b.id!==remove.id);latestBooks.current=next;setBooks(next);setRemove(null);setToast('삭제 완료');}catch{setToast('삭제 실패');}finally{deletingRef.current=false;setBusy(false);}}}>삭제</button></div></Modal>}
     {toast&&<div className="toast" role="status"><Check size={16}/>{toast}</div>}
   </div>;

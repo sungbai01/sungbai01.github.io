@@ -19,6 +19,7 @@ import {imageReferenceRanges} from '../lib/assets';
 import {chapterLabel,editedMessages,fragmentKey} from '../lib/bookEditing';
 import type {ChapterDraft,ChapterInsertion,PageInsertion} from '../lib/bookEditing';
 import BookmarkTitle from './BookmarkTitle';
+import ShareQuoteSelection from './ShareQuoteSelection';
 import { BookmarkMotion } from './bookmarkMotion';
 import AssetImage from './AssetImage';
 import BookCover from './BookCover';
@@ -34,6 +35,8 @@ export interface ReaderProps {
   nextVolumeTitle?: string;
   onSaveBook?: (book:Book)=>Promise<void>;
   onShare?: () => void;
+  selectingQuote?: boolean;
+  onQuoteSelected?: (text?:string) => void;
   shelfBookmark?: { bookId: string; message: number; char: number; label?: string; progress?:number; style?: BookmarkStyle; icon?: string; image?: string; title: string };
   onBookmarkChange?: (anchor: (Anchor & { label?: string; progress?:number }) | null, style?: BookmarkStyle) => Promise<void>;
   onBookmarkStyleChange?: (style: BookmarkStyle) => Promise<void>;
@@ -287,7 +290,7 @@ function NextVolumeDialog({title,onConfirm,onClose}:{title?:string;onConfirm:()=
   return <dialog ref={dialog} className="reader-next-dialog" aria-label="다음 권 읽기" onCancel={e=>{e.preventDefault();onClose();}}><h2>다음 권을 읽을까요?</h2><p>{title}</p><div><button autoFocus onClick={onClose}>취소</button><button onClick={onConfirm}>읽기<ArrowRight size={17}/></button></div></dialog>;
 }
 
-export function Reader({ book, onClose, onReady, initialBookmark, onNextVolume, nextVolumeTitle, onSaveBook, onShare, shelfBookmark, onBookmarkChange, onBookmarkStyleChange, bookmarkStyle, characterIcon, bookmarkImage }: ReaderProps) {
+export function Reader({ book, onClose, onReady, initialBookmark, onNextVolume, nextVolumeTitle, onSaveBook, onShare, selectingQuote=false, onQuoteSelected, shelfBookmark, onBookmarkChange, onBookmarkStyleChange, bookmarkStyle, characterIcon, bookmarkImage }: ReaderProps) {
   const [editing,setEditing]=useState(false);
   const [assetPreview,setAssetPreview]=useState<AssetPreview|null>(null);
   const assetPreviewRef=useRef(assetPreview);assetPreviewRef.current=assetPreview;
@@ -770,7 +773,7 @@ export function Reader({ book, onClose, onReady, initialBookmark, onNextVolume, 
   };
   const turn = (direction: 'previous' | 'next') => {
     const flip = flipRef.current;
-    if (!flip||blockedRef.current||!pagesReadyRef.current) return;
+    if (!flip||blockedRef.current||selectingQuote||!pagesReadyRef.current) return;
     // Release a held curl so keyboard and wheel input cannot stay queued forever.
     if(flip.getState()==='user_fold'){
       // Settling may synchronously emit 'read'; enqueue before releasing the gesture.
@@ -880,12 +883,13 @@ export function Reader({ book, onClose, onReady, initialBookmark, onNextVolume, 
     else windowModeButtonRef.current?.focus();
   },[fullscreen]);
   useEffect(()=>{
-    if(editing||nextConfirm||leaveConfirm||panel||drawerOpen||bookmarkBusy){navigationRevisionRef.current++;queuedTurnRef.current=null;}
+    if(editing||nextConfirm||leaveConfirm||panel||drawerOpen||bookmarkBusy||selectingQuote){navigationRevisionRef.current++;queuedTurnRef.current=null;}
     const flip=flipRef.current;
-    const enabled=!editing&&!nextConfirm&&!leaveConfirm&&!drawerOpen&&!panel&&!bookmarkBusy;
+    const enabled=!editing&&!nextConfirm&&!leaveConfirm&&!drawerOpen&&!panel&&!bookmarkBusy&&!selectingQuote;
     // Reapplying false cancels a gesture; only update on an actual transition.
     if(flip&&flip.isInteractionEnabled()!==enabled)flip.setInteractionEnabled(enabled);
-  },[editing,nextConfirm,leaveConfirm,loading,panel,drawerOpen,bookmarkBusy]);
+  },[editing,nextConfirm,leaveConfirm,loading,panel,drawerOpen,bookmarkBusy,selectingQuote]);
+  useEffect(()=>{if(selectingQuote){setPanel(null);setDrawerOpen(false);setAssetPreview(null);}},[selectingQuote]);
   useEffect(()=>{if(!editing&&!nextConfirm&&!leaveConfirm){setViewport(previous=>{const next=readReaderViewport();return previous.width===next.width&&previous.height===next.height&&previous.touch===next.touch&&previous.horizontalSegments===next.horizontalSegments&&previous.screenWidth===next.screenWidth&&previous.screenHeight===next.screenHeight?previous:next;});const stage=stageRef.current;if(stage){const box=stage.getBoundingClientRect();setDimensions(previous=>{const next={width:Math.floor(box.width),height:Math.floor(box.height)};return previous.width===next.width&&previous.height===next.height?previous:next;});}}},[editing,nextConfirm,leaveConfirm]);
   useEffect(()=>{setAssetPreview(null);hoverSuppressedRef.current.clear();},[pageIndex,editing,drawerOpen,panel,loading]);
   useEffect(()=>{
@@ -943,7 +947,7 @@ export function Reader({ book, onClose, onReady, initialBookmark, onNextVolume, 
     if(anchor)void changeBookmark(anchor);
   };
   const bookmarkActionsRef=useRef({activate:()=>{},remove:(_source:HTMLElement)=>{},allowed:()=>false});
-  bookmarkActionsRef.current.allowed=()=>!editing&&!saving&&!bookmarkBusyRef.current&&!blockedRef.current&&!drawerRef.current&&!panel&&pagesReadyRef.current&&shelfBookmark?.bookId===bookRef.current.id&&flipRef.current?.getState()==='read';
+  bookmarkActionsRef.current.allowed=()=>!selectingQuote&&!editing&&!saving&&!bookmarkBusyRef.current&&!blockedRef.current&&!drawerRef.current&&!panel&&pagesReadyRef.current&&shelfBookmark?.bookId===bookRef.current.id&&flipRef.current?.getState()==='read';
   bookmarkActionsRef.current.activate=()=>{
     if(!bookmarkActionsRef.current.allowed()||!shelfBookmark)return;
     const saved=bookmarkPage(pagesRef.current,shelfBookmark);
@@ -1022,7 +1026,7 @@ export function Reader({ book, onClose, onReady, initialBookmark, onNextVolume, 
   const positionLabel=!pages.length?'책장을 준비하고 있어요':atFront?'표지':atEnd?'끝':`전체 ${contentCount}쪽 중 ${bodyPosition+1}${visibleEnd>bodyPosition+1?`–${visibleEnd}`:''}쪽`;
   const style = { '--reader-font-size': `${fontSize}px`, '--book-cover':book.color } as CSSProperties;
 
-  return <div ref={readerRef} className={`reader reader-theme-${theme}${theme === 'dark' ? ' dark' : ''}${fullscreen?' reader-fullscreen':''}${editing?' reader-is-editing':''}`} data-page-layout={spread===2?'spread':'single'} data-bookmark-current={markedPage>=pageIndex&&markedPage<pageIndex+spread||undefined} style={style} lang="ko">
+  return <div ref={readerRef} className={`reader reader-theme-${theme}${theme === 'dark' ? ' dark' : ''}${fullscreen?' reader-fullscreen':''}${editing?' reader-is-editing':''}`} data-selecting-quote={selectingQuote||undefined} data-page-layout={spread===2?'spread':'single'} data-bookmark-current={markedPage>=pageIndex&&markedPage<pageIndex+spread||undefined} style={style} lang="ko">
     {fullscreen&&<button ref={drawerHandleRef} className="reader-drawer-handle" data-no-flip aria-label="독서 메뉴" aria-expanded={drawerOpen} aria-controls="reader-drawer" onPointerDown={startDrawerDrag} onPointerMove={moveDrawerDrag} onPointerUp={endDrawerDrag} onPointerCancel={event=>{suppressHandleClick.current=true;endDrawerDrag(event);}} onLostPointerCapture={()=>{drawerDrag.current=null;}} onClick={()=>{if(suppressHandleClick.current){suppressHandleClick.current=false;return;}if(drawerOpen)closeDrawer();else setDrawerOpen(true);}}><span/></button>}
     {fullscreen&&drawerOpen&&<button className="reader-drawer-backdrop" aria-label="독서 메뉴 닫기" onClick={closeDrawer} tabIndex={-1}/>}
     <div id="reader-drawer" className="reader-drawer" hidden={fullscreen&&!drawerOpen}>
@@ -1048,6 +1052,7 @@ export function Reader({ book, onClose, onReady, initialBookmark, onNextVolume, 
         {!loading&&<div className="reader-cover-boards" aria-hidden="true" inert><span className="reader-cover-board-left"/><span className="reader-cover-board-right"/></div>}
         <div className="reader-book-mount" ref={mountRef} onPointerDownCapture={event=>{const page=(event.target as HTMLElement).closest<HTMLElement>('[data-reader-page-index]');if(page&&!page.dataset.flipCopy)setSelectedLeaf(Number(page.dataset.readerPageIndex));}}/>
         {!loading&&peekBookmark&&shelfBookmark&&<div className={`reader-bookmark-peek reader-bookmark-peek-${markedPage<pageIndex?'before':'after'}`} aria-label="페이지 사이 책갈피"><BookmarkSlip {...bookmarkInteraction} style={ribbonStyle} icon={ribbonIcon} image={ribbonImage} title={shelfBookmark.title} color={book.color} side={markedPage<pageIndex?'before':'after'}/></div>}
+      {selectingQuote&&onQuoteSelected&&<ShareQuoteSelection host={mountRef} onDone={onQuoteSelected} onPrevious={()=>jump(Math.max(0,pageIndex-spread))} onNext={()=>jump(Math.min(pages.length-1,pageIndex+spread))}/>}
       {editing&&<div className="reader-edit-navigation" data-no-flip><button type="button" aria-label="편집 이전 페이지" disabled={saving||loading||pageIndex===0} onClick={()=>jump(Math.max(0,pageIndex-spread))}><span aria-hidden="true">&lt;</span></button><button type="button" aria-label={pageIndex+spread>=proseStart+contentCount?"빈 페이지 추가":"편집 다음 페이지"} title={pageIndex+spread>=proseStart+contentCount?"본문 끝에 빈 페이지 추가":undefined} data-add-page={pageIndex+spread>=proseStart+contentCount||undefined} disabled={saving||loading} onPointerDown={event=>event.preventDefault()} onClick={()=>pageIndex+spread>=proseStart+contentCount?insertPageRef.current(proseStart+contentCount-1):jump(Math.min(pages.length-1,pageIndex+spread))}><span aria-hidden="true">{pageIndex+spread>=proseStart+contentCount?"+":">"}</span></button></div>}
         {loading && (!onReady||openedRef.current) && <div className="reader-loading" role="status"><BookOpen size={25} /><span>책을 펼치고 있어요…</span></div>}
       </div>

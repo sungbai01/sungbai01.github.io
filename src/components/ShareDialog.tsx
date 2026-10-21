@@ -1,21 +1,21 @@
 import {useEffect,useId,useMemo,useRef,useState} from 'react';
-import {Check,Copy,Download,Image,Images,Link,LoaderCircle,RotateCcw,Unlink,X} from 'lucide-react';
+import {Check,Copy,Download,Image,Images,Link,LoaderCircle,RotateCcw,Unlink,X,Quote} from 'lucide-react';
 import type {Book} from '../lib/library';
 import {getAuthSession} from '../lib/auth';
 import {cardHtml,downloadBlob,makeShareCard,shareRequest,shareUrl,uploadShareCard,uploadBookShareAssets,usedShareAssets,type ShareInfo} from '../lib/sharing';
 import './share-dialog.css';
-export default function ShareDialog({book,onClose,onLogin,onManageAssets}:{book:Book;onClose:()=>void;onLogin:()=>void;onManageAssets?:()=>void}){
+export default function ShareDialog({book,onClose,onLogin,onManageAssets,quote='',onSelectQuote,onClearQuote,initialMode='url'}:{quote?:string;onSelectQuote?:()=>void;onClearQuote?:()=>void;initialMode?:'url'|'card';book:Book;onClose:()=>void;onLogin:()=>void;onManageAssets?:()=>void}){
  const dialog=useRef<HTMLDialogElement>(null),title=useId();
- const [mode,setMode]=useState<'url'|'card'>('url'),[share,setShare]=useState<ShareInfo|null>(null),[busy,setBusy]=useState(false),[loading,setLoading]=useState(!!getAuthSession()),[error,setError]=useState(''),[notice,setNotice]=useState(''),[imageUrl,setImageUrl]=useState('');
+ const [mode,setMode]=useState<'url'|'card'>(initialMode),[share,setShare]=useState<ShareInfo|null>(null),[busy,setBusy]=useState(false),[loading,setLoading]=useState(!!getAuthSession()),[error,setError]=useState(''),[notice,setNotice]=useState(''),[imageUrl,setImageUrl]=useState('');
  const [includeImages,setIncludeImages]=useState(true);
  const [card,setCard]=useState<Blob>(),[preview,setPreview]=useState('');const alive=useRef(true);
  const session=getAuthSession();
  const imageCount=useMemo(()=>usedShareAssets(book).length,[book]);
  useEffect(()=>{alive.current=true;const element=dialog.current!;element.showModal();return()=>{alive.current=false;element.close();};},[]);
- useEffect(()=>{if(!session)return;const controller=new AbortController();void shareRequest(book.id,'GET',controller.signal).then(value=>{if(!controller.signal.aborted){setShare(value);if(value?.cardUrl)setImageUrl(value.cardUrl);}}).catch(cause=>{if(!controller.signal.aborted)setError(cause instanceof Error?cause.message:'공유를 확인하지 못했어요.');}).finally(()=>{if(!controller.signal.aborted)setLoading(false);});return()=>controller.abort();},[book.id,session?.user.id]);
- useEffect(()=>{setCard(undefined);setPreview('');},[book]);
+ useEffect(()=>{if(!session)return;const controller=new AbortController();void shareRequest(book.id,'GET',controller.signal).then(value=>{if(!controller.signal.aborted){setShare(value);}}).catch(cause=>{if(!controller.signal.aborted)setError(cause instanceof Error?cause.message:'공유를 확인하지 못했어요.');}).finally(()=>{if(!controller.signal.aborted)setLoading(false);});return()=>controller.abort();},[book.id,session?.user.id]);
+ useEffect(()=>{setCard(undefined);setPreview('');setImageUrl('');},[book,quote]);
  useEffect(()=>{if(!card)return;const url=URL.createObjectURL(card);setPreview(url);return()=>URL.revokeObjectURL(url);},[card]);
- useEffect(()=>{if(mode!=='card'||card)return;let active=true;void makeShareCard(book).then(value=>{if(active)setCard(value);}).catch(cause=>{if(active)setError(cause instanceof Error?cause.message:'카드를 만들지 못했어요.');});return()=>{active=false;};},[mode,book,card]);
+ useEffect(()=>{if(mode!=='card')return;setCard(undefined);setPreview('');setImageUrl('');let active=true;void makeShareCard(book,quote).then(value=>{if(active)setCard(value);}).catch(cause=>{if(active)setError(cause instanceof Error?cause.message:'카드를 만들지 못했어요.');});return()=>{active=false;};},[mode,book,quote]);
  async function change(method:'POST'|'DELETE'){
   if(busy||loading)return;setBusy(true);setError('');setNotice('');
   try{if(method==='POST'&&includeImages&&imageCount>40)throw new Error('공유 이미지는 한 권에 40개까지 넣을 수 있어요.');const value=await shareRequest(book.id,method,undefined,book);if(!alive.current)return;setShare(value);if(method==='DELETE')setImageUrl('');if(method==='POST'&&imageCount){await uploadBookShareAssets(book,(done,total)=>{if(alive.current)setNotice(`이미지 ${done}/${total} 업로드 중…`);},includeImages);}if(alive.current)setNotice(method==='DELETE'?'공유를 종료했어요.':'공유 링크가 준비됐어요.');}catch(cause){if(alive.current)setError(cause instanceof Error?cause.message:'공유하지 못했어요.');}finally{if(alive.current)setBusy(false);}
@@ -37,6 +37,8 @@ export default function ShareDialog({book,onClose,onLogin,onManageAssets}:{book:
     </>}
    </>}
    {mode==='card'&&<div className="share-card">
+    <div className="share-quote-actions">{onSelectQuote&&<button className="secondary-btn" disabled={busy} onClick={onSelectQuote}><Quote size={15}/>{quote?'대사 다시 선택':'대사 첨부'}</button>}{quote&&<button className="icon-btn" title="대사 제거" aria-label="대사 제거" disabled={busy} onClick={onClearQuote}><X size={16}/></button>}</div>
+    {quote&&<blockquote className="share-quote-text">{quote}</blockquote>}
     {preview?<img src={preview} alt={`${book.title} 공유 카드`}/>:<div className="share-card-loading" role="status"><LoaderCircle size={20} className="animate-spin"/></div>}
     <button className="secondary-btn" disabled={!card} onClick={()=>{if(card)downloadBlob(card,`${book.title.replace(/[\\/:*?"<>|]/g,'-')}-공유카드.${card.type==='image/webp'?'webp':'png'}`);}}><Download size={15}/>카드 이미지 저장</button>
     <p className="share-hint">HTML 복사를 사용하면 카드를 따로 첨부할 필요 없어요.</p>{url&&<button className="secondary-btn" disabled={!card||busy} onClick={()=>void hostCard()}>{busy?<LoaderCircle size={15} className="animate-spin"/>:<Image size={15}/>}카드 업로드</button>}{html&&<button className="primary-btn" disabled={busy} onClick={()=>void copy(html)}><Copy size={15}/>HTML 복사</button>}
