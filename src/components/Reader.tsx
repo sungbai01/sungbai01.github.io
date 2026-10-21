@@ -2,7 +2,7 @@ import { createContext, useContext, useDeferredValue, useEffect, useLayoutEffect
 import type { CSSProperties, ReactNode, PointerEvent as ReactPointerEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
-import { flushSync } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { PageFlip } from '../vendor/page-flip/PageFlip';
 import { SizeType } from '../vendor/page-flip/Settings';
 import { FlipCorner } from '../vendor/page-flip/Flip/Flip';
@@ -180,7 +180,7 @@ function EditablePassage({fragment,onEdit,draft}:{fragment:Fragment;onEdit:EditF
  })}</>;
 }
 
-type AssetPreview={asset:BookAsset;owner:string;pinned:boolean;left:number;top:number;width:number;height:number;size:number};
+type AssetPreview={container:HTMLElement;closing?:boolean;asset:BookAsset;owner:string;pinned:boolean;left:number;top:number;width:number;height:number;size:number};
 const displayBookmarkStyle=(style:BookmarkStyle):BookmarkStyle=>style==='character'?'image':style;
 function InlineAsset({fragment,editing,onEdit,draft,onPreview}:{fragment:Fragment;editing:boolean;onEdit:EditFragment;draft?:string;onPreview:(asset:BookAsset|null,owner:string,pinned?:boolean)=>void}){
  const asset=fragment.asset!;
@@ -193,9 +193,9 @@ function InlineAsset({fragment,editing,onEdit,draft,onPreview}:{fragment:Fragmen
  const eligible=()=>!editing&&!buttonRef.current?.closest('[data-flip-copy="true"],[inert],[aria-hidden="true"]');
  useEffect(()=>()=>preview.current(null,owner,true),[owner]);
  useEffect(()=>setRemoved(editing&&draft===''),[editing,draft]);
- return <div className="reader-inline-asset-body" data-no-flip>
+ return <div className="reader-inline-asset-body" data-no-flip={editing||undefined}>
  {removed?<button type="button" className="reader-inline-asset-undo" onClick={()=>{onEdit(fragment,fragment.text);setRemoved(false);}}>이미지 복원</button>:<>
- <button ref={buttonRef} data-asset-owner={owner} data-original-width={crop?.width} data-original-height={crop?.height} className="reader-inline-asset-open" type="button" aria-label={`${asset.name} 크게 보기`} onPointerDown={event=>event.stopPropagation()} onPointerEnter={event=>{if(event.pointerType!=='touch'&&eligible())onPreview(asset,owner);}} onPointerLeave={()=>onPreview(null,owner)} onFocus={()=>{if(eligible())onPreview(asset,owner);}} onBlur={()=>onPreview(null,owner)} onClick={event=>{event.stopPropagation();if(eligible())onPreview(asset,owner,true);}}><img src={crop?.src??asset.src} alt={asset.name} draggable={false}/></button>
+ <button ref={buttonRef} data-flip-asset={!editing||undefined} data-asset-owner={owner} data-original-width={crop?.width} data-original-height={crop?.height} className="reader-inline-asset-open" type="button" aria-label={`${asset.name} 크게 보기`} onPointerEnter={event=>{if(event.pointerType!=='touch'&&eligible())onPreview(asset,owner);}} onPointerLeave={()=>onPreview(null,owner)} onFocus={()=>{if(eligible())onPreview(asset,owner);}} onBlur={()=>onPreview(null,owner)} onClick={event=>{event.stopPropagation();if(eligible())onPreview(asset,owner,true);}}><img src={crop?.src??asset.src} alt={asset.name} draggable={false}/></button>
  {editing&&<button className="reader-inline-asset-remove" type="button" aria-label="본문 이미지 제거" title="본문에서 이미지 제거" onClick={()=>{onPreview(null,owner,true);onEdit(fragment,'');setRemoved(true);}}><X size={16}/></button>}
  </>}
  </div>;
@@ -210,13 +210,13 @@ type BookmarkSlipProps={style:BookmarkStyle;icon?:string;image?:string;title:str
 function BookmarkSlip({style,icon,image,title,color,side='after',disabled,onActivate,onRemove,canInteract}:BookmarkSlipProps){
  const elementRef=useRef<HTMLSpanElement>(null);
  const actions=useRef({disabled,onActivate,onRemove,canInteract});actions.current={disabled,onActivate,onRemove,canInteract};
- const drag=useRef<{id:number;x:number;y:number;distance:number}|null>(null);
+ const drag=useRef<{id:number;x:number;y:number;distance:number;bounds:DOMRect;angle:number}|null>(null);
  const suppressClick=useRef(false);
  const allowed=()=>{const element=elementRef.current;return !actions.current.disabled&&!!element&&!element.closest('[inert],[data-flip-copy="true"],[aria-hidden="true"]')&&(actions.current.canInteract?.()??true);};
  const reset=()=>{
   const active=drag.current;drag.current=null;
   const element=elementRef.current;if(!element)return;
-  element.style.removeProperty('--bookmark-drag-x');element.style.removeProperty('--bookmark-drag-y');element.classList.remove('reader-bookmark-dragging');
+  element.style.removeProperty('--bookmark-drag-x');element.style.removeProperty('--bookmark-drag-y');element.style.removeProperty('--bookmark-drag-angle');element.style.removeProperty('transform-origin');element.classList.remove('reader-bookmark-dragging');
   if(active)try{if(element.hasPointerCapture(active.id))element.releasePointerCapture(active.id);}catch{}
  };
  const cancel=()=>{if(drag.current)suppressClick.current=true;reset();};
@@ -229,12 +229,14 @@ function BookmarkSlip({style,icon,image,title,color,side='after',disabled,onActi
   const dx=event.clientX-active.x,dy=event.clientY-active.y;
   active.distance=Math.max(active.distance,Math.hypot(dx,dy));
   if(active.distance>5){suppressClick.current=true;event.currentTarget.classList.add('reader-bookmark-dragging');}
+  active.angle+=(clamp(dx*.14-dy*.045,-24,24)-active.angle)*.25;
+  event.currentTarget.style.setProperty('--bookmark-drag-angle',`${active.angle}deg`);
   event.currentTarget.style.setProperty('--bookmark-drag-x',`${dx}px`);event.currentTarget.style.setProperty('--bookmark-drag-y',`${dy}px`);
  };
  return <span ref={elementRef} data-no-flip data-bookmark-side={side} className={`reader-bookmark-slip reader-bookmark-${style}`} role="button" tabIndex={disabled?-1:0} aria-disabled={disabled||undefined} aria-label="책갈피로 이동" title="책갈피로 이동 · 끌어서 제거" style={{'--bookmark-color':color} as CSSProperties}
- onPointerDown={event=>{event.stopPropagation();if(!allowed()||!event.isPrimary||event.button!==0||drag.current)return;event.preventDefault();event.currentTarget.focus({preventScroll:true});suppressClick.current=false;drag.current={id:event.pointerId,x:event.clientX,y:event.clientY,distance:0};try{event.currentTarget.setPointerCapture(event.pointerId);}catch{cancel();}}}
+ onPointerDown={event=>{event.stopPropagation();if(!allowed()||!event.isPrimary||event.button!==0||drag.current)return;event.preventDefault();event.currentTarget.focus({preventScroll:true});suppressClick.current=false;const bounds=event.currentTarget.getBoundingClientRect();event.currentTarget.style.transformOrigin=`${event.clientX-bounds.left}px ${event.clientY-bounds.top}px`;drag.current={id:event.pointerId,x:event.clientX,y:event.clientY,distance:0,bounds,angle:0};try{event.currentTarget.setPointerCapture(event.pointerId);}catch{cancel();}}}
  onPointerMove={move}
- onPointerUp={event=>{event.stopPropagation();const active=drag.current;if(!active||active.id!==event.pointerId)return;move(event);if(drag.current!==active)return;const eligible=allowed();const distance=active.distance;suppressClick.current=true;if(!eligible){reset();return;}if(distance>=36){drag.current=null;try{if(event.currentTarget.hasPointerCapture(active.id))event.currentTarget.releasePointerCapture(active.id);}catch{}const element=event.currentTarget;actions.current.onRemove?.();setTimeout(()=>{if(element.isConnected)reset();},500);}else{reset();if(distance<=5)actions.current.onActivate?.();}}}
+ onPointerUp={event=>{event.stopPropagation();const active=drag.current;if(!active||active.id!==event.pointerId)return;move(event);if(drag.current!==active)return;const eligible=allowed();const distance=active.distance;suppressClick.current=true;if(!eligible){reset();return;}const safe=event.clientX>=active.bounds.left-40&&event.clientX<=active.bounds.right+40&&event.clientY>=active.bounds.top-40&&event.clientY<=active.bounds.bottom+40;if(distance>=36&&!safe){drag.current=null;try{if(event.currentTarget.hasPointerCapture(active.id))event.currentTarget.releasePointerCapture(active.id);}catch{}const element=event.currentTarget;actions.current.onRemove?.();setTimeout(()=>{if(element.isConnected)reset();},500);}else{reset();if(distance<=5)actions.current.onActivate?.();}}}
  onPointerCancel={event=>{event.stopPropagation();if(drag.current?.id===event.pointerId)cancel();}}
  onLostPointerCapture={event=>{if(drag.current?.id===event.pointerId)cancel();}}
  onClick={event=>{event.stopPropagation();event.preventDefault();if(suppressClick.current){suppressClick.current=false;return;}if(allowed())actions.current.onActivate?.();}}
@@ -285,6 +287,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
   const assetPreviewRef=useRef(assetPreview);assetPreviewRef.current=assetPreview;
   const hoverSuppressedRef=useRef(new Set<string>());
   const previewAsset=(asset:BookAsset|null,owner:string,pinned=false)=>setAssetPreview(current=>{
+    if(flipRef.current&&flipRef.current.getState()!=='read')return current;
     if(!asset){hoverSuppressedRef.current.delete(owner);return current?.owner===owner&&(!current.pinned||pinned)?null:current;}
     if(!pinned&&hoverSuppressedRef.current.has(owner))return current;
     if(current?.pinned&&!pinned)return current;
@@ -297,8 +300,9 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
     const ratio=originalHeight/originalWidth;
     let width=ratio>=1?rect.width:rect.height/ratio,height=width*ratio;
     const fit=Math.min(1,(window.innerWidth-24)/width,(window.innerHeight-24)/height);width*=fit;height*=fit;
-    const left=clamp(rect.left+(rect.width-width)/2,12,window.innerWidth-width-12);
-    return {asset,owner,pinned,left,top:clamp(rect.top,12,window.innerHeight-height-12),width,height,size:rect.height};
+    const scale=rect.width/Math.max(1,element.offsetWidth);
+    width/=scale;height/=scale;
+    return {container:element.parentElement!,asset,owner,pinned,left:(element.offsetWidth-width)/2,top:0,width,height,size:element.offsetHeight};
   });
   const [saving,setSaving]=useState(false);
   const [editError,setEditError]=useState('');
@@ -668,7 +672,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
         // Update only this reader after the curl settles; no persisted reading history.
         instance.on('flip', event => { if (!cancelled) report(Number(event.data)); });
         instance.on('changeState',event=>{
-          if(!cancelled){if(host)host.dataset.flipState=String(event.data);}
+          if(!cancelled){if(host)host.dataset.flipState=String(event.data);if(event.data!=='read')setAssetPreview(current=>current&&!current.closing?{...current,closing:true}:current);}
           if(event.data==='read'&&queuedTurnRef.current){
             const direction=queuedTurnRef.current;queuedTurnRef.current=null;
             const revision=navigationRevisionRef.current;
@@ -1066,7 +1070,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
         </>}
       </div>
     </>}
-    {assetPreview&&<div className={`reader-asset-preview${assetPreview.pinned?' reader-asset-preview-pinned':''}`} data-no-flip onPointerDown={event=>event.stopPropagation()} role="region" aria-label="이미지 미리보기"><button type="button" key={assetPreview.owner} className="reader-asset-preview-expand" tabIndex={assetPreview.pinned?0:-1} aria-label="이미지 미리보기 접기" onClick={()=>{hoverSuppressedRef.current.add(assetPreview.owner);setAssetPreview(null);}} style={{left:assetPreview.left,top:assetPreview.top,width:assetPreview.width,height:assetPreview.height,'--preview-start':`${assetPreview.size}px`,'--preview-end':`${assetPreview.height}px`,'--preview-width':`${assetPreview.width}px`,'--preview-clip-x':`${Math.max(0,(assetPreview.width-assetPreview.size)/2)}px`,'--preview-clip-bottom':`${Math.max(0,assetPreview.height-assetPreview.size)}px`} as CSSProperties}><img src={assetPreview.asset.src} alt={assetPreview.asset.name} draggable={false}/></button></div>}
+    {assetPreview&&createPortal(<div className={`reader-asset-preview${assetPreview.pinned?' reader-asset-preview-pinned':''}${assetPreview.closing?' reader-asset-preview-closing':''}`} role="region" aria-label="이미지 미리보기"><button type="button" data-flip-asset key={assetPreview.owner} className="reader-asset-preview-expand" tabIndex={assetPreview.pinned?0:-1} aria-label="이미지 미리보기 접기" onClick={event=>{event.stopPropagation();hoverSuppressedRef.current.add(assetPreview.owner);setAssetPreview(null);}} style={{left:assetPreview.left,top:assetPreview.top,width:assetPreview.width,height:assetPreview.height,'--preview-clip-x':`${Math.max(0,(assetPreview.width-assetPreview.size)/2)}px`,'--preview-clip-bottom':`${Math.max(0,assetPreview.height-assetPreview.size)}px`} as CSSProperties}><img src={assetPreview.asset.src} alt={assetPreview.asset.name} draggable={false}/></button></div>,assetPreview.container)}
     <div ref={measureRef} className="reader-measure reader-page-content" aria-hidden="true" />
     {leaveConfirm&&<LeaveDialog moving={!!shelfBookmark} busy={bookmarkBusy} error={leaveError} onCancel={()=>{setLeaveConfirm(false);setLeaveError('');}} onLeave={()=>closeRef.current()} onSave={()=>void saveBeforeLeaving()}/>}
     {nextConfirm&&onNextVolume&&<NextVolumeDialog title={nextVolumeTitle} onClose={()=>setNextConfirm(false)} onConfirm={()=>{setNextConfirm(false);onNextVolume();}}/>}

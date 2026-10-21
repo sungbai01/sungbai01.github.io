@@ -331,3 +331,10 @@ html,body{overflow-x:clip}
 .bookshelf-grid{background-image:linear-gradient(to bottom,transparent 0 calc(var(--display-stage) - 17px),var(--sand-4) calc(var(--display-stage) - 17px) calc(var(--display-stage) - 15px),var(--shelf-face-top) calc(var(--display-stage) - 15px) calc(var(--display-stage) - 13px),var(--shelf-face-mid) calc(var(--display-stage) - 13px) calc(var(--display-stage) - 8px),var(--shelf-face-bottom) calc(var(--display-stage) - 8px) calc(var(--display-stage) - 5px),var(--shelf-edge) calc(var(--display-stage) - 5px) calc(var(--display-stage) - 3px),transparent calc(var(--display-stage) - 3px) 100%),linear-gradient(180deg,var(--shelf-wall-top),var(--shelf-wall-mid) 28%,var(--shelf-wall-bottom));background-position:0 40px,0 0;background-size:100% var(--display-pitch),100% 100%;background-repeat:repeat-y,no-repeat}
 .spines-shelf{background-image:linear-gradient(180deg,var(--shelf-wall-top),var(--shelf-wall-mid) 28%,var(--shelf-wall-bottom))}
 .spines-shelf:after{border-top-color:var(--sand-4);border-bottom-color:var(--shelf-edge);background:linear-gradient(var(--shelf-face-top),var(--shelf-face-mid) 42%,var(--shelf-face-top) 48%,var(--shelf-face-bottom));box-shadow:0 8px 11px -7px var(--sand-11),inset 0 1px var(--sand-3)}
+
+/* One responsive footprint for both views, including every cover row and add slot.
+   The sizing grid has no book content or controls, and shares all cover breakpoints. */
+.shelf-view-frame{position:relative;min-width:0;width:100%;overflow-anchor:none}
+.shelf-view-size{visibility:hidden;pointer-events:none;user-select:none}
+.shelf-view-content{position:absolute;inset:0;min-width:0;min-height:0}
+.shelf-view-content>.bookshelf-grid,.shelf-view-content>.spines-shelf{box-sizing:border-box;width:100%;height:100%;min-height:0;margin:0}

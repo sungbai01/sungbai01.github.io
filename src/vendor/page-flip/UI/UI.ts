@@ -13,8 +13,10 @@ export abstract class UI {
     protected readonly wrapper: HTMLElement;
     protected distElement: HTMLElement;
 
-    private pointer: {id:number;start:Point;last:Point;startedAt:number;touch:boolean} | null = null;
+    private pointer: {id:number;start:Point;last:Point;startedAt:number;touch:boolean;asset:boolean;started:boolean} | null = null;
     private readonly swipeDistance: number;
+    private suppressAssetClickUntil=0;
+    private onClickCapture=(event:MouseEvent):void=>{if(performance.now()<this.suppressAssetClickUntil){event.preventDefault();event.stopImmediatePropagation();}};
 
     private onResize = (): void => {
         this.update();
@@ -122,6 +124,7 @@ export abstract class UI {
     protected removeHandlers(): void {
         window.removeEventListener('resize', this.onResize);
         this.distElement.removeEventListener('pointerdown', this.onPointerDown);
+        this.distElement.removeEventListener('click',this.onClickCapture,true);
         window.removeEventListener('pointermove', this.onPointerMove);
         window.removeEventListener('pointerup', this.onPointerUp);
         window.removeEventListener('pointercancel', this.onPointerCancel);
@@ -134,6 +137,7 @@ export abstract class UI {
         window.addEventListener('resize', this.onResize);
         if (!this.app.getSettings().useMouseEvents) return;
         this.distElement.addEventListener('pointerdown', this.onPointerDown);
+        this.distElement.addEventListener('click',this.onClickCapture,true);
         window.addEventListener('pointermove', this.onPointerMove, {passive:false});
         window.addEventListener('pointerup', this.onPointerUp);
         window.addEventListener('pointercancel', this.onPointerCancel);
@@ -148,12 +152,15 @@ export abstract class UI {
     private checkTarget(target:EventTarget):boolean {
         if(!this.app.isInteractionEnabled())return false;
         const element=target instanceof Element?target:(target as Node)?.parentElement;
+        if(element?.closest('[data-flip-asset]')&&!element.closest('[data-no-flip]'))return true;
         return !!element&&!element.closest('a,button,input,textarea,select,label,summary,[contenteditable]:not([contenteditable="false"]),[role="button"],[role="textbox"],[data-no-flip]');
     }
     private onPointerDown=(event:PointerEvent):void=>{
         if(!event.isPrimary||event.button!==0||this.pointer||!this.checkTarget(event.target))return;
         const point=this.getMousePos(event.clientX,event.clientY);
-        this.pointer={id:event.pointerId,start:point,last:point,startedAt:performance.now(),touch:event.pointerType!=='mouse'};
+        const asset=!!(event.target as Element)?.closest('[data-flip-asset]');
+        this.pointer={id:event.pointerId,start:point,last:point,startedAt:performance.now(),touch:event.pointerType!=='mouse',asset,started:!asset};
+        if(asset)return;
         this.app.startUserTouch(point);
         try{this.distElement.setPointerCapture(event.pointerId);}catch{}
         if(event.cancelable)event.preventDefault();
@@ -164,6 +171,11 @@ export abstract class UI {
         if(!this.app.isInteractionEnabled()){this.clearUserTouch();return;}
         // A release outside the window may not deliver pointerup. Recover on reentry.
         if(event.pointerType==='mouse'&&event.buttons===0){this.completeGesture(point);return;}
+        if(!pointer.started){
+            if(Math.hypot(point.x-pointer.start.x,point.y-pointer.start.y)<=5)return;
+            pointer.started=true;this.app.startUserTouch(pointer.start);
+            try{this.distElement.setPointerCapture(event.pointerId);}catch{}
+        }
         this.app.userMove(point,pointer.touch);
         if(event.cancelable)event.preventDefault();
     };
@@ -174,6 +186,8 @@ export abstract class UI {
     };
     private completeGesture(point:Point):void {
         const pointer=this.pointer;if(!pointer)return;
+        if(pointer.asset&&!pointer.started){this.clearUserTouch();return;}
+        if(pointer.asset)this.suppressAssetClickUntil=performance.now()+500;
         const dx=point.x-pointer.start.x,dy=point.y-pointer.start.y;
         const swipe=pointer.touch&&Math.abs(dx)>this.swipeDistance&&Math.abs(dx)>Math.abs(dy)&&performance.now()-pointer.startedAt<300;
         // Clear capture before settling so lostpointercapture cannot cancel it.

@@ -384,3 +384,19 @@
 
 .reader-bookmark-peek{clip-path:inset(-100dvh -100vw 0 -100vw)}
 .modal-header-actions{display:flex;align-items:center;gap:4px}
+
+/* Preview stays in its own paper leaf, including the flip engine's copies. */
+.reader-inline-asset-body>.reader-asset-preview{position:absolute;inset:0;z-index:14}
+.reader .reader-inline-asset-open,.reader .reader-asset-preview-expand{touch-action:none}
+.reader-asset-preview-closing .reader-asset-preview-expand,.reader-flip-host:not([data-flip-state='read']) .reader-asset-preview-expand{animation:reader-asset-fold .16s ease-out both;pointer-events:none}
+@keyframes reader-asset-fold{from{clip-path:inset(0)}to{clip-path:inset(0 var(--preview-clip-x,0px) var(--preview-clip-bottom,0px) var(--preview-clip-x,0px))}}
+.reader-page-content-editing .reader-live-passage{background:color-mix(in srgb,var(--reader-accent) 7%,transparent);outline:1px solid color-mix(in srgb,var(--reader-accent) 25%,transparent);outline-offset:3px;border-radius:2px}
+.reader-page-content-editing .reader-live-passage:focus{background:color-mix(in srgb,var(--reader-accent) 11%,transparent);outline-color:var(--reader-accent)}
+.reader .reader-bookmark-slip{rotate:var(--bookmark-drag-angle,0deg)}
+.reader .reader-bookmark-dragging{transition:translate .055s linear,rotate .09s ease-out;will-change:translate,rotate}
+/* Cut the paper rectangle out of the peek layer, exposing all outside edges. */
+.reader-bookmark-peek{--peek-page-left:calc(var(--paper-width)/-2);--peek-page-right:calc(var(--paper-width)/2);clip-path:polygon(evenodd,-200vw -200vh,200vw -200vh,200vw 200vh,-200vw 200vh,-200vw -200vh,var(--peek-page-left) 20px,var(--peek-page-right) 20px,var(--peek-page-right) calc(var(--paper-height) + 20px),var(--peek-page-left) calc(var(--paper-height) + 20px),var(--peek-page-left) 20px)}
+.reader[data-page-layout='spread'] .reader-bookmark-peek{--peek-page-left:calc(-1*var(--paper-width));--peek-page-right:var(--paper-width)}
+.reader-bookmark-peek-before{--peek-page-left:calc(var(--paper-width)/-2 + var(--paper-height)*2/15);--peek-page-right:calc(var(--paper-width)/2 + var(--paper-height)*2/15)}
+.reader[data-page-layout='spread'] .reader-bookmark-peek-before{--peek-page-left:calc(-1*var(--paper-width) + var(--paper-height)*2/15);--peek-page-right:calc(var(--paper-width) + var(--paper-height)*2/15)}
+@media(prefers-reduced-motion:reduce){.reader .reader-bookmark-dragging{transition:none}.reader-flip-host:not([data-flip-state='read']) .reader-asset-preview-expand{animation-duration:1ms}}
