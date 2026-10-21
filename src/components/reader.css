@@ -413,8 +413,9 @@
 .reader-page-content-editing .reader-live-passage:focus{background:color-mix(in srgb,var(--reader-accent) 11%,transparent);outline-color:var(--reader-accent)}
 .reader .reader-bookmark-slip{rotate:var(--bookmark-drag-angle,0deg)}
 .reader .reader-bookmark-dragging{transition:translate .055s linear,rotate .09s ease-out;will-change:translate,rotate}
-/* Cut the paper rectangle out of the peek layer, exposing all outside edges. */
-.reader-bookmark-peek{--peek-page-left:calc(var(--paper-width)/-2);--peek-page-right:calc(var(--paper-width)/2);clip-path:polygon(evenodd,-200vw -200vh,200vw -200vh,200vw 200vh,-200vw 200vh,-200vw -200vh,var(--peek-page-left) 20px,var(--peek-page-right) 20px,var(--peek-page-right) calc(var(--paper-height) + 20px),var(--peek-page-left) calc(var(--paper-height) + 20px),var(--peek-page-left) 20px)}
+/* Occlude the bookmark with the full board: 5px overhang and 3px thickness. */
+.reader-bookmark-peek{--peek-page-left:calc(var(--paper-width)/-2);--peek-page-right:calc(var(--paper-width)/2);clip-path:polygon(evenodd,-200vw -200vh,200vw -200vh,200vw 200vh,-200vw 200vh,-200vw -200vh,calc(var(--peek-page-left) - 5px) 15px,calc(var(--peek-page-right) + 5px) 15px,calc(var(--peek-page-right) + 5px) calc(var(--paper-height) + 28px),calc(var(--peek-page-left) - 5px) calc(var(--paper-height) + 28px),calc(var(--peek-page-left) - 5px) 15px)}
+.reader-stage:has(.reader-flip-host:not([data-flip-state='read'])) .reader-bookmark-peek{transition:none}
 .reader[data-page-layout='spread'] .reader-bookmark-peek{--peek-page-left:calc(-1*var(--paper-width));--peek-page-right:var(--paper-width)}
 .reader-bookmark-peek-before{--peek-page-left:calc(var(--paper-width)/-2 + var(--paper-height)*2/15);--peek-page-right:calc(var(--paper-width)/2 + var(--paper-height)*2/15)}
 .reader[data-page-layout='spread'] .reader-bookmark-peek-before{--peek-page-left:calc(-1*var(--paper-width) + var(--paper-height)*2/15);--peek-page-right:calc(var(--paper-width) + var(--paper-height)*2/15)}

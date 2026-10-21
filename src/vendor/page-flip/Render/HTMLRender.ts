@@ -405,7 +405,10 @@ export class HTMLRender extends Render {
             this.getSettings().startZIndex + 3
         ).toString(10);
 
-        this.bottomPage.draw(tempDensity);
+        // The revealed underlay is not the turning sheet. Its clipped gutter
+        // can briefly qualify as a fold and hide the stationary bookmark peek.
+        // Only the actual moving faces may own an unclipped ribbon layer.
+        (this.bottomPage as HTMLPage).draw(tempDensity,this.bottomPage===this.flippingPage);
     }
 
     /** The inside and outside are one board. Remove the resting backing on

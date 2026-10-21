@@ -61,7 +61,7 @@ export class HTMLPage extends Page {
         }
     }
 
-    public draw(tempDensity?: PageDensity): void {
+    public draw(tempDensity?: PageDensity, withBookmarkFold = true): void {
         // The end CTA is not a sheet: never inherit a neighbouring cover's
         // hard density, transform or fold clip, regardless of the calling path.
         if (this.element.dataset.pageKind === 'end') {
@@ -88,7 +88,8 @@ export class HTMLPage extends Page {
         density === PageDensity.HARD
             ? this.drawHard(commonStyle)
             : this.drawSoft(pagePos, commonStyle);
-        this.drawBookmarkFoldLayer(density);
+        if(withBookmarkFold)this.drawBookmarkFoldLayer(density);
+        else this.clearBookmarkFoldLayer();
     }
 
     /** The full rotated rectangle includes an invisible reverse-face region.
