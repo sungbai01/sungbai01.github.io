@@ -39,7 +39,7 @@ export async function uploadShareImage(request:Request,db:TextDatabase,bucket:Sh
  const mime=signature(bytes);if(!mime)return reply({error:'PNG · JPEG · WEBP 이미지만 공유할 수 있어요.'},415,origin);
  const reserved=await db.prepare(`UPDATE share_storage_budget SET reserved_bytes=reserved_bytes+?1 WHERE id=1 AND reserved_bytes+?1<=?3
  AND (SELECT COUNT(*) FROM share_media WHERE share_id=?2)<64
- AND (SELECT COALESCE(SUM(bytes),0) FROM share_media WHERE share_id=?2)+?1<=10000000`).bind(size,share.share_id,SHARE_STORAGE_BYTES).run();
+ AND (SELECT COALESCE(SUM(bytes),0) FROM share_media WHERE share_id=?2)+?1<=50000000`).bind(size,share.share_id,SHARE_STORAGE_BYTES).run();
  if(!reserved.meta.changes)return reply({error:'공유 이미지 저장 한도에 도달했어요.'},413,origin);
  if(!await reserve(db,'writes'))return reply({error:'이번 달 이미지 업로드 한도에 도달했어요.'},429,origin);
  const imageId=crypto.randomUUID(),key=`${share.share_id}/${imageId}`;

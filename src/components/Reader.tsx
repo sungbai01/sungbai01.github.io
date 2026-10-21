@@ -6,7 +6,7 @@ import { createPortal, flushSync } from 'react-dom';
 import { PageFlip } from '../vendor/page-flip/PageFlip';
 import { SizeType } from '../vendor/page-flip/Settings';
 import { FlipCorner } from '../vendor/page-flip/Flip/Flip';
-import { ArrowRight, BookOpen, Bookmark, Check, ChevronLeft, ChevronRight, List, Maximize, Minus, Pencil, Plus, Search, Type, X } from 'lucide-react';
+import { ArrowRight, BookOpen, Bookmark, Check, ChevronLeft, ChevronRight, List, Maximize, Minus, Pencil, Plus, Search, Share2, Type, X } from 'lucide-react';
 import type { Book, BookAsset } from '../lib/library';
 import { paginate, cleanText, startsChapter, chapterNumber, pageTextInsets } from '../lib/pagination';
 import type { Anchor, Fragment, PaperPage } from '../lib/pagination';
@@ -32,6 +32,7 @@ export interface ReaderProps {
   onNextVolume?: () => void;
   nextVolumeTitle?: string;
   onSaveBook?: (book:Book)=>Promise<void>;
+  onShare?: () => void;
   shelfBookmark?: { bookId: string; message: number; char: number; label?: string; progress?:number; style?: BookmarkStyle; icon?: string; image?: string; title: string };
   onBookmarkChange?: (anchor: (Anchor & { label?: string; progress?:number }) | null, style?: BookmarkStyle) => Promise<void>;
   onBookmarkStyleChange?: (style: BookmarkStyle) => Promise<void>;
@@ -285,7 +286,7 @@ function NextVolumeDialog({title,onConfirm,onClose}:{title?:string;onConfirm:()=
   return <dialog ref={dialog} className="reader-next-dialog" aria-label="다음 권 읽기" onCancel={e=>{e.preventDefault();onClose();}}><h2>다음 권을 읽을까요?</h2><p>{title}</p><div><button autoFocus onClick={onClose}>취소</button><button onClick={onConfirm}>읽기<ArrowRight size={17}/></button></div></dialog>;
 }
 
-export function Reader({ book, onClose, onReady, initialBookmark, onNextVolume, nextVolumeTitle, onSaveBook, shelfBookmark, onBookmarkChange, onBookmarkStyleChange, bookmarkStyle, characterIcon, bookmarkImage }: ReaderProps) {
+export function Reader({ book, onClose, onReady, initialBookmark, onNextVolume, nextVolumeTitle, onSaveBook, onShare, shelfBookmark, onBookmarkChange, onBookmarkStyleChange, bookmarkStyle, characterIcon, bookmarkImage }: ReaderProps) {
   const [editing,setEditing]=useState(false);
   const [assetPreview,setAssetPreview]=useState<AssetPreview|null>(null);
   const assetPreviewRef=useRef(assetPreview);assetPreviewRef.current=assetPreview;
@@ -1015,6 +1016,7 @@ export function Reader({ book, onClose, onReady, initialBookmark, onNextVolume, 
       <button className="reader-back" onClick={()=>requestCloseRef.current()} aria-label="책을 닫고 서재로 돌아가기" title="서재로 돌아가기" disabled={editing||saving}><ChevronLeft size={19} /><span>서재</span></button>
       <div className="reader-toolbar-title"><span>{book.title}</span><small>{book.author || readerCopy.unknownAuthor}</small></div>
       <div className="reader-tools">
+        {onShare&&<button className="reader-icon-button" aria-label="책 공유" title="공유" disabled={editing||saving||loading||bookmarkBusy} onClick={()=>{setPanel(null);onShare();}}><Share2 size={18}/></button>}
         {onSaveBook&&<button className={`reader-icon-button ${editing?'reader-active':''}`} aria-label="본문 편집" title="페이지에서 편집" aria-pressed={editing} disabled={saving} onClick={()=>{if(editing){cancelEditing();return;}setPanel(null);draftsRef.current.clear();chapterDraftsRef.current.clear();chapterInsertionsRef.current.clear();setEditError('');setDrawerOpen(false);editingSourceRef.current=bookRef.current;editingReflowedRef.current=false;editBookmarkRef.current=shelfBookmark?.bookId===book.id?shelfBookmark:null;setEditing(true);}}><Pencil size={18}/></button>}
         {onBookmarkChange&&<button className={`reader-icon-button ${activeBookmarked?'reader-active':''}`} aria-label={bookmarkAction} title={bookmarkAction} aria-pressed={activeBookmarked} disabled={editing||saving||bookmarkBusy||loading||(!activeBookmarked&&!bookmarkAnchor(pages,activeLeaf,contentCount))} onClick={()=>void toggleBookmark(activeLeaf)}><Bookmark size={18} fill={activeBookmarked?'currentColor':'none'}/></button>}
         <button ref={windowModeButtonRef} className="reader-icon-button" aria-label={fullscreen?'전체창 해제':'전체창'} title={fullscreen?'전체창 해제':'전체창'} disabled={editing} onClick={()=>fullscreen?exitFullwindow():enterFullwindow()}><Maximize size={18}/></button>

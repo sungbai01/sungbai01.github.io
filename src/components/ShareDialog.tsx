@@ -42,7 +42,7 @@ export default function ShareDialog({book,onClose,onLogin}:{book:Book;onClose:()
     {url&&<details className="share-html"><summary>HTML 직접 복사 · 이미지 주소 변경</summary><label className="field">첨부한 카드 이미지 주소<input type="url" placeholder="https://…" value={imageUrl} onChange={event=>setImageUrl(event.target.value)}/></label><textarea aria-label="공유 카드 HTML" readOnly value={html||'이미지 주소를 입력하면 링크가 포함된 HTML이 만들어져요.'} onFocus={event=>event.currentTarget.select()}/><button className="secondary-btn" disabled={!html} onClick={()=>void copy(html)}><Copy size={15}/>HTML 복사</button></details>}
    </div>}
   </div>
-  <p className="share-hint" title="공유 생성·갱신과 카드 업로드는 계정별 1분에 1회, 하루 30회까지 가능해요. 이미지 원본은 브라우저에 유지하고 공유용 사본만 올려요.">이미지당 2MB · 한 권 10MB · 공유는 1분 간격</p>
+  <p className="share-hint" title="공유 생성·갱신과 카드 업로드는 계정별 1분에 1회, 하루 30회까지 가능해요. 이미지 원본은 브라우저에 유지하고 공유용 사본만 올려요.">이미지당 2MB · 한 권 50MB · 공유는 1분 간격</p>
   <p className="share-hint">7일 동안 책을 열지 않으면 공유가 만료되고 공유 이미지가 삭제돼요.</p>
   {error&&<p className="error-message" role="alert">{error}</p>}{notice&&<p className="share-status" role="status"><Check size={14}/>{notice}</p>}
  </dialog>;
