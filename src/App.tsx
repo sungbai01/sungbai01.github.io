@@ -152,7 +152,22 @@ function BookActions({book,open,onOpen,onClose,onEdit,onShare,onDelete}:{book:Bo
 }
 function LibraryDrawer({children,account,onClose}:{children:ReactNode;account:ReactNode;onClose:()=>void}){
   const ref=useRef<HTMLDialogElement>(null);
-  useEffect(()=>{ref.current?.showModal();return()=>ref.current?.close();},[]);
+  useEffect(()=>{
+    const dialog=ref.current,body=document.body,html=document.documentElement;
+    const x=window.scrollX,y=window.scrollY;
+    const previous={position:body.style.position,top:body.style.top,left:body.style.left,width:body.style.width,overflow:body.style.overflow,htmlOverflow:html.style.overflow};
+    // A modal dialog makes the background inert, but does not lock mobile
+    // viewport scrolling. Keep its original scroll position while the drawer is open.
+    body.style.position='fixed';body.style.top=`-${y}px`;body.style.left=`-${x}px`;
+    body.style.width='100%';body.style.overflow='hidden';html.style.overflow='hidden';
+    dialog?.showModal();
+    return()=>{
+      dialog?.close();
+      Object.assign(body.style,{position:previous.position,top:previous.top,left:previous.left,width:previous.width,overflow:previous.overflow});
+      html.style.overflow=previous.htmlOverflow;
+      window.scrollTo({left:x,top:y,behavior:'instant'});
+    };
+  },[]);
   return <dialog ref={ref} id="library-drawer" className="library-drawer" aria-label="서재 메뉴" onCancel={event=>{event.preventDefault();if(event.target===event.currentTarget)onClose();}} onClick={event=>{if(event.target===event.currentTarget)onClose();}}>
     <div className="drawer-panel">
       <header><span className="drawer-brand"><BookOpen size={21} aria-hidden="true"/>갈피</span><button className="icon-btn" title="닫기" aria-label="서재 메뉴 닫기" onClick={onClose}><X size={19}/></button></header>

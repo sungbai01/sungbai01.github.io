@@ -1,10 +1,12 @@
 /* Reference: Carbon UI shell left panel — aligned rows and one-level disclosure. */
-.library-drawer#library-drawer{width:min(320px,90vw);background:var(--sand-1)}
+.library-drawer#library-drawer{width:min(320px,90vw);background:var(--sand-1);overflow:hidden;overscroll-behavior:none}
+.library-drawer::backdrop{touch-action:none}
+.library-drawer .drawer-panel>header,.library-drawer .drawer-footer{touch-action:none}
 .library-drawer .drawer-panel{display:flex;flex-direction:column;padding:0;overflow:hidden}
 .library-drawer .drawer-panel>header{flex:none;display:flex;align-items:center;justify-content:space-between;margin:0;padding:22px 22px 20px;border-bottom:1px solid var(--sand-5)}
 .drawer-brand{display:flex;align-items:center;gap:11px;color:var(--jade-11);font-family:var(--font-serif);font-size:24px;letter-spacing:1px}
 .drawer-brand svg{stroke-width:1.4}
-.drawer-content{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:22px 16px}
+.drawer-content{flex:1;min-height:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior:none;touch-action:pan-y;padding:22px 16px}
 .library-drawer .drawer-label{margin:0 12px 12px;color:var(--sand-10);font-size:10px;font-weight:500;letter-spacing:.08em}
 .drawer-navigation .nav-item{position:relative;min-height:46px;margin:3px 0;padding:12px;gap:12px;border-radius:6px;color:var(--sand-11);font-size:12px}
 .drawer-navigation .nav-item>svg{flex:none;stroke-width:1.6}
