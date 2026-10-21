@@ -565,7 +565,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
     else if (panel) panelRef.current?.focus();
   }, [panel]);
 
-  function closeDrawer(){setPanel(null);setDrawerOpen(false);drawerHandleRef.current?.focus();}
+  function closeDrawer(){setPanel(null);setDrawerOpen(false);requestAnimationFrame(()=>drawerHandleRef.current?.focus({preventScroll:true}));}
   function enterFullwindow(){setFullscreen(true);setDrawerOpen(false);setPanel(null);}
   function exitFullwindow(){setPanel(null);setDrawerOpen(false);setFullscreen(false);}
   function startDrawerDrag(event:ReactPointerEvent<HTMLButtonElement>){
