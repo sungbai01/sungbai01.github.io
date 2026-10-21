@@ -132,12 +132,44 @@ function PageContent({page,query,editing,onEdit,drafts}:{page:PaperPage;query:st
  {editing?<EditablePassage fragment={fragment} onEdit={onEdit} draft={drafts.get(`${fragment.message}:${fragment.char}`)}/>:<p className={`reader-prose${fragment.chapter!==undefined?' reader-chapter-opening':''}`}><RisuText text={fragment.chapter!==undefined?visibleProse(fragment.text).trimStart():fragment.text} query={query}/></p>}
  </section>)}</>;
 }
-type BookmarkSlipProps={style:BookmarkStyle;icon?:string;image?:string;title:string;color:string;side?:'before'|'after'};
-function BookmarkSlip({style,icon,image,title,color,side='after'}:BookmarkSlipProps){
- return <span data-no-flip data-bookmark-side={side} className={`reader-bookmark-slip reader-bookmark-${style}`} role="img" aria-label="책갈피" style={{'--bookmark-color':color} as CSSProperties}>
+type BookmarkSlipProps={style:BookmarkStyle;icon?:string;image?:string;title:string;color:string;side?:'before'|'after';disabled?:boolean;onActivate?:()=>void;onRemove?:()=>void;canInteract?:()=>boolean};
+function BookmarkSlip({style,icon,image,title,color,side='after',disabled,onActivate,onRemove,canInteract}:BookmarkSlipProps){
+ const elementRef=useRef<HTMLSpanElement>(null);
+ const actions=useRef({disabled,onActivate,onRemove,canInteract});actions.current={disabled,onActivate,onRemove,canInteract};
+ const drag=useRef<{id:number;x:number;y:number;distance:number}|null>(null);
+ const suppressClick=useRef(false);
+ const allowed=()=>{const element=elementRef.current;return !actions.current.disabled&&!!element&&!element.closest('[inert],[data-flip-copy="true"],[aria-hidden="true"]')&&(actions.current.canInteract?.()??true);};
+ const reset=()=>{
+  const active=drag.current;drag.current=null;
+  const element=elementRef.current;if(!element)return;
+  element.style.removeProperty('--bookmark-drag-x');element.style.removeProperty('--bookmark-drag-y');element.classList.remove('reader-bookmark-dragging');
+  if(active)try{if(element.hasPointerCapture(active.id))element.releasePointerCapture(active.id);}catch{}
+ };
+ const cancel=()=>{if(drag.current)suppressClick.current=true;reset();};
+ useEffect(()=>{window.addEventListener('blur',cancel);return()=>{window.removeEventListener('blur',cancel);cancel();};},[]);
+ useEffect(()=>{if(disabled)cancel();},[disabled]);
+ const move=(event:ReactPointerEvent<HTMLSpanElement>)=>{
+  const active=drag.current;if(!active||active.id!==event.pointerId)return;
+  event.stopPropagation();event.preventDefault();
+  if(!allowed()){cancel();return;}
+  const dx=event.clientX-active.x,dy=event.clientY-active.y;
+  active.distance=Math.max(active.distance,Math.hypot(dx,dy));
+  if(active.distance>5){suppressClick.current=true;event.currentTarget.classList.add('reader-bookmark-dragging');}
+  event.currentTarget.style.setProperty('--bookmark-drag-x',`${dx}px`);event.currentTarget.style.setProperty('--bookmark-drag-y',`${dy}px`);
+ };
+ return <span ref={elementRef} data-no-flip data-bookmark-side={side} className={`reader-bookmark-slip reader-bookmark-${style}`} role="button" tabIndex={disabled?-1:0} aria-disabled={disabled||undefined} aria-label="책갈피로 이동" title="책갈피로 이동 · 끌어서 제거" style={{'--bookmark-color':color} as CSSProperties}
+ onPointerDown={event=>{event.stopPropagation();if(!allowed()||!event.isPrimary||event.button!==0||drag.current)return;event.preventDefault();event.currentTarget.focus({preventScroll:true});suppressClick.current=false;drag.current={id:event.pointerId,x:event.clientX,y:event.clientY,distance:0};try{event.currentTarget.setPointerCapture(event.pointerId);}catch{cancel();}}}
+ onPointerMove={move}
+ onPointerUp={event=>{event.stopPropagation();const active=drag.current;if(!active||active.id!==event.pointerId)return;move(event);if(drag.current!==active)return;const eligible=allowed();const distance=active.distance;reset();suppressClick.current=true;if(!eligible)return;if(distance>=36)actions.current.onRemove?.();else if(distance<=5)actions.current.onActivate?.();}}
+ onPointerCancel={event=>{event.stopPropagation();if(drag.current?.id===event.pointerId)cancel();}}
+ onLostPointerCapture={event=>{if(drag.current?.id===event.pointerId)cancel();}}
+ onClick={event=>{event.stopPropagation();event.preventDefault();if(suppressClick.current){suppressClick.current=false;return;}if(allowed())actions.current.onActivate?.();}}
+ onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.stopPropagation();event.preventDefault();if(!event.repeat&&allowed())actions.current.onActivate?.();}}}
+ onDragStart={event=>event.preventDefault()}>
  {style==='image'&&image&&<img className="reader-bookmark-image-fill" src={image} alt="" draggable={false}/>}<span className="reader-bookmark-punch"/><span className="reader-bookmark-string"/>{style==='character'&&<>{icon&&<img src={icon} alt="" draggable={false}/>}<strong>{cleanText(title).replace(/\s*·\s*\d+권\s*$/,'')}</strong></>}
  </span>;
 }
+
 function PageLeaf({page,book,query,index,onNext,onClose,mobile,editing,onEdit,drafts,bookmark}:{page:PaperPage;book:Book;query:string;index:number;onNext?:()=>void;onClose:()=>void;mobile:boolean;editing:boolean;onEdit:EditFragment;drafts:Map<string,string>;bookmark?:BookmarkSlipProps}) {
  const action=<button className="reader-end-action" data-no-flip disabled={editing} onClick={onNext??onClose}>{onNext?'다음 권 읽기':'서재로'}<ArrowRight size={18}/></button>;
  if(page.kind==='back-cover')return <div className="reader-back-cover reader-true-back" style={{'--book-cover':book.color} as CSSProperties}><div className="reader-back-imprint"><span className="reader-back-colophon">{cleanText(book.author)}</span><span className="reader-back-mark">{cleanText(book.title).replace(/\s*·\s*\d+권\s*$/,'')}</span><span className="reader-back-volume">{book.volumeNumber?String(book.volumeNumber).padStart(2,'0'):''}</span><BackBarcode/>{mobile&&action}</div></div>;
@@ -470,7 +502,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
       if (!page) return;
       root.render(renderLeafRef.current(page,index,spread===1));
     });
-  }, [deferredQuery,pages,editing,leafRevision,shelfBookmark,bookmarkImage,characterIcon,bookmarkBusy,book.bookmarks,book.color,selectedLeaf,pageIndex]);
+  }, [deferredQuery,pages,editing,leafRevision,shelfBookmark,bookmarkImage,characterIcon,bookmarkBusy,saving,book.bookmarks,book.color,selectedLeaf,pageIndex]);
 
   const jump = (page: number) => {
     if(blockedRef.current || !pagesReadyRef.current || !pagesRef.current.length)return;
@@ -637,10 +669,19 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
     if(shelfBookmark?.bookId===book.id&&bookmarkPage(pagesRef.current,shelfBookmark)===target){void changeBookmark(null);return;}
     const anchor=bookmarkAnchor(pagesRef.current,index,contentCount);if(anchor)void changeBookmark(anchor);
   }
+  const bookmarkActionsRef=useRef({activate:()=>{},remove:()=>{},allowed:()=>false});
+  bookmarkActionsRef.current.allowed=()=>!editing&&!saving&&!bookmarkBusyRef.current&&!blockedRef.current&&!drawerRef.current&&!panel&&pagesReadyRef.current&&shelfBookmark?.bookId===bookRef.current.id&&flipRef.current?.getState()==='read';
+  bookmarkActionsRef.current.activate=()=>{
+    if(!bookmarkActionsRef.current.allowed()||!shelfBookmark)return;
+    const saved=bookmarkPage(pagesRef.current,shelfBookmark);
+    if(saved>=0)jumpRef.current(evenBookmarkLeaf(pagesRef.current,saved));
+  };
+  bookmarkActionsRef.current.remove=()=>{if(bookmarkActionsRef.current.allowed()&&onBookmarkChange)void changeBookmark(null);};
+  const bookmarkInteraction={disabled:editing||saving||bookmarkBusy,canInteract:()=>bookmarkActionsRef.current.allowed(),onActivate:()=>bookmarkActionsRef.current.activate(),onRemove:()=>bookmarkActionsRef.current.remove()};
   const ribbonIcon=shelfBookmark?.icon??characterIcon??book.characterIcon;
   const ribbonImage=shelfBookmark?.image??bookmarkImage;
   const ribbonStyle=shelfBookmark ? shelfBookmark.style ?? 'normal' : selectedBookmarkStyle;
-  renderLeafRef.current=(page,index,mobile)=><PageLeaf page={page} book={bookRef.current} query={queryRef.current} index={index} mobile={mobile} editing={editing} onEdit={onEdit} drafts={draftsRef.current} onNext={nextVolumeRef.current?()=>requestNextRef.current():undefined} onClose={()=>requestCloseRef.current()} bookmark={shelfBookmark?.bookId===bookRef.current.id&&bookmarkPage(pagesRef.current,shelfBookmark)===index?{style:ribbonStyle,icon:ribbonIcon,image:ribbonImage,title:shelfBookmark.title,color:bookRef.current.color,side:index<(selectedLeaf??pageIndex)?'before':'after'}:undefined}/>;
+  renderLeafRef.current=(page,index,mobile)=><PageLeaf page={page} book={bookRef.current} query={queryRef.current} index={index} mobile={mobile} editing={editing} onEdit={onEdit} drafts={draftsRef.current} onNext={nextVolumeRef.current?()=>requestNextRef.current():undefined} onClose={()=>requestCloseRef.current()} bookmark={shelfBookmark?.bookId===bookRef.current.id&&bookmarkPage(pagesRef.current,shelfBookmark)===index?{...bookmarkInteraction,style:ribbonStyle,icon:ribbonIcon,image:ribbonImage,title:shelfBookmark.title,color:bookRef.current.color,side:index<(selectedLeaf??pageIndex)?'before':'after'}:undefined}/>;
   useEffect(()=>{if(!onSaveBook&&editing){draftsRef.current.clear();setEditing(false);setLeafRevision(value=>value+1);}},[onSaveBook,editing]);
   function cancelEditing(){draftsRef.current.clear();setEditing(false);setEditError('');setLeafRevision(value=>value+1);}
   async function saveEditing(){
@@ -698,7 +739,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
     <main className="reader-main" aria-label={`${book.title} 읽기`}>
       <div className="reader-stage" ref={stageRef} aria-busy={loading} data-book-closed={pages[pageIndex]?.kind==='back-cover'}>
         <div className="reader-book-mount" ref={mountRef} onPointerDownCapture={event=>{const page=(event.target as HTMLElement).closest<HTMLElement>('[data-reader-page-index]');if(page&&!page.dataset.flipCopy)setSelectedLeaf(Number(page.dataset.readerPageIndex));}}/>
-        {!loading&&peekBookmark&&shelfBookmark&&<div className={`reader-bookmark-peek reader-bookmark-peek-${markedPage<pageIndex?'before':'after'}`} aria-label="페이지 사이 책갈피"><BookmarkSlip style={ribbonStyle} icon={ribbonIcon} image={ribbonImage} title={shelfBookmark.title} color={book.color}/></div>}
+        {!loading&&peekBookmark&&shelfBookmark&&<div className={`reader-bookmark-peek reader-bookmark-peek-${markedPage<pageIndex?'before':'after'}`} aria-label="페이지 사이 책갈피"><BookmarkSlip {...bookmarkInteraction} style={ribbonStyle} icon={ribbonIcon} image={ribbonImage} title={shelfBookmark.title} color={book.color}/></div>}
         {loading && <div className="reader-loading" role="status"><BookOpen size={25} /><span>읽던 곳을 펼치고 있어요…</span></div>}
       </div>
       {error && <p className="reader-error" role="status">{error}</p>}
