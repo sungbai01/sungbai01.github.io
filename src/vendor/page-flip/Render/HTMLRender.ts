@@ -420,9 +420,10 @@ export class HTMLRender extends Render {
         const moving=hard?[this.flippingPage,this.leftPage,this.rightPage,this.bottomPage]
             .filter(Boolean).map(page=>(page as HTMLPage).getElement().dataset.coverFace).find(Boolean):undefined;
         const spread=this.orientation===Orientation.LANDSCAPE;
-        const coverOutside=(page:Page)=>page!==null&&['front-cover','back-cover'].includes((page as HTMLPage).getElement().dataset.pageKind??'');
-        const left=spread&&physical(this.leftPage)&&!coverOutside(this.leftPage)&&moving!=='front';
-        const right=physical(this.rightPage)&&!coverOutside(this.rightPage)&&moving!=='back'&&!(hard&&!spread);
+        // A closed cover still has the opposite board directly beneath it.
+        // Keep that board on the occupied half, not in the empty CTA half.
+        const left=spread&&physical(this.leftPage)&&moving!=='front';
+        const right=physical(this.rightPage)&&moving!=='back'&&!(hard&&!spread);
         const nextLeft=left?'true':'false',nextRight=right?'true':'false';
         if(stage.dataset.coverBackingLeft!==nextLeft)stage.dataset.coverBackingLeft=nextLeft;
         if(stage.dataset.coverBackingRight!==nextRight)stage.dataset.coverBackingRight=nextRight;
