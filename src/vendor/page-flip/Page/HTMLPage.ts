@@ -1,5 +1,5 @@
 import { Page, PageDensity, PageOrientation } from './Page';
-import { Render } from '../Render/Render';
+import { Orientation, Render } from '../Render/Render';
 import { Helper } from '../Helper';
 import { FlipDirection } from '../Flip/Flip';
 import { Point } from '../BasicTypes';
@@ -14,6 +14,7 @@ export class HTMLPage extends Page {
     private temporaryCopy: Page = null;
     private bookmarkFoldLayer: HTMLElement = null;
     private bookmarkFoldSource: HTMLElement = null;
+    private coverEdgeLayer: HTMLElement = null;
 
     private isLoad = false;
 
@@ -55,6 +56,7 @@ export class HTMLPage extends Page {
     public hideTemporaryCopy(): void {
         if (this.temporaryCopy !== null) {
             (this.temporaryCopy as HTMLPage).clearBookmarkFoldLayer();
+            (this.temporaryCopy as HTMLPage).clearCoverEdgeLayer();
             this.copiedElement.remove();
             this.copiedElement = null;
             this.temporaryCopy = null;
@@ -88,7 +90,49 @@ export class HTMLPage extends Page {
         density === PageDensity.HARD
             ? this.drawHard(commonStyle)
             : this.drawSoft(pagePos, commonStyle);
+        // Paper curls above the cover; only hard faces carry the cover rim.
+        if (density === PageDensity.HARD) this.drawCoverEdgeLayer();
+        else this.clearCoverEdgeLayer();
         this.drawBookmarkFoldLayer(density);
+    }
+
+    /** The cover overhang is outside the clipped sheet but shares its exact
+     * transform, pivot, stacking order and reverse-face visibility. Resting
+     * paper faces retain the board beneath them without a separate UI toggle.
+     */
+    private drawCoverEdgeLayer(orientation = this.orientation): void {
+        const kind = this.element.dataset.pageKind;
+        if (kind === 'end' || kind === 'front-endpaper' || !this.element.parentElement) {
+            this.clearCoverEdgeLayer();
+            return;
+        }
+        if (!this.coverEdgeLayer?.isConnected) {
+            const layer = document.createElement('div');
+            layer.className = 'reader-cover-edge';
+            layer.setAttribute('aria-hidden', 'true');
+            layer.setAttribute('inert', '');
+            const frame = document.createElement('div');
+            frame.className = 'reader-cover-edge-frame';
+            layer.appendChild(frame);
+            this.element.parentElement.appendChild(layer);
+            this.coverEdgeLayer = layer;
+        }
+        const layer = this.coverEdgeLayer;
+        layer.dataset.side = this.render.getOrientation() === Orientation.PORTRAIT
+            ? 'single' : orientation === PageOrientation.LEFT ? 'left' : 'right';
+        layer.style.cssText = this.element.style.cssText;
+        layer.style.position = 'absolute';
+        layer.style.clipPath = 'none';
+        layer.style.setProperty('-webkit-clip-path', 'none');
+        layer.style.overflow = 'visible';
+        layer.style.contain = 'none';
+        layer.style.pointerEvents = 'none';
+        layer.style.zIndex = String((Number(this.element.style.zIndex) || 0) - 1);
+    }
+
+    public clearCoverEdgeLayer(): void {
+        this.coverEdgeLayer?.remove();
+        this.coverEdgeLayer = null;
     }
 
     /** The full rotated rectangle includes an invisible reverse-face region.
@@ -278,6 +322,7 @@ export class HTMLPage extends Page {
             top: ${y}px; 
             width: ${pageWidth}px; 
             z-index: ${this.render.getSettings().startZIndex + 1};`;
+        this.drawCoverEdgeLayer(orient);
     }
 
     public getElement(): HTMLElement {

@@ -352,9 +352,10 @@
 .reader-edit-navigation button{height:112px;font-size:42px}
 .reader-edit-navigation button>span{display:block;transform:scaleY(2)}
 .reader-colophon{border:0}
-.reader-book-casing{position:absolute;left:50%;top:50%;width:calc(var(--reader-book-width) + 10px);height:calc(var(--paper-height) + 10px);transform:translate(-50%,-50%);border:5px solid var(--book-cover);border-radius:4px;box-shadow:0 3px 0 color-mix(in srgb,var(--book-cover),black 25%);pointer-events:none;z-index:-1}
-.reader-stage[data-book-closed=true]>.reader-book-casing{visibility:hidden}
-.reader-is-editing .reader-book-casing{transform:translate(-50%,-50%) scale(var(--reader-edit-scale,1))}
+.reader-cover-edge{pointer-events:none;overflow:visible;contain:none}
+.reader-cover-edge-frame{position:absolute;inset:-5px;border:5px solid var(--book-cover);border-radius:4px;box-shadow:0 2px 0 color-mix(in srgb,var(--book-cover),black 25%)}
+.reader-cover-edge[data-side=left]>.reader-cover-edge-frame{right:0;border-right:0;border-radius:4px 0 0 4px}
+.reader-cover-edge[data-side=right]>.reader-cover-edge-frame{left:0;border-left:0;border-radius:0 4px 4px 0}
 
 
 
