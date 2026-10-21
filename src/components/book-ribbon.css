@@ -1,6 +1,6 @@
 .book-open{position:relative;isolation:isolate}
 .book-open>.book-cover,.book-open>.book-spine{position:relative;z-index:1}
-.shelf-ribbon{position:absolute;top:-18px;left:12px;z-index:0;display:flex;align-items:center;flex-direction:column;gap:8px;height:33.3333%;aspect-ratio:1/5;border:1px solid white;border-radius:1px;background:var(--ribbon-color);color:white;pointer-events:none;box-shadow:1px 1px 3px #0003;padding:20px 3px 5px}
+.shelf-ribbon{position:absolute;top:-18px;left:12px;z-index:0;display:flex;align-items:center;flex-direction:column;gap:8px;height:33.3333%;aspect-ratio:2/5;border:0;border-radius:1px;background:var(--ribbon-color);color:white;pointer-events:none;box-shadow:1px 1px 3px #0003;padding:20px 3px 5px}
 .shelf-ribbon-hole{position:absolute;top:4px;left:calc(50% - 3px);width:6px;height:6px;border-radius:50%;background:var(--sand-1);box-shadow:inset 0 1px 1px #0005}
 .shelf-ribbon-cord{position:absolute;top:-15px;left:calc(50% - 1px);width:2px;height:24px;border-radius:2px;background:#c5ac83;transform:rotate(-9deg);transform-origin:bottom}
 .shelf-ribbon-cord:after{content:'';position:absolute;bottom:-1px;left:-2px;width:5px;height:4px;border:1px solid #c5ac83;border-radius:50%}
@@ -8,7 +8,7 @@
 .shelf-ribbon-title{font:7px/1.4 var(--font-serif);max-height:5.6em;overflow:hidden}
 .shelf-ribbon-image>.shelf-ribbon-image-fill{position:absolute;inset:0;width:100%;height:100%;aspect-ratio:auto;object-fit:cover;object-position:top;border-radius:inherit;z-index:0}
 .shelf-ribbon-image>.shelf-ribbon-hole,.shelf-ribbon-image>.shelf-ribbon-cord{z-index:1}
-.shelf-ribbon-spines{left:clamp(3px,var(--ribbon-position),calc(100% - 5px));width:3px;aspect-ratio:auto;padding:0;box-shadow:1px 0 1px #0003}
+.shelf-ribbon-spines{left:clamp(3px,var(--ribbon-position),calc(100% - 8px));width:6px;aspect-ratio:auto;padding:0;box-shadow:1px 0 1px #0003}
 .shelf-ribbon-spines .shelf-ribbon-hole,.shelf-ribbon-spines img,.shelf-ribbon-spines .shelf-ribbon-title{display:none}
 .shelf-ribbon-spines .shelf-ribbon-cord{width:2px;left:0;height:20px;top:-10px}
 @media(max-width:560px){.shelf-ribbon-covers{left:10px}}
