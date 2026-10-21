@@ -295,7 +295,7 @@
 .reader-bookmark-peek:has(.reader-bookmark-dragging) .reader-bookmark-slip{clip-path:none}
 /* Editing controls sit outside the native page gesture surface. */
 .reader-edit-navigation{position:absolute;top:0;bottom:0;left:50%;transform:translateX(-50%);width:var(--reader-book-width);pointer-events:none;z-index:8}
-.reader-edit-navigation button{position:absolute;top:50%;transform:translateY(-50%);pointer-events:auto;display:grid;place-items:center;width:36px;height:56px;border:1px solid var(--reader-line);border-radius:8px;background:var(--reader-panel-bg);color:var(--reader-ink);box-shadow:0 2px 8px #0002}
+.reader-edit-navigation button{position:absolute;top:50%;transform:translateY(-50%);pointer-events:auto;display:grid;place-items:center;width:36px;height:56px;border:0;border-radius:0;background:transparent;color:var(--reader-ink);box-shadow:none;font:300 42px/1 system-ui}
 .reader-edit-navigation button:first-child{right:calc(100% + 4px)}
 .reader-edit-navigation button:last-child{left:calc(100% + 4px)}
 .reader-edit-navigation button:disabled{opacity:.35;cursor:default}
@@ -311,7 +311,7 @@
 .reader-progress::-moz-range-thumb{box-sizing:border-box;width:12px;height:12px}
 
 /* Inline assets use the exact square measured by pagination plus fragment margin. */
-.reader-inline-asset{max-width:100%;padding:0;position:relative}
+.reader-inline-asset{max-width:100%;padding:0;position:relative;margin-left:auto;margin-right:auto}
 .reader-inline-asset-body{position:relative;width:100%;height:100%;margin:0;padding:0}
 .reader .reader-inline-asset-open{display:block;width:100%;height:100%;margin:0;padding:0;border:0;border-radius:3px;background:transparent;cursor:zoom-in;touch-action:pan-y}
 .reader-inline-asset-open img{display:block;width:100%;height:100%;object-fit:cover;object-position:top center;pointer-events:none}
@@ -325,5 +325,19 @@
 .reader-asset-preview-expand>button{position:absolute;top:4px;right:4px;display:grid;place-items:center;width:28px;height:28px;border:0;border-radius:50%;background:var(--reader-panel-bg);color:var(--reader-ink)}
 @keyframes reader-asset-unfold{from{width:var(--preview-start);height:var(--preview-start)}to{width:var(--preview-width);height:var(--preview-end)}}
 @media(prefers-reduced-motion:reduce){.reader-asset-preview-expand{animation:none}}
-.reader .reader-bookmark-image strong,.reader .reader-bookmark-character strong{position:absolute;z-index:2;left:6px;bottom:8px;max-height:50%;max-width:2.8em;writing-mode:vertical-rl;text-orientation:mixed;text-align:start;font:600 12px/1.4 'Gowun Batang',serif;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;color:#fff;text-shadow:0 1px 3px #000,1px 0 2px #000,-1px 0 2px #000;background:#0006;border-radius:2px;padding:3px 2px}
+.reader .reader-bookmark-image strong,.reader .reader-bookmark-character strong{position:absolute;z-index:2;left:6px;bottom:8px;max-height:50%;max-width:2.8em;writing-mode:vertical-rl;text-orientation:upright;text-align:start;font:600 14px/1.4 'Gowun Batang',serif;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;color:#fff;text-shadow:0 1px 3px #000,1px 0 2px #000,-1px 0 2px #000;background:transparent;border-radius:0;padding:0}
 .reader-bookmark-slip[data-bookmark-side='before']>.reader-bookmark-image-fill{transform:scaleX(-1)}
+
+/* Keep the measured pages and flip engine alive while editing. */
+.reader-is-editing .reader-flip-host{transform:scale(var(--reader-edit-scale,1));transform-origin:center}
+.reader-is-editing .reader-edit-navigation{width:calc(var(--reader-book-width)*var(--reader-edit-scale,1))}
+.reader-is-editing .reader-inline-actions{position:absolute;bottom:68px;left:50%;transform:translateX(-50%);z-index:15;background:var(--reader-panel-bg);border-radius:6px}
+.reader-page-content-editing{left:calc(var(--reader-page-padding,40px) - 28px);padding-left:28px}
+.reader-edit-chunk{position:relative}
+.reader .reader-add-chapter{position:absolute;left:-27px;width:24px;height:24px;padding:0;border:0;background:transparent;color:var(--reader-accent);font:600 16px/1 system-ui;opacity:0;pointer-events:none;cursor:pointer;z-index:3}
+.reader .reader-add-chapter-visible,.reader-edit-chunk:focus-within .reader-add-chapter,.reader-add-chapter:focus-visible{opacity:1;pointer-events:auto}
+.reader-added-chapter{margin:1em 0;font:inherit}
+.reader-is-editing .reader-inline-asset-open{cursor:default}
+@media(hover:none){.reader-edit-chunk .reader-add-chapter{opacity:.7;pointer-events:auto}}
+
+.reader .reader-bookmark-image strong,.reader .reader-bookmark-character strong{display:block;-webkit-line-clamp:unset;height:50%;max-width:2.8em}

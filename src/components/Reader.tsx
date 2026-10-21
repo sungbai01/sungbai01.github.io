@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode, PointerEvent as ReactPointerEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
@@ -16,6 +16,8 @@ import ThemePicker from './ThemePicker';
 import {readTheme,saveTheme,THEME_EVENT} from '../lib/appearance';
 import {visibleProse,systemRanges} from '../lib/prose';
 import {imageReferenceRanges} from '../lib/assets';
+import {chapterLabel,editedMessages,fragmentKey} from '../lib/bookEditing';
+import type {ChapterDraft,ChapterInsertion} from '../lib/bookEditing';
 import './reader.css';
 
 export interface ReaderProps {
@@ -122,11 +124,50 @@ function RisuText({text,query}:{text:string;query:string}){
  return <>{parts.map((part,i)=>part.startsWith('**')?<strong key={i}><Highlight text={part.slice(2,-2)} query={query}/></strong>:/^[*_]/.test(part)&&part.length>2?<em key={i}><Highlight text={part.slice(1,-1)} query={query}/></em>:/^[“「]/.test(part)?<span className="reader-dialogue" key={i}><Highlight text={part} query={query}/></span>:<Highlight key={i} text={part} query={query}/>)}</>;
 }
 type EditFragment=(fragment:Fragment,text:string)=>void;
-function EditablePassage({fragment,onEdit,draft}:{fragment:Fragment;onEdit:EditFragment;draft?:string}){
+type ChapterTools={insertions:ChapterInsertion[];headings:Map<number,{number:number;title?:string}>;numbers:Map<string,number>;add:(fragment:Fragment,offset:number)=>void;change:(id:string,patch:ChapterDraft)=>void;shift:(fragment:Fragment,start:number,end:number,length:number)=>void};
+const ChapterToolsContext=createContext<ChapterTools|null>(null);
+function EditableChunk({text,structure,opening,onInput,onAdd}:{text:string;structure:string;opening:boolean;onInput:(text:string)=>void;onAdd:(offset:number)=>void}){
  const ref=useRef<HTMLParagraphElement>(null);
- useEffect(()=>{if(ref.current){const text=visibleProse(fragment.text);ref.current.textContent=draft??(fragment.chapter!==undefined?text.trimStart():text);}},[]);
- return <p ref={ref} className={`reader-prose reader-live-passage${fragment.chapter!==undefined?' reader-chapter-opening':''}`} role="textbox" aria-label="페이지 본문 편집" contentEditable suppressContentEditableWarning data-no-flip onInput={e=>onEdit(fragment,e.currentTarget.innerText)} onPaste={e=>{e.preventDefault();document.execCommand('insertText',false,e.clipboardData.getData('text/plain'));}}/>;
+ const [hover,setHover]=useState<{offset:number;top:number}|null>(null);
+ useEffect(()=>{if(ref.current)ref.current.textContent=text;},[structure]);
+ return <div className="reader-edit-chunk" onPointerLeave={()=>setHover(null)} onPointerMove={event=>{
+  if(event.pointerType==='touch'||!ref.current||event.target instanceof Element&&event.target.closest('button'))return;
+  const paragraph=ref.current,box=paragraph.getBoundingClientRect();
+  const scale=box.width/Math.max(1,paragraph.offsetWidth);
+  const line=(parseFloat(getComputedStyle(paragraph).lineHeight)||28)*scale;
+  const doc=document as Document&{caretRangeFromPoint?:(x:number,y:number)=>Range|null};
+  const caret=doc.caretRangeFromPoint?.(box.left+1,Math.min(box.bottom-1,event.clientY+line*.45));
+  if(!caret||!paragraph.contains(caret.startContainer)){setHover(null);return;}
+  const prefix=document.createRange();prefix.selectNodeContents(paragraph);prefix.setEnd(caret.startContainer,caret.startOffset);
+  const offset=prefix.toString().length,rect=caret.getBoundingClientRect();
+  if((offset===0&&opening)||offset>=paragraph.innerText.length){setHover(null);return;}
+  const top=Math.max(-10,(rect.top-box.top)/Math.max(.1,scale)-10);
+  setHover(previous=>previous?.offset===offset&&previous.top===top?previous:{offset,top});
+ }}>
+ <p ref={ref} className={`reader-prose reader-live-passage${opening?' reader-chapter-opening':''}`} role="textbox" aria-label="페이지 본문 편집" contentEditable="plaintext-only" suppressContentEditableWarning data-no-flip onInput={event=>onInput(event.currentTarget.innerText)} onPaste={event=>{event.preventDefault();document.execCommand('insertText',false,event.clipboardData.getData('text/plain'));}}/>
+ <button type="button" className={`reader-add-chapter${hover?' reader-add-chapter-visible':''}`} style={{top:hover?.top??0}} aria-label="이 줄 앞에 챕터 추가" title="챕터 추가" data-no-flip onPointerDown={event=>event.preventDefault()} onClick={()=>{if(hover){onAdd(hover.offset);setHover(null);}else{const selection=window.getSelection();const paragraph=ref.current;if(selection?.rangeCount&&paragraph?.contains(selection.anchorNode)){const range=document.createRange();range.selectNodeContents(paragraph);range.setEnd(selection.anchorNode!,selection.anchorOffset);const offset=range.toString().length;if(offset||!opening)onAdd(offset);}else if(!opening)onAdd(0);}}}>&gt;&gt;</button>
+ </div>;
 }
+function EditablePassage({fragment,onEdit,draft}:{fragment:Fragment;onEdit:EditFragment;draft?:string}){
+ const tools=useContext(ChapterToolsContext)!;
+ const [value,setValue]=useState(()=>draft??(fragment.chapter!==undefined?visibleProse(fragment.text).trimStart():visibleProse(fragment.text)));
+ const valueRef=useRef(value);valueRef.current=value;
+ const additions=tools.insertions.filter(entry=>fragmentKey(entry.fragment)===fragmentKey(fragment)).sort((a,b)=>a.offset-b.offset);
+ const structure=additions.map(entry=>entry.id).join(',');
+ const parts=[{id:'head',offset:0,insertion:undefined as ChapterInsertion|undefined},...additions.map(insertion=>({id:insertion.id,offset:insertion.offset,insertion}))];
+ return <>{parts.map((part,index)=>{
+  const end=parts[index+1]?.offset??value.length;
+  if(index===0&&end===0&&additions.length)return null;
+  return <div key={part.id} className="reader-edit-part">
+   {part.insertion&&<div className="reader-added-chapter"><ChapterHeading message={fragment.message} title={chapterLabel(tools.numbers.get(part.id)??1,part.insertion.chapterTitle)} onChange={(_,patch)=>tools.change(part.id,patch)}/></div>}
+   <EditableChunk text={value.slice(part.offset,end)} structure={structure} opening={!!part.insertion||fragment.chapter!==undefined&&tools.headings.has(fragment.message)&&index===0} onInput={text=>{
+    const next=valueRef.current.slice(0,part.offset)+text+valueRef.current.slice(end);
+    valueRef.current=next;setValue(next);onEdit(fragment,next);tools.shift(fragment,part.offset,end,text.length);
+   }} onAdd={offset=>{onEdit(fragment,valueRef.current);tools.add(fragment,part.offset+offset);}}/>
+  </div>;
+ })}</>;
+}
+
 type AssetPreview={asset:BookAsset;owner:string;pinned:boolean;left:number;top:number;width:number;height:number;size:number};
 const displayBookmarkStyle=(style:BookmarkStyle):BookmarkStyle=>style==='character'?'image':style;
 function InlineAsset({fragment,editing,onEdit,draft,onPreview}:{fragment:Fragment;editing:boolean;onEdit:EditFragment;draft?:string;onPreview:(asset:BookAsset|null,owner:string,pinned?:boolean)=>void}){
@@ -135,8 +176,9 @@ function InlineAsset({fragment,editing,onEdit,draft,onPreview}:{fragment:Fragmen
  const [removed,setRemoved]=useState(draft==='');
  const buttonRef=useRef<HTMLButtonElement>(null);
  const preview=useRef(onPreview);preview.current=onPreview;
- const eligible=()=>!buttonRef.current?.closest('[data-flip-copy="true"],[inert],[aria-hidden="true"]');
+ const eligible=()=>!editing&&!buttonRef.current?.closest('[data-flip-copy="true"],[inert],[aria-hidden="true"]');
  useEffect(()=>()=>preview.current(null,owner,true),[owner]);
+ useEffect(()=>setRemoved(editing&&draft===''),[editing,draft]);
  return <div className="reader-inline-asset-body" data-no-flip>
  {removed?<button type="button" className="reader-inline-asset-undo" onClick={()=>{onEdit(fragment,fragment.text);setRemoved(false);}}>이미지 복원</button>:<>
  <button ref={buttonRef} data-asset-owner={owner} className="reader-inline-asset-open" type="button" aria-label={`${asset.name} 크게 보기`} onPointerDown={event=>event.stopPropagation()} onPointerEnter={event=>{if(event.pointerType!=='touch'&&eligible())onPreview(asset,owner);}} onPointerLeave={()=>{if(document.activeElement!==buttonRef.current)onPreview(null,owner);}} onFocus={()=>{if(eligible())onPreview(asset,owner);}} onBlur={()=>onPreview(null,owner)} onClick={event=>{event.stopPropagation();if(eligible())onPreview(asset,owner,true);}}><img src={asset.src} alt={asset.name} draggable={false}/></button>
@@ -188,16 +230,18 @@ function BookmarkSlip({style,icon,image,title,color,side='after',disabled,onActi
  </span>;
 }
 
-type ChapterDraft={chapterTitle?:string;chapterStart?:boolean};
-function ChapterHeading({message,title,draft,onChange}:{message:number;title:string;draft?:ChapterDraft;onChange:(message:number,patch:ChapterDraft)=>void}){
- const [value,setValue]=useState(draft?.chapterTitle??title);
+function ChapterHeading({message,title,onChange}:{message:number;title:string;draft?:ChapterDraft;onChange:(message:number,patch:ChapterDraft)=>void}){
+ const [value,setValue]=useState(title);
+ useEffect(()=>{setValue(title);},[title]);
  return <div className="reader-chapter-editor" data-no-flip><input aria-label="챕터 제목" value={value} onChange={event=>{setValue(event.target.value);onChange(message,{chapterTitle:event.target.value});}}/><button type="button" aria-label="챕터 구분 삭제" title="본문을 유지하고 챕터 구분 삭제" onClick={()=>onChange(message,{chapterStart:false})}><X size={16}/></button></div>;
 }
 function PageLeaf({page,book,query,index,onNext,onClose,mobile,editing,onEdit,drafts,chapterDrafts,onChapterEdit,onPreview,bookmark}:{page:PaperPage;book:Book;query:string;index:number;onNext?:()=>void;onClose:()=>void;mobile:boolean;editing:boolean;onEdit:EditFragment;drafts:Map<string,string>;chapterDrafts:Map<number,ChapterDraft>;onChapterEdit:(message:number,patch:ChapterDraft)=>void;onPreview:(asset:BookAsset|null,owner:string,pinned?:boolean)=>void;bookmark?:BookmarkSlipProps}) {
+ const chapterTools=useContext(ChapterToolsContext);
  const chapterMessage=page.chapterMessage??page.fragments[0]?.message;
  const chapterDraft=chapterMessage===undefined?undefined:chapterDrafts.get(chapterMessage);
  const showChapter=page.chapter!==undefined&&chapterDraft?.chapterStart!==false;
- const chapterTitle=page.chapterTitle?.trim()||`CHAPTER ${String(page.chapter).padStart(2,'0')}`;
+ const heading=editing&&chapterMessage!==undefined?chapterTools?.headings.get(chapterMessage):undefined;
+ const chapterTitle=chapterLabel(heading?.number??page.chapter??1,heading?.title??page.chapterTitle);
  const action=<button className="reader-end-action" data-no-flip disabled={editing} onClick={onNext??onClose}>{onNext?'다음 권 읽기':'서재로'}<ArrowRight size={18}/></button>;
  if(page.kind==='back-cover')return <div className="reader-back-cover reader-true-back" style={{'--book-cover':book.color} as CSSProperties}><div className="reader-back-imprint"><span className="reader-back-colophon">{cleanText(book.author)}</span><span className="reader-back-mark">{cleanText(book.title).replace(/\s*·\s*\d+권\s*$/,'')}</span><span className="reader-back-volume">{book.volumeNumber?String(book.volumeNumber).padStart(2,'0'):''}</span><BackBarcode/>{mobile&&action}</div></div>;
  if(page.kind==='end')return <div className="reader-end-half">{action}</div>;
@@ -235,6 +279,8 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
   const [leafRevision,setLeafRevision]=useState(0);
   const draftsRef=useRef(new Map<string,string>());
   const chapterDraftsRef=useRef(new Map<number,ChapterDraft>());
+  const chapterInsertionsRef=useRef(new Map<string,ChapterInsertion>());
+  const chapterSequence=useRef(0);
   // Restore the browser's choice; use the input-based default on first use.
   const [fullscreen,setFullscreen]=useState(readFullwindowPreference);
   useEffect(()=>{try{window.localStorage.setItem(FULLWINDOW_KEY,String(fullscreen));}catch{}},[fullscreen]);
@@ -414,9 +460,8 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
       }
       const count = readerPageCount(dimensions.width, viewport);
       const height = Math.max(100, fullscreen?dimensions.height:Math.min(790, dimensions.height - Math.min(56, dimensions.height * .12)));
-      // Enter editing with dedicated rails before any drafts are created.
-      // Normal reading retains the full-window width or its usual small margin.
-      const sideSpace=editing?96:fullscreen?0:16;
+      // Editing reuses this pagination and only scales its presentation for rails.
+      const sideSpace=fullscreen?0:16;
       const availablePageWidth=Math.max(1,(dimensions.width-sideSpace)/count);
       // A 120px lower bound could overflow the reserved rails on a narrow
       // window. The actual stage width must always win over a preferred minimum.
@@ -447,6 +492,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
       host.style.setProperty('--reader-content-bottom', `${contentBottom}px`);
       host.style.setProperty('--paper-width',`${width}px`);host.style.setProperty('--paper-height',`${height}px`);host.dataset.flipState='read';
       stageRef.current?.style.setProperty('--reader-book-width',`${width*count}px`);
+      stageRef.current?.style.setProperty('--reader-edit-scale',String(Math.min(1,Math.max(.5,(dimensions.width-88)/(width*count)))));
       stageRef.current?.style.setProperty('--paper-width',`${width}px`);stageRef.current?.style.setProperty('--paper-height',`${height}px`);
       mountRef.current.append(host);
       const nodes = nextPages.map((page, index) => {
@@ -545,7 +591,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
         host?.remove();
       });
     };
-  }, [book.id, contentKey, dimensions.width, dimensions.height, fontSize, fontRevision,fullscreen,viewport,editing]);
+  }, [book.id, contentKey, dimensions.width, dimensions.height, fontSize, fontRevision,fullscreen,viewport]);
 
   // Highlighting does not repaginate: marks have exactly the same font metrics.
   useEffect(() => {
@@ -742,18 +788,39 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
   const ribbonIcon=shelfBookmark?.icon??characterIcon??book.characterIcon;
   const ribbonImage=shelfBookmark?.image??bookmarkImage??ribbonIcon;
   const ribbonStyle=displayBookmarkStyle(shelfBookmark ? shelfBookmark.style ?? 'normal' : selectedBookmarkStyle);
-  renderLeafRef.current=(page,index,mobile)=><PageLeaf page={page} book={bookRef.current} query={queryRef.current} index={index} mobile={mobile} editing={editing} onEdit={onEdit} drafts={draftsRef.current} chapterDrafts={chapterDraftsRef.current} onPreview={previewAsset} onChapterEdit={(message,patch)=>{chapterDraftsRef.current.set(message,{...chapterDraftsRef.current.get(message),...patch});if(patch.chapterStart===false)setLeafRevision(value=>value+1);}} onNext={nextVolumeRef.current?()=>requestNextRef.current():undefined} onClose={()=>requestCloseRef.current()} bookmark={shelfBookmark?.bookId===bookRef.current.id&&bookmarkPage(pagesRef.current,shelfBookmark)===index?{...bookmarkInteraction,style:ribbonStyle,icon:ribbonIcon,image:ribbonImage,title:shelfBookmark.title,color:bookRef.current.color,side:index<(selectedLeaf??pageIndex)?'before':'after'}:undefined}/>;
-  useEffect(()=>{if(!onSaveBook&&editing){draftsRef.current.clear();chapterDraftsRef.current.clear();setEditing(false);setLeafRevision(value=>value+1);}},[onSaveBook,editing]);
-  function cancelEditing(){draftsRef.current.clear();chapterDraftsRef.current.clear();setEditing(false);setEditError('');setLeafRevision(value=>value+1);}
+  const chapterTools:ChapterTools={
+    insertions:[...chapterInsertionsRef.current.values()],
+    headings:new Map(),numbers:new Map(),
+    add:(fragment,offset)=>{
+      if(!editing||fragment.char===0&&offset===0&&(chapterDraftsRef.current.get(fragment.message)?.chapterStart??startsChapter(bookRef.current,fragment.message)))return;
+      if([...chapterInsertionsRef.current.values()].some(entry=>fragmentKey(entry.fragment)===fragmentKey(fragment)&&entry.offset===offset))return;
+      const id=`chapter-${++chapterSequence.current}`;
+      chapterInsertionsRef.current.set(id,{id,fragment,offset});setLeafRevision(value=>value+1);
+    },
+    change:(id,patch)=>{
+      const entry=chapterInsertionsRef.current.get(id);if(!entry)return;
+      if(patch.chapterStart===false){chapterInsertionsRef.current.delete(id);setLeafRevision(value=>value+1);}
+      else chapterInsertionsRef.current.set(id,{...entry,chapterTitle:patch.chapterTitle});
+    },
+    shift:(fragment,start,end,length)=>{
+      const delta=length-(end-start);if(!delta)return;
+      let changed=false;
+      for(const entry of chapterInsertionsRef.current.values())if(fragmentKey(entry.fragment)===fragmentKey(fragment)&&entry.offset>=end&&entry.offset>start){entry.offset+=delta;changed=true;}
+      if(changed)setLeafRevision(value=>value+1);
+    },
+  };
+  const chapterEvents=[...book.messages.flatMap((message,index)=>(chapterDraftsRef.current.get(index)?.chapterStart??startsChapter(book,index))?[{message:index,char:0,offset:-1,title:chapterDraftsRef.current.get(index)?.chapterTitle??message.chapterTitle,id:undefined as string|undefined}]:[]),...chapterTools.insertions.map(entry=>({message:entry.fragment.message,char:entry.fragment.char,offset:entry.offset,title:entry.chapterTitle,id:entry.id}))].sort((a,b)=>a.message-b.message||a.char-b.char||a.offset-b.offset);
+  chapterEvents.forEach((entry,index)=>{if(entry.id)chapterTools.numbers.set(entry.id,index+1);else chapterTools.headings.set(entry.message,{number:index+1,title:entry.title});});
+  renderLeafRef.current=(page,index,mobile)=><ChapterToolsContext.Provider value={chapterTools}><PageLeaf page={page} book={bookRef.current} query={queryRef.current} index={index} mobile={mobile} editing={editing} onEdit={onEdit} drafts={draftsRef.current} chapterDrafts={chapterDraftsRef.current} onPreview={previewAsset} onChapterEdit={(message,patch)=>{chapterDraftsRef.current.set(message,{...chapterDraftsRef.current.get(message),...patch});if(patch.chapterStart===false)setLeafRevision(value=>value+1);}} onNext={nextVolumeRef.current?()=>requestNextRef.current():undefined} onClose={()=>requestCloseRef.current()} bookmark={shelfBookmark?.bookId===bookRef.current.id&&bookmarkPage(pagesRef.current,shelfBookmark)===index?{...bookmarkInteraction,style:ribbonStyle,icon:ribbonIcon,image:ribbonImage,title:shelfBookmark.title,color:bookRef.current.color,side:index<(selectedLeaf??pageIndex)?'before':'after'}:undefined}/></ChapterToolsContext.Provider>;
+  useEffect(()=>{if(!onSaveBook&&editing){draftsRef.current.clear();chapterDraftsRef.current.clear();chapterInsertionsRef.current.clear();setEditing(false);setLeafRevision(value=>value+1);}},[onSaveBook,editing]);
+  function cancelEditing(){draftsRef.current.clear();chapterDraftsRef.current.clear();chapterInsertionsRef.current.clear();setEditing(false);setEditError('');setLeafRevision(value=>value+1);}
   async function saveEditing(){
     if(!onSaveBook||saving)return;const source=bookRef.current;
-    const patches=new Map<number,{start:number;end:number;text:string}[]>();
-    for(const page of pagesRef.current)for(const fragment of page.fragments){const value=draftsRef.current.get(`${fragment.message}:${fragment.char}`);if(value===undefined)continue;const list=patches.get(fragment.message)??[];list.push({start:fragment.char,end:fragment.end,text:value});patches.set(fragment.message,list);}
-    const messages=source.messages.map((message,index)=>{let content=message.content;for(const patch of (patches.get(index)??[]).sort((a,b)=>b.start-a.start))content=content.slice(0,patch.start)+patch.text+content.slice(patch.end);const chapterPatch=chapterDraftsRef.current.get(index);return content===message.content&&!chapterPatch?message:{...message,...chapterPatch,content,...(content===message.content?{}:{originalContent:content,originalMap:undefined})};});
+    const {messages,mapAnchor}=editedMessages(source,draftsRef.current,chapterDraftsRef.current,[...chapterInsertionsRef.current.values()],pagesRef.current.flatMap(page=>page.fragments));
     const existingMark=shelfBookmark?.bookId===source.id?shelfBookmark:undefined;
-    let adjustedMark:(Anchor & {label?:string;progress?:number})|undefined;
-    if(existingMark){let char=existingMark.char;for(const patch of (patches.get(existingMark.message)??[]).sort((a,b)=>a.start-b.start)){if(existingMark.char>=patch.end)char+=patch.text.length-(patch.end-patch.start);else if(existingMark.char>=patch.start)char+=patch.start-existingMark.char;}if(char!==existingMark.char)adjustedMark={message:existingMark.message,char:Math.min(messages[existingMark.message].content.length,Math.max(0,char)),label:existingMark.label};}
-    setSaving(true);setEditError('');try{await onSaveBook({...source,messages,...(adjustedMark?{bookmarks:[adjustedMark]}:{}),updatedAt:new Date().toISOString()});if(adjustedMark&&onBookmarkChange)await onBookmarkChange(adjustedMark,shelfBookmark?.style??selectedBookmarkStyle);draftsRef.current.clear();chapterDraftsRef.current.clear();setEditing(false);setLeafRevision(value=>value+1);}catch{setEditError('저장하지 못했어요. 다시 시도하세요.');}finally{setSaving(false);}
+    const adjustedMark=existingMark?{...mapAnchor(existingMark),label:existingMark.label}:undefined;
+    const nextAnchor=anchorRef.current?mapAnchor(anchorRef.current):null;
+    setSaving(true);setEditError('');try{await onSaveBook({...source,messages,...(adjustedMark?{bookmarks:[adjustedMark]}:{}),updatedAt:new Date().toISOString()});anchorRef.current=nextAnchor;activeMessagesRef.current=messages;if(adjustedMark&&onBookmarkChange)await onBookmarkChange(adjustedMark,shelfBookmark?.style??selectedBookmarkStyle);draftsRef.current.clear();chapterDraftsRef.current.clear();chapterInsertionsRef.current.clear();setEditing(false);setLeafRevision(value=>value+1);}catch{setEditError('저장하지 못했어요. 다시 시도하세요.');}finally{setSaving(false);}
   }
   function currentAnchor(){return bookmarkAnchor(pagesRef.current,Math.min(selectedLeaf??pageIndex,pagesRef.current.length-1),contentCount);}
   requestCloseRef.current=()=>{
@@ -785,7 +852,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
       <button className="reader-back" onClick={()=>requestCloseRef.current()} aria-label="책을 닫고 서재로 돌아가기" title="서재로 돌아가기" disabled={editing||saving}><ChevronLeft size={19} /><span>서재</span></button>
       <div className="reader-toolbar-title"><span>{book.title}</span><small>{book.author || readerCopy.unknownAuthor}</small></div>
       <div className="reader-tools">
-        {onSaveBook&&<button className={`reader-icon-button ${editing?'reader-active':''}`} aria-label="본문 편집" title="페이지에서 편집" aria-pressed={editing} disabled={saving} onClick={()=>{if(editing){cancelEditing();return;}setPanel(null);draftsRef.current.clear();chapterDraftsRef.current.clear();setEditError('');setDrawerOpen(false);setEditing(true);}}><Pencil size={18}/></button>}
+        {onSaveBook&&<button className={`reader-icon-button ${editing?'reader-active':''}`} aria-label="본문 편집" title="페이지에서 편집" aria-pressed={editing} disabled={saving} onClick={()=>{if(editing){cancelEditing();return;}setPanel(null);draftsRef.current.clear();chapterDraftsRef.current.clear();chapterInsertionsRef.current.clear();setEditError('');setDrawerOpen(false);setEditing(true);}}><Pencil size={18}/></button>}
         {onBookmarkChange&&<button className={`reader-icon-button ${activeBookmarked?'reader-active':''}`} aria-label={bookmarkAction} title={bookmarkAction} aria-pressed={activeBookmarked} disabled={editing||saving||bookmarkBusy||loading||(!activeBookmarked&&!bookmarkAnchor(pages,activeLeaf,contentCount))} onClick={()=>void toggleBookmark(activeLeaf)}><Bookmark size={18} fill={activeBookmarked?'currentColor':'none'}/></button>}
         <button ref={windowModeButtonRef} className="reader-icon-button" aria-label={fullscreen?'전체창 해제':'전체창'} title={fullscreen?'전체창 해제':'전체창'} disabled={editing} onClick={()=>fullscreen?exitFullwindow():enterFullwindow()}><Maximize size={18}/></button>
         <button ref={element => { panelButtonRefs.current.contents = element; }} className={`reader-icon-button ${panel === 'contents' ? 'reader-active' : ''}`} aria-label="목차 보기" title="목차" disabled={editing} aria-expanded={panel === 'contents'} aria-controls="reader-contents" onClick={() => togglePanel('contents')}><List size={20} /></button>
@@ -801,7 +868,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
       <div className="reader-stage" ref={stageRef} aria-busy={loading} data-book-closed={pages[pageIndex]?.kind==='back-cover'}>
         <div className="reader-book-mount" ref={mountRef} onPointerDownCapture={event=>{const page=(event.target as HTMLElement).closest<HTMLElement>('[data-reader-page-index]');if(page&&!page.dataset.flipCopy)setSelectedLeaf(Number(page.dataset.readerPageIndex));}}/>
         {!loading&&peekBookmark&&shelfBookmark&&<div className={`reader-bookmark-peek reader-bookmark-peek-${markedPage<pageIndex?'before':'after'}`} aria-label="페이지 사이 책갈피"><BookmarkSlip {...bookmarkInteraction} style={ribbonStyle} icon={ribbonIcon} image={ribbonImage} title={shelfBookmark.title} color={book.color} side={markedPage<pageIndex?'before':'after'}/></div>}
-      {editing&&<div className="reader-edit-navigation" data-no-flip><button type="button" aria-label="편집 이전 페이지" disabled={saving||loading||pageIndex===0} onClick={()=>jump(Math.max(0,pageIndex-spread))}><ChevronLeft size={24}/></button><button type="button" aria-label="편집 다음 페이지" disabled={saving||loading||pageIndex+spread>=pages.length} onClick={()=>jump(Math.min(pages.length-1,pageIndex+spread))}><ChevronRight size={24}/></button></div>}
+      {editing&&<div className="reader-edit-navigation" data-no-flip><button type="button" aria-label="편집 이전 페이지" disabled={saving||loading||pageIndex===0} onClick={()=>jump(Math.max(0,pageIndex-spread))}><span aria-hidden="true">&lt;</span></button><button type="button" aria-label="편집 다음 페이지" disabled={saving||loading||pageIndex+spread>=pages.length} onClick={()=>jump(Math.min(pages.length-1,pageIndex+spread))}><span aria-hidden="true">&gt;</span></button></div>}
         {loading && <div className="reader-loading" role="status"><BookOpen size={25} /><span>읽던 곳을 펼치고 있어요…</span></div>}
       </div>
       {error && <p className="reader-error" role="status">{error}</p>}
@@ -830,7 +897,7 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
             {chapterEntries.map(({message,index,number},chapterIndex) => {
               const page = pageForAnchor(pages, { message: index, char: 0 });
               return <button className={`reader-contents-item ${page <= pageIndex && pageIndex < (chapterIndex+1<chapterEntries.length?pageForAnchor(pages,{message:chapterEntries[chapterIndex+1].index,char:0}):pages.length) ? 'reader-current-passage' : ''}`} key={index} onClick={() => goToAnchor({ message: index, char: 0 })}>
-                <span className="reader-contents-number">{String(number).padStart(2, '0')}</span><span><strong>{message.chapterTitle?.trim()||`CHAPTER ${String(number).padStart(2,'0')}`}</strong><small>{visibleProse(message.content).slice(0, 95) || '아직 내용이 없어요'}</small></span><span className="reader-contents-page">{page + 1}</span>
+                <span className="reader-contents-number">{String(number).padStart(2, '0')}</span><span><strong>{chapterLabel(number,message.chapterTitle)}</strong><small>{visibleProse(message.content).slice(0, 95) || '아직 내용이 없어요'}</small></span><span className="reader-contents-page">{page + 1}</span>
               </button>;
             })}
           </nav>

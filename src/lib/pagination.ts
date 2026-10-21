@@ -7,10 +7,10 @@ export type Fragment = Anchor & { end: number; name: string; text: string; hidde
 export type PaperPage = { fragments: Fragment[]; intro: boolean; asset?: BookAsset; chapter?: number; chapterTitle?: string; chapterMessage?: number; kind?: 'paper' | 'asset' | 'padding' | 'endpaper' | 'back-cover' | 'end' };
 
 export const CHAPTER_HEADER_RATIO = .25;
-export const PAGE_LAYOUT_VERSION = 2;
+export const PAGE_LAYOUT_VERSION = 3;
 
 export function inlineAssetSize(contentWidth: number, availableHeight: number): number {
-  return Math.max(12, Math.floor(Math.min(160, contentWidth * .55, availableHeight * .35)));
+  return Math.max(12, Math.floor(Math.min(300, contentWidth * .85, availableHeight * .65)));
 }
 
 /** More room below prose: one of the former two extra bottom lines is removed. */
@@ -94,6 +94,13 @@ export function paginate(book: Book, measure: HTMLDivElement, options: Paginatio
   measure.replaceChildren();
   const nextPage = () => { current = { fragments: [], intro: false }; pages.push(current); measure.replaceChildren(); measure.style.height = `${baseHeight}px`; };
   try {
+  const chapterTails=new Set<number>();
+  let tail=-1;
+  book.messages.forEach((message,index)=>{
+    if(startsChapter(book,index)){if(tail>=0)chapterTails.add(tail);tail=-1;}
+    if(message.content.trim())tail=index;
+  });
+  if(tail>=0)chapterTails.add(tail);
   book.messages.forEach((message, messageIndex) => {
     if (startsChapter(book, messageIndex)) {
       number++; pendingHeading = true; pendingOpening = true;
@@ -105,7 +112,10 @@ export function paginate(book: Book, measure: HTMLDivElement, options: Paginatio
     const references = imageReferenceRanges(content);
     const unresolved = references.filter(range => !extracted.some(segment => segment.type === 'asset' && segment.start === range.start && segment.end === range.end));
     const hiddenRanges: { start: number; end: number }[] = [];
-    for (const range of [...systemRanges(content, references), ...unresolved].sort((a, b) => a.start - b.start)) {
+    // Ignore blank tail lines without changing source offsets or bookmark anchors.
+    const trailing=chapterTails.has(messageIndex)?/\s+$/.exec(content):null;
+    const tailRanges=trailing?[{start:trailing.index,end:content.length}]:[];
+    for (const range of [...systemRanges(content, references), ...unresolved, ...tailRanges].sort((a, b) => a.start - b.start)) {
       const previous = hiddenRanges[hiddenRanges.length - 1];
       if (previous && range.start <= previous.end) previous.end = Math.max(previous.end, range.end);
       else hiddenRanges.push({ ...range });
