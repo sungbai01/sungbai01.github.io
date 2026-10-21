@@ -25,6 +25,8 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - name: Generate site files
         run: npm run build
+        env:
+          VITE_AUTH_API_URL: ${{ vars.VITE_AUTH_API_URL }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

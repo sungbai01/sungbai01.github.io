@@ -6,3 +6,6 @@ work/
 test-results/
 playwright-report/
 .internal/
+.dev.vars
+.dev.vars.*
+.wrangler/
