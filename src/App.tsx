@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useSta
 import { ArrowDownToLine, ArrowRight, BookOpen, Bookmark, Check, ChevronDown, Ellipsis, Library, LoaderCircle, Menu, Pencil, Images, Plus, RotateCcw, Search, Trash2, Upload, X } from 'lucide-react';
 import { getLibraryGeneration, importChatFile, BOOK_COLORS, type Book } from './lib/library';
 import { CloudLibrary, stopCloudLibrary, type AccountStore, type CloudStatus } from './lib/cloudLibrary';
-import { getAuthSession, subscribeAuthSession } from './lib/auth';
+import { clearAuthSession, getAuthSession, restoreAuthSession, subscribeAuthSession } from './lib/auth';
 import { groupBooks } from './lib/volumes';
 import { prepareBooks,measureBookPageCount } from './lib/prepareBooks';
 import {PAGE_LAYOUT_VERSION} from './lib/pagination';
@@ -117,7 +117,7 @@ async function storeBooks(incoming:Book[],existing:Book[],store:AccountStore,ass
 function Modal({title, children, onClose, wide=false, locked=false,headerAction}: {title:string; children:ReactNode; onClose:()=>void; wide?:boolean; locked?:boolean;headerAction?:ReactNode}) {
   const ref = useRef<HTMLDialogElement>(null);const titleId=useId();
   useEffect(()=>{const dialog=ref.current!; dialog.showModal(); return ()=>dialog.close();},[]);
-  return <dialog className={`modal ${wide?'modal-wide':''}`} ref={ref} aria-labelledby={titleId} onCancel={e=>{e.preventDefault();if(!locked)onClose();}} onClick={e=>{if(!locked&&e.target===e.currentTarget)onClose();}}>
+  return <dialog className={`modal ${wide?'modal-wide':''}`} ref={ref} aria-labelledby={titleId} onCancel={e=>{e.preventDefault();if(e.target===e.currentTarget&&!locked)onClose();}} onClick={e=>{if(!locked&&e.target===e.currentTarget)onClose();}}>
     <div className="modal-header"><h2 id={titleId}>{title}</h2><div className="modal-header-actions">{headerAction}<button className="icon-btn" title="닫기" aria-label="닫기" disabled={locked} onClick={onClose}><X size={20}/></button></div></div>{children}
   </dialog>;
 }
@@ -149,7 +149,7 @@ function BookActions({book,open,onOpen,onClose,onEdit,onExport,onDelete}:{book:B
 function LibraryDrawer({children,onClose}:{children:ReactNode;onClose:()=>void}){
   const ref=useRef<HTMLDialogElement>(null);
   useEffect(()=>{ref.current?.showModal();return()=>ref.current?.close();},[]);
-  return <dialog ref={ref} id="library-drawer" className="library-drawer" aria-label="서재 메뉴" onCancel={event=>{event.preventDefault();onClose();}} onClick={event=>{if(event.target===event.currentTarget)onClose();}}>
+  return <dialog ref={ref} id="library-drawer" className="library-drawer" aria-label="서재 메뉴" onCancel={event=>{event.preventDefault();if(event.target===event.currentTarget)onClose();}} onClick={event=>{if(event.target===event.currentTarget)onClose();}}>
     <div className="drawer-panel">
       <header><span className="drawer-brand"><BookOpen size={21} aria-hidden="true"/>갈피</span><button className="icon-btn" title="닫기" aria-label="서재 메뉴 닫기" onClick={onClose}><X size={19}/></button></header>
       <div className="drawer-content">{children}</div>
@@ -180,18 +180,30 @@ function styleBook(book:Book,draft:Book,reset:boolean):Book{
 
 export default function App() {
   const [account,setAccount]=useState(()=>({owner:getAuthSession()?.user.id??null,version:0}));
+  const [authReady,setAuthReady]=useState(false);
+  const [authError,setAuthError]=useState('');
+  const [authAttempt,setAuthAttempt]=useState(0);
+  const authReadyRef=useRef(false);
   const ownerRef=useRef(account.owner);
   useEffect(()=>{
+    let active=true;
     const change=()=>{
+      if(!active)return;
       const owner=getAuthSession()?.user.id??null;
       if(owner===ownerRef.current)return;
       ownerRef.current=owner;
       stopCloudLibrary();
-      history.replaceState(history.state,'',`${location.pathname}${location.search}#/`);
+      if(authReadyRef.current)history.replaceState(history.state,'',`${location.pathname}${location.search}#/`);
       setAccount(previous=>({owner,version:previous.version+1}));
     };
-    const unsubscribe=subscribeAuthSession(change);change();return unsubscribe;
-  },[]);
+    const unsubscribe=subscribeAuthSession(change);
+    setAuthError('');
+    void restoreAuthSession().then(()=>{
+      if(!active)return;change();authReadyRef.current=true;setAuthReady(true);
+    }).catch(cause=>{if(active)setAuthError(cause instanceof Error?cause.message:'로그인을 확인하지 못했어요.');});
+    return()=>{active=false;unsubscribe();};
+  },[authAttempt]);
+  if(!authReady)return <BookOpening error={authError} label={currentBookId()?'책을 펼치고 있어요…':'서재를 열고 있어요…'} backLabel="게스트로" onBack={()=>{clearAuthSession();history.replaceState(history.state,'',`${location.pathname}${location.search}#/`);authReadyRef.current=true;setAuthReady(true);}} onRetry={()=>setAuthAttempt(value=>value+1)}/>;
   // Unmount every reader/editor and discard old callbacks/state on an account change.
   return <AccountApp key={`${account.owner??'guest'}:${account.version}`} owner={account.owner}/>;
 }

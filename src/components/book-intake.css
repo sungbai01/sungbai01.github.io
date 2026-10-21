@@ -17,3 +17,6 @@
 .intake-card-file>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .intake-card-file>small{font-size:10px;color:var(--sand-10);white-space:nowrap}
 .intake-card-file>svg,.intake-card-file>.icon-btn{flex-shrink:0}
+.intake-card-heading{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:6px 12px;margin-bottom:12px}
+.intake-card-heading h3{margin:0}
+.intake-card-heading small{font-size:10px;color:var(--sand-10)}
