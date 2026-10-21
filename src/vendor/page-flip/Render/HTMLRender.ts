@@ -133,7 +133,6 @@ export class HTMLRender extends Render {
     public reload(): void {
         for (const page of this.visiblePages) {
             (page as HTMLPage).clearBookmarkFoldLayer();
-            (page as HTMLPage).clearCoverEdgeLayer();
         }
         const testShadow = this.element.querySelector('.stf__outerShadow');
 
@@ -490,8 +489,7 @@ export class HTMLRender extends Render {
         for (const page of new Set([...this.visiblePages, ...current])) {
             if (!current.has(page)) {
                 (page as HTMLPage).clearBookmarkFoldLayer();
-                (page as HTMLPage).clearCoverEdgeLayer();
-                (page as HTMLPage).getElement().style.cssText = 'display: none';
+                    (page as HTMLPage).getElement().style.cssText = 'display: none';
             }
 
             if (page.getTemporaryCopy() !== this.flippingPage) {

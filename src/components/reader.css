@@ -352,10 +352,17 @@
 .reader-edit-navigation button{height:112px;font-size:42px}
 .reader-edit-navigation button>span{display:block;transform:scaleY(2)}
 .reader-colophon{border:0}
-.reader-cover-edge{pointer-events:none;overflow:visible;contain:none}
-.reader-cover-edge-frame{position:absolute;inset:-5px;border:5px solid var(--book-cover);border-radius:4px;box-shadow:0 2px 0 color-mix(in srgb,var(--book-cover),black 25%)}
-.reader-cover-edge[data-side=left]>.reader-cover-edge-frame{right:0;border-right:0;border-radius:4px 0 0 4px}
-.reader-cover-edge[data-side=right]>.reader-cover-edge-frame{left:0;border-left:0;border-radius:0 4px 4px 0}
+.reader-cover-boards{position:absolute;left:50%;top:50%;width:calc(var(--reader-book-width) + 10px);height:calc(var(--paper-height) + 10px);transform:translate(-50%,-50%);z-index:-1;pointer-events:none;user-select:none}
+.reader-cover-boards>span{position:absolute;top:0;bottom:0;width:50%;background:var(--book-cover);box-shadow:0 2px 0 color-mix(in srgb,var(--book-cover),black 25%);transition:opacity .36s ease;pointer-events:none}
+.reader-cover-board-left{left:0;border-radius:4px 0 0 4px}
+.reader-cover-board-right{right:0;border-radius:0 4px 4px 0}
+.reader[data-page-layout=spread] .reader-stage[data-cover-view=front] .reader-cover-board-left,.reader[data-page-layout=spread] .reader-stage[data-cover-view=back] .reader-cover-board-right{opacity:0}
+.reader[data-page-layout=single] .reader-cover-board-left{display:none}
+.reader[data-page-layout=single] .reader-cover-board-right{width:100%;border-radius:4px}
+.reader-is-editing .reader-cover-boards{transform:translate(-50%,-50%) scale(var(--reader-edit-scale,1))}
+.reader-page:is([data-page-kind=front-cover],[data-page-kind=back-cover]){contain:layout;overflow:visible}
+.reader-page[data-page-kind=front-cover]>.reader-front-cover,.reader-page[data-page-kind=back-cover]>.reader-back-cover{inset:-5px}
+@media(prefers-reduced-motion:reduce){.reader-cover-boards>span{transition:none}}
 
 
 
