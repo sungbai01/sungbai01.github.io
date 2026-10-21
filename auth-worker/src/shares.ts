@@ -2,6 +2,7 @@ import {cloudBook} from '../../shared/cloudBook';
 import type {Book} from '../../src/lib/library';
 import type {TextDatabase} from './cloud';
 import {allowShareAction} from './shareLimits';
+import {SHARE_IDLE_MS} from './shareExpiry';
 
 type Reply=(body:unknown,status:number,origin:string)=>Response;
 const tokenPattern=/^[A-Za-z0-9_-]{43}$/;
@@ -34,7 +35,10 @@ async function canonicalImages(request:Request,book:Book){
 export async function publicShare(request:Request,db:TextDatabase,origin:string,reply:Reply){
  const id=new URL(request.url).pathname.slice('/shares/'.length);
  if(request.method!=='GET'||!tokenPattern.test(id))return reply({error:'공유한 책을 찾을 수 없어요.'},404,origin);
- const row=await db.prepare('SELECT body FROM book_shares WHERE share_id = ?1').bind(id).first<{body:string}>();
+ const now=Date.now();
+ // A single conditional UPDATE both checks expiry and records this open. An
+ // already expired link can never be revived by racing the cleanup job.
+ const row=await db.prepare('UPDATE book_shares SET last_access_at=?2 WHERE share_id=?1 AND last_access_at>?3 RETURNING body').bind(id,now,now-SHARE_IDLE_MS).first<{body:string}>();
  if(!row)return reply({error:'공유가 종료되었거나 존재하지 않는 책이에요.'},404,origin);
  const book=JSON.parse(row.body) as Book;
  const {results}=await db.prepare("SELECT image_id,name,role FROM share_media WHERE share_id=?1 AND role!='card' ORDER BY image_id DESC").bind(id).all<{image_id:string;name:string;role:string}>();
@@ -47,13 +51,12 @@ export async function publicShare(request:Request,db:TextDatabase,origin:string,
 export async function manageShare(request:Request,db:TextDatabase,owner:string,bookId:string,origin:string,reply:Reply){
  if(!bookId||bookId.length>160||/[\s/\\\u0000-\u001f]/.test(bookId))return reply({error:'책을 찾을 수 없어요.'},404,origin);
  if(request.method==='GET'){
-  const row=await db.prepare('SELECT share_id, updated_at FROM book_shares WHERE owner_id = ?1 AND book_id = ?2').bind(owner,bookId).first<{share_id:string;updated_at:number}>();
+  const row=await db.prepare('SELECT share_id, updated_at FROM book_shares WHERE owner_id = ?1 AND book_id = ?2 AND last_access_at>?3').bind(owner,bookId,Date.now()-SHARE_IDLE_MS).first<{share_id:string;updated_at:number}>();
   const card=row?await db.prepare("SELECT image_id FROM share_media WHERE share_id=?1 AND role='card' ORDER BY image_id LIMIT 1").bind(row.share_id).first<{image_id:string}>():null;
   return reply({share:row?{...metadata(row),cardUrl:card?`${new URL(request.url).origin}/share-media/${row.share_id}/${card.image_id}`:null}:null},200,origin);
  }
  if(request.method==='DELETE'){
   await db.prepare('DELETE FROM book_shares WHERE owner_id = ?1 AND book_id = ?2').bind(owner,bookId).run();
-  await db.prepare('DELETE FROM share_media WHERE NOT EXISTS(SELECT 1 FROM book_shares WHERE book_shares.share_id=share_media.share_id)').run();
   return reply({share:null},200,origin);
  }
  if(request.method!=='POST')return reply({error:'허용되지 않는 요청이에요.'},405,origin);
@@ -71,9 +74,10 @@ export async function manageShare(request:Request,db:TextDatabase,owner:string,b
  const id=Array.from(crypto.getRandomValues(new Uint8Array(32)),b=>String.fromCharCode(b)).join('');
  const shareId=btoa(id).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
  const now=Date.now();
+ await db.prepare('DELETE FROM book_shares WHERE owner_id=?1 AND book_id=?2 AND last_access_at<=?3').bind(owner,bookId,now-SHARE_IDLE_MS).run();
  // Quotas checked inside the write, including concurrent create requests.
- const result=await db.prepare(`INSERT INTO book_shares(share_id,owner_id,book_id,body,bytes,created_at,updated_at)
- SELECT ?1,?2,?3,?4,?5,?6,?6
+ const result=await db.prepare(`INSERT INTO book_shares(share_id,owner_id,book_id,body,bytes,created_at,updated_at,last_access_at)
+ SELECT ?1,?2,?3,?4,?5,?6,?6,?6
  WHERE ((SELECT COUNT(*) FROM book_shares WHERE owner_id=?2)<20 OR EXISTS(SELECT 1 FROM book_shares WHERE owner_id=?2 AND book_id=?3))
  AND (SELECT COALESCE(SUM(bytes),0) FROM book_shares WHERE owner_id=?2 AND book_id!=?3)+?5<=20000000
  AND (SELECT COALESCE(SUM(bytes),0) FROM book_shares WHERE NOT(owner_id=?2 AND book_id=?3))+?5<=100000000

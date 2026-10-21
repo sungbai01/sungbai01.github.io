@@ -43,6 +43,7 @@ export default function ShareDialog({book,onClose,onLogin}:{book:Book;onClose:()
    </div>}
   </div>
   <p className="share-hint" title="공유 생성·갱신과 카드 업로드는 계정별 1분에 1회, 하루 30회까지 가능해요. 이미지 원본은 브라우저에 유지하고 공유용 사본만 올려요.">이미지당 2MB · 한 권 10MB · 공유는 1분 간격</p>
+  <p className="share-hint">7일 동안 책을 열지 않으면 공유가 만료되고 공유 이미지가 삭제돼요.</p>
   {error&&<p className="error-message" role="alert">{error}</p>}{notice&&<p className="share-status" role="status"><Check size={14}/>{notice}</p>}
  </dialog>;
 }

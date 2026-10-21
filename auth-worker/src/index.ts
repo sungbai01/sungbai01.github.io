@@ -1,6 +1,7 @@
 import {libraryApi,type TextDatabase} from './cloud';
 import {manageShare,publicShare} from './shares';
 import {uploadShareImage,publicShareImage,type ShareBucket} from './shareMedia';
+import {cleanExpiredShares} from './shareExpiry';
 import {createRemoteJWKSet,jwtVerify,SignJWT,base64url} from 'jose';
 
 type Env={DB?:TextDatabase;SHARE_IMAGES?:ShareBucket;ALLOWED_ORIGINS:string;GOOGLE_CLIENT_ID?:string;AUTH_SECRET?:string};
@@ -23,6 +24,7 @@ export async function authenticate(request:Request,env:Env){
 }
 
 export default {
+ async scheduled(_event:unknown,env:Env){if(env.DB&&env.SHARE_IMAGES)await cleanExpiredShares(env.DB,env.SHARE_IMAGES);},
  async fetch(request:Request,env:Env):Promise<Response>{
   const origin=request.headers.get('Origin')??'';
   const origins=(env.ALLOWED_ORIGINS??'').split(',').map(value=>value.trim()).filter(Boolean);

@@ -2,7 +2,7 @@ import {cloudBook} from '../../shared/cloudBook';
 import type {Book} from '../../src/lib/library';
 
 type Statement={bind:(...values:unknown[])=>Statement;first:<T>()=>Promise<T|null>;all:<T>()=>Promise<{results:T[]}>;run:()=>Promise<{meta:{changes:number}}>};
-export type TextDatabase={prepare:(sql:string)=>Statement};
+export type TextDatabase={prepare:(sql:string)=>Statement;batch:(statements:Statement[])=>Promise<unknown[]>};
 type Row={revision:number;deleted:number;body:string|null;updated_at:number};
 const maxBytes=1_500_000;
 const accountBytes=100_000_000;
