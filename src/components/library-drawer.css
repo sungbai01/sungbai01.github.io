@@ -8,16 +8,17 @@
 .drawer-brand svg{stroke-width:1.4}
 .drawer-content{flex:1;min-height:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior:none;touch-action:pan-y;padding:22px 16px}
 .library-drawer .drawer-label{margin:0 12px 12px;color:var(--sand-10);font-size:10px;font-weight:500;letter-spacing:.08em}
-.drawer-navigation .nav-item{position:relative;min-height:46px;margin:3px 0;padding:12px;gap:12px;border-radius:6px;color:var(--sand-11);font-size:12px}
+.library-drawer .drawer-navigation{display:grid;grid-template-columns:minmax(0,1fr);min-width:0;width:100%}
+.drawer-navigation .nav-item{position:relative;display:flex;width:100%;min-width:0;max-width:100%;min-height:46px;height:auto;margin:3px 0;padding:12px;gap:12px;border:0;border-radius:6px;color:var(--sand-11);font-size:12px;line-height:1.5;text-align:left;box-sizing:border-box}
 .drawer-navigation .nav-item>svg{flex:none;stroke-width:1.6}
-.drawer-navigation .nav-item>span{flex:1}
+.drawer-navigation .nav-item>span{flex:1;min-width:0;white-space:normal;overflow-wrap:anywhere}
 .drawer-navigation .nav-item.active{background:var(--jade-3);color:var(--jade-11);font-weight:500}
 .drawer-navigation .nav-item.active:before{content:'';position:absolute;left:0;top:14px;bottom:14px;width:2px;background:var(--jade-9);border-radius:2px}
 .drawer-navigation .nav-item small{min-width:22px;padding:2px 6px;border-radius:4px;background:var(--sand-1);font-size:10px;text-align:center;font-variant-numeric:tabular-nums}
 .drawer-chevron{transition:transform .18s ease}
 .nav-item[aria-expanded=true] .drawer-chevron{transform:rotate(180deg)}
 .library-drawer .drawer-backup{display:grid;gap:2px;margin:5px 12px 8px 20px;padding:2px 0 2px 20px;border-left:1px solid var(--sand-6)}
-.drawer-backup>button{display:flex;align-items:center;gap:11px;min-height:38px;padding:8px 12px;border-radius:5px;color:var(--sand-11);font-size:11px;text-align:left}
+.drawer-backup>button{display:flex;align-items:center;gap:11px;width:100%;min-width:0;min-height:38px;height:auto;padding:8px 12px;border-radius:5px;color:var(--sand-11);font-size:11px;line-height:1.5;text-align:left;white-space:normal;overflow-wrap:anywhere}
 .drawer-backup>button:hover:enabled{background:var(--sand-3);color:var(--sand-12)}
 .drawer-backup>button:disabled{opacity:.45;cursor:default}
 .library-drawer .drawer-appearance{margin:24px 0 0;padding:22px 0 0;border-top:1px solid var(--sand-5)}
