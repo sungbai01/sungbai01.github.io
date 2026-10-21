@@ -16,6 +16,7 @@ import SpineTitle from './components/SpineTitle';
 import ShelfBox from './components/ShelfBox';
 import GoogleAccount from './components/GoogleAccount';
 import BookOpening from './components/BookOpening';
+import ShareDialog from './components/ShareDialog';
 import './components/library-drawer.css';
 import {readTheme,saveTheme,THEME_EVENT,type Theme} from './lib/appearance';
 import { importAssetFile, normalizeAssets, portraitPalette } from './lib/assets';
@@ -98,6 +99,8 @@ function reuseBookReferences(book:Book,previous:Book|undefined):Book{
 }
 
 const Reader = lazy(() => import('./components/Reader'));
+const SharedBook=lazy(()=>import('./components/SharedBook'));
+function sharedBookId(){const match=/^#\/share\/([^/]+)$/.exec(location.hash);return match?.[1]??null;}
 const colors = BOOK_COLORS;
 const retiredDemoIds = new Set(['sample-forest-letter','sample-terracotta-evening','sample-indigo-platform','sample-ochre-bookshop']);
 function currentBookId() { try { const match = location.hash.match(/^#\/book\/([^/]+)$/); return match ? decodeURIComponent(match[1]) : null; } catch { return null; } }
@@ -131,7 +134,7 @@ function SortMenu({value,onChange}:{value:string;onChange:(value:string)=>void})
     {open&&<div id={id} role="listbox" aria-label="책 정렬" className="sort-options">{options.map(option=><button key={option.value} type="button" role="option" aria-selected={value===option.value} onClick={()=>{onChange(option.value);setOpen(false);trigger.current?.focus();}}><span>{option.label}</span>{value===option.value&&<Check size={14}/>}</button>)}</div>}
   </div>;
 }
-function BookActions({book,open,onOpen,onClose,onEdit,onExport,onDelete}:{book:Book;open:boolean;onOpen:()=>void;onClose:()=>void;onEdit:()=>void;onExport:()=>void;onDelete:()=>void}){
+function BookActions({book,open,onOpen,onClose,onEdit,onShare,onDelete}:{book:Book;open:boolean;onOpen:()=>void;onClose:()=>void;onEdit:()=>void;onShare:()=>void;onDelete:()=>void}){
  const popup=useRef<HTMLDivElement>(null);const trigger=useRef<HTMLButtonElement>(null);const id=useId();
  useLayoutEffect(()=>{
   const element=popup.current;if(!element)return;
@@ -144,7 +147,7 @@ function BookActions({book,open,onOpen,onClose,onEdit,onExport,onDelete}:{book:B
  return <div className={`book-menu-wrap ${open?'menu-open':''}`}><button ref={trigger} className="icon-btn" title="책 관리" aria-label={`${book.title} 관리`} aria-haspopup="menu" aria-controls={id} aria-expanded={open} onClick={event=>{event.stopPropagation();if(open)onClose();else onOpen();}}><Ellipsis size={19}/></button><div ref={popup} id={id} popover="auto" role="menu" aria-label={`${book.title} 관리`} className="book-actions-popover" onToggle={event=>{if(event.newState==='closed'&&open)onClose();}} onKeyDown={event=>{
   if(event.key==='Escape'){event.preventDefault();event.stopPropagation();onClose();trigger.current?.focus({preventScroll:true});}
   if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();const items=Array.from(popup.current!.querySelectorAll<HTMLButtonElement>('button'));const index=items.indexOf(document.activeElement as HTMLButtonElement);items[event.key==='Home'?0:event.key==='End'?items.length-1:(index+(event.key==='ArrowDown'?1:items.length-1))%items.length]?.focus({preventScroll:true});}
- }}><button role="menuitem" onClick={()=>{onClose();onEdit();}}>꾸미기</button><button role="menuitem" onClick={()=>{onClose();onExport();trigger.current?.focus({preventScroll:true});}}>내보내기</button><button role="menuitem" className="danger-text" onClick={()=>{onClose();onDelete();}}>삭제</button></div></div>;
+ }}><button role="menuitem" onClick={()=>{onClose();onEdit();}}>꾸미기</button><button role="menuitem" onClick={()=>{onClose();onShare();trigger.current?.focus({preventScroll:true});}}>공유</button><button role="menuitem" className="danger-text" onClick={()=>{onClose();onDelete();}}>삭제</button></div></div>;
 }
 function LibraryDrawer({children,onClose}:{children:ReactNode;onClose:()=>void}){
   const ref=useRef<HTMLDialogElement>(null);
@@ -178,7 +181,12 @@ function styleBook(book:Book,draft:Book,reset:boolean):Book{
 }
 
 
-export default function App() {
+export default function App(){
+  const [share,setShare]=useState(sharedBookId);
+  useEffect(()=>{const change=()=>setShare(sharedBookId());addEventListener('hashchange',change);return()=>removeEventListener('hashchange',change);},[]);
+  return share?<Suspense fallback={<BookOpening onBack={()=>{location.hash='/';}} onRetry={()=>location.reload()}/>}><SharedBook key={share} id={share}/></Suspense>:<AccountShell/>;
+}
+function AccountShell() {
   const [account,setAccount]=useState(()=>({owner:getAuthSession()?.user.id??null,version:0}));
   const [authReady,setAuthReady]=useState(false);
   const [authError,setAuthError]=useState('');
@@ -228,6 +236,7 @@ function AccountApp({owner}:{owner:string|null}) {
   useEffect(()=>{setReaderReady(null);},[route]);
   const [drawerOpen,setDrawerOpen]=useState(false);const [intakeMode,setIntakeMode]=useState<'file'|'text'>('file');const [importing,setImporting]=useState(false);const [busy,setBusy]=useState(false);const [theme,setTheme]=useState<Theme>(readTheme);const [backupOpen,setBackupOpen]=useState(false);const [edit,setEdit]=useState<Book|null>(null);const [remove,setRemove]=useState<Book|null>(null);const [menu,setMenu]=useState<string|null>(null);const [view,setView]=useState<'covers'|'spines'>('covers');
   const [clearConfirm,setClearConfirm]=useState<{title:string;ids:string[]}|null>(null);const [deleting,setDeleting]=useState(false);const [clearError,setClearError]=useState('');
+  const [sharing,setSharing]=useState<Book|null>(null);
   const [creating,setCreating]=useState<ShelfTarget|null>(null);const [renaming,setRenaming]=useState<ShelfTarget|null>(null);const [assetShelf,setAssetShelf]=useState<ShelfTarget|null>(null);
   const deletingRef=useRef(false);const editingShelf=useRef(false);const preparingAssets=useRef(false);
   const restore=useRef<HTMLInputElement>(null);const latestBooks=useRef(books); latestBooks.current=books;
@@ -500,6 +509,10 @@ function AccountApp({owner}:{owner:string|null}) {
     try{const full=owner?await library.ensureBook(book.id):book;assertAccount();download(`${full.title}.json`,[full]);}
     catch(cause){setError(cause instanceof Error?cause.message:'책을 내보내지 못했어요.');}finally{setBusy(false);}
   }
+  async function shareOne(book:Book){
+    if(busy)return;setBusy(true);
+    try{const full=owner?await library.ensureBook(book.id,true):book;library.assertCurrent();setSharing(full);}catch(cause){setError(cause instanceof Error?cause.message:'책을 불러오지 못했어요.');}finally{setBusy(false);}
+  }
   async function editOne(book:Book){
     if(busy)return;setBusy(true);
     try{setEdit(owner?await library.ensureBook(book.id,true):book);}catch(cause){setError(cause instanceof Error?cause.message:'책을 불러오지 못했어요.');}finally{setBusy(false);}
@@ -580,7 +593,7 @@ function AccountApp({owner}:{owner:string|null}) {
                 <div className="book-caption"><div><span className="book-title">{book.title}</span><p>{book.author || '저자 모델 미상'}</p></div></div>
                 <div className="book-meta"><span>{book.pageCount?.toLocaleString()??'…'}페이지</span><span>{mark?.bookId===book.id&&<Bookmark size={13} fill="currentColor" aria-label="책갈피"/>}</span></div>
               </button>
-              {canEdit&&<BookActions book={book} open={menu===book.id} onOpen={()=>setMenu(book.id)} onClose={()=>setMenu(previous=>previous===book.id?null:previous)} onEdit={()=>void editOne(book)} onExport={()=>void exportOne(book)} onDelete={()=>setRemove(book)}/>}
+              {canEdit&&<BookActions book={book} open={menu===book.id} onOpen={()=>setMenu(book.id)} onClose={()=>setMenu(previous=>previous===book.id?null:previous)} onEdit={()=>void editOne(book)} onShare={()=>void shareOne(book)} onDelete={()=>setRemove(book)}/>}
             </article>)}{view==='spines'&&<span className="shelf-bookstop shelf-bookstop-end" aria-hidden="true"/>}{canEdit&&<button className={`add-book-card ${view==='spines'?'add-spine-card':''}`} aria-label={`${shelf.title} 새 책 쓰기`} title="직접 쓴 이야기 추가" disabled={busy} onClick={()=>{setIntakeMode('text');setCreating({id:shelf.id,title:shelf.title,ungrouped:shelf===singletons});}}><span className="add-book-outline"><Plus size={24} strokeWidth={1.2}/></span><span className="sr-only">새 책 쓰기</span></button>}</ShelfBox>
           </section>;})}</div>:<div className="empty-state"><BookOpen size={38} strokeWidth={1}/><h3>{query?'검색 결과 없음':'책이 없어요'}</h3>{canEdit&&!query&&<div className="empty-actions"><button className="secondary-btn" onClick={()=>{setIntakeMode('text');setCreating({id:'ungrouped',title:'단권',ungrouped:true});}}><Plus size={17}/>새 책 쓰기</button><button className="secondary-btn" onClick={()=>{setIntakeMode('file');setCreating(null);setImporting(true);}}><Upload size={17}/>로그 가져오기</button></div>}</div>}
 
@@ -603,7 +616,8 @@ function AccountApp({owner}:{owner:string|null}) {
         <div className="modal-actions"><button className="secondary-btn" autoFocus disabled={busy} onClick={()=>setClearConfirm(null)}>취소</button><button className="danger-btn" disabled={busy} onClick={()=>void clearBooks()}>{deleting?<LoaderCircle size={16} className="animate-spin"/>:<Trash2 size={16}/>} {deleting?'삭제 중…':'책장 삭제'}</button></div>
       </div>
     </Modal>}
-    {canEdit&&remove&&<Modal title="책 삭제" onClose={()=>setRemove(null)}><p className="modal-description">‘{remove.title}’을 삭제할까요?</p><div className="modal-actions"><button className="secondary-btn" title="삭제 전 이 책을 백업" onClick={()=>void exportOne(remove)}><ArrowDownToLine size={16}/> 내보내기</button><button className="danger-btn" title="대화와 책갈피를 삭제합니다" disabled={busy} onClick={async()=>{if(!canEdit||deletingRef.current||editingShelf.current||preparingAssets.current||splittingBooks.current.size)return;const assertAccount=accountGuard();deletingRef.current=true;setBusy(true);try{await library.edit(store=>store.deleteBook(remove.id));assertAccount();const next=latestBooks.current.filter(b=>b.id!==remove.id);latestBooks.current=next;setBooks(next);setRemove(null);setToast('삭제 완료');}catch{setToast('삭제 실패');}finally{deletingRef.current=false;setBusy(false);}}}>삭제</button></div></Modal>}
+    {sharing&&<ShareDialog book={sharing} onClose={()=>setSharing(null)} onLogin={()=>{setSharing(null);setDrawerOpen(true);}}/>}
+    {canEdit&&remove&&<Modal title="책 삭제" onClose={()=>setRemove(null)}><p className="modal-description">‘{remove.title}’을 삭제할까요?</p><div className="modal-actions"><button className="secondary-btn" title="삭제 전 이 책을 백업" onClick={()=>void exportOne(remove)}><ArrowDownToLine size={16}/> 백업</button><button className="danger-btn" title="대화와 책갈피를 삭제합니다" disabled={busy} onClick={async()=>{if(!canEdit||deletingRef.current||editingShelf.current||preparingAssets.current||splittingBooks.current.size)return;const assertAccount=accountGuard();deletingRef.current=true;setBusy(true);try{await library.edit(store=>store.deleteBook(remove.id));assertAccount();const next=latestBooks.current.filter(b=>b.id!==remove.id);latestBooks.current=next;setBooks(next);setRemove(null);setToast('삭제 완료');}catch{setToast('삭제 실패');}finally{deletingRef.current=false;setBusy(false);}}}>삭제</button></div></Modal>}
     {toast&&<div className="toast" role="status"><Check size={16}/>{toast}</div>}
   </div>;
 }

@@ -1,7 +1,9 @@
 import {libraryApi,type TextDatabase} from './cloud';
+import {manageShare,publicShare} from './shares';
+import {uploadShareImage,publicShareImage,type ShareBucket} from './shareMedia';
 import {createRemoteJWKSet,jwtVerify,SignJWT,base64url} from 'jose';
 
-type Env={DB?:TextDatabase;ALLOWED_ORIGINS:string;GOOGLE_CLIENT_ID?:string;AUTH_SECRET?:string};
+type Env={DB?:TextDatabase;SHARE_IMAGES?:ShareBucket;ALLOWED_ORIGINS:string;GOOGLE_CLIENT_ID?:string;AUTH_SECRET?:string};
 const googleKeys=createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v3/certs'));
 const encoder=new TextEncoder();
 const issuer='galpi-bookshelf-auth';
@@ -24,13 +26,25 @@ export default {
  async fetch(request:Request,env:Env):Promise<Response>{
   const origin=request.headers.get('Origin')??'';
   const origins=(env.ALLOWED_ORIGINS??'').split(',').map(value=>value.trim()).filter(Boolean);
-  if(!origin||!origins.includes(origin))return new Response(null,{status:403});
   const path=new URL(request.url).pathname;
-  if(request.method==='OPTIONS')return new Response(null,{status:204,headers:{'Access-Control-Allow-Origin':origin,'Vary':'Origin','Access-Control-Allow-Methods':'GET,POST,PUT,DELETE,OPTIONS','Access-Control-Allow-Headers':'Content-Type,Authorization','Access-Control-Max-Age':'600'}});
+  if(path.startsWith('/share-media/')&&request.method==='GET'){
+   if(!env.DB)return new Response(null,{status:503});
+   return publicShareImage(request,env.DB,env.SHARE_IMAGES);
+  }
+  if(!origin||!origins.includes(origin))return new Response(null,{status:403});
+  if(request.method==='OPTIONS')return new Response(null,{status:204,headers:{'Access-Control-Allow-Origin':origin,'Vary':'Origin','Access-Control-Allow-Methods':'GET,POST,PUT,DELETE,OPTIONS','Access-Control-Allow-Headers':'Content-Type,Authorization,X-Image-Name,X-Image-Role','Access-Control-Max-Age':'600'}});
   if(path.startsWith('/library/')){
    let user:{id:string};try{user=await authenticate(request,env);}catch{return reply({error:'다시 로그인해 주세요.'},401,origin);}
    if(!env.DB)return reply({error:'저장소 연결 준비 중이에요.'},503,origin);
+   const image=/^\/library\/books\/([^/]+)\/share\/images$/.exec(path);
+   if(image){let bookId:string;try{bookId=decodeURIComponent(image[1]);}catch{return reply({error:'책을 찾을 수 없어요.'},404,origin);}return uploadShareImage(request,env.DB,env.SHARE_IMAGES,user.id,bookId,origin,reply);}
+   const share=/^\/library\/books\/([^/]+)\/share$/.exec(path);
+   if(share){let bookId:string;try{bookId=decodeURIComponent(share[1]);}catch{return reply({error:'책을 찾을 수 없어요.'},404,origin);}return manageShare(request,env.DB,user.id,bookId,origin,reply);}
    return libraryApi(request,env.DB,user.id,origin,reply);
+  }
+  if(path.startsWith('/shares/')){
+   if(!env.DB)return reply({error:'저장소 연결 준비 중이에요.'},503,origin);
+   return publicShare(request,env.DB,origin,reply);
   }
   if(path==='/auth/config'&&request.method==='GET')return configured(env)?reply({clientId:env.GOOGLE_CLIENT_ID},200,origin):reply({error:'로그인 연결 준비 중이에요.'},503,origin);
   if(path==='/auth/me'&&request.method==='GET'){

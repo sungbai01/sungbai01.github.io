@@ -92,6 +92,7 @@ export async function libraryApi(request:Request,db:TextDatabase,owner:string,or
   if(request.method==='DELETE'){
    const result=await db.prepare("UPDATE books SET body = NULL, metadata = '{}', bytes = 0, deleted = 1, revision = revision + 1, updated_at = ?1 WHERE owner_id = ?2 AND book_id = ?3 AND revision = ?4").bind(now,owner,id!,base).run();
    if(!result.meta.changes)return reply({error:'다른 기기에서 변경된 책이에요.'},409,origin);
+   await db.prepare('DELETE FROM book_shares WHERE owner_id = ?1 AND book_id = ?2').bind(owner,id!).run();
    return reply({revision:(base as number)+1,updatedAt:now},200,origin);
   }
   const book=validate(input.book,id!),body=JSON.stringify(book),bytes=new TextEncoder().encode(body).byteLength;
