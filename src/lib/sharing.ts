@@ -78,7 +78,7 @@ export function usedShareAssets(book:Book,includeBody=true){
  const icon=book.characterIcon??book.assets?.find(asset=>asset.type==='icon')?.src;
  if(icon)used.set('__galpi_cover_icon__',{id:'cover-icon',name:'__galpi_cover_icon__',src:icon,type:'icon'});
  const mark=book.assets?.find(asset=>asset.id===book.bookmarkAssetId)?.src??icon;
- if(book.bookmarks?.length&&book.bookmarkStyle!=='normal'&&mark)used.set('__galpi_bookmark__',{id:'bookmark-image',name:'__galpi_bookmark__',src:mark,type:'asset'});
+ if(mark)used.set('__galpi_bookmark__',{id:'bookmark-image',name:'__galpi_bookmark__',src:mark,type:'asset'});
  return [...used.values()];
 }
 export async function uploadBookShareAssets(book:Book,onProgress:(done:number,total:number)=>void,includeBody=true){

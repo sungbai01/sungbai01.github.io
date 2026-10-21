@@ -1,16 +1,18 @@
-import {useId} from 'react';
+import {useRef,type CSSProperties} from 'react';
 import {Moon,Sun,Sunset} from 'lucide-react';
 import type {Theme} from '../lib/appearance';
 import './theme-picker.css';
 export type {Theme} from '../lib/appearance';
-const themes=['paper','warm','dark'] as const;
-const labels=['종이','따뜻하게','어둡게'] as const;
+const options=[{theme:'paper',label:'라이트',icon:Sun},{theme:'warm',label:'웜',icon:Sunset},{theme:'dark',label:'다크',icon:Moon}] as const;
+/** Radix Segmented Control structure with shadcn's sun/moon theme affordance. */
 export function ThemePicker({value,onChange}:{value:Theme;onChange:(theme:Theme)=>void}){
- const id=useId(),index=Math.max(0,themes.indexOf(value));
- return <div className="theme-picker theme-slider">
-  <label className="theme-slider-heading" htmlFor={id}><span>화면 색감</span><span>{labels[index]}</span></label>
-  <div className="theme-slider-track"><input id={id} type="range" min={0} max={2} step={1} value={index} aria-valuetext={labels[index]} onChange={event=>{const next=themes[Number(event.currentTarget.value)];if(next&&next!==value)onChange(next);}}/></div>
-  <div className="theme-slider-labels" aria-hidden="true"><span data-selected={index===0}><Sun size={14}/><small>종이</small></span><span data-selected={index===1}><Sunset size={14}/><small>따뜻하게</small></span><span data-selected={index===2}><Moon size={14}/><small>어둡게</small></span></div>
- </div>;
+ const root=useRef<HTMLDivElement>(null),index=Math.max(0,options.findIndex(option=>option.theme===value));
+ return <div ref={root} className="theme-picker theme-toggle" role="radiogroup" aria-label="화면 색감" style={{'--theme-index':index} as CSSProperties} onKeyDown={event=>{
+  if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End'].includes(event.key))return;
+  event.preventDefault();event.stopPropagation();
+  const focused=Array.from(root.current?.querySelectorAll('button')??[]).indexOf(document.activeElement as HTMLButtonElement),current=focused<0?index:focused;
+  const next=event.key==='Home'?0:event.key==='End'?2:(current+(event.key==='ArrowLeft'||event.key==='ArrowUp'?2:1))%3;
+  onChange(options[next].theme);root.current?.querySelectorAll('button')[next]?.focus();
+ }}><span className="theme-toggle-selection" aria-hidden="true"/>{options.map(({theme,label,icon:Icon})=><button key={theme} type="button" role="radio" aria-checked={value===theme} aria-label={label} title={theme==='warm'?'따뜻한 종이 색감':`${label} 모드`} tabIndex={value===theme?0:-1} onClick={()=>onChange(theme)}><Icon size={15} aria-hidden="true"/><span>{label}</span></button>)}</div>;
 }
 export default ThemePicker;

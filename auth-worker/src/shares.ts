@@ -47,6 +47,7 @@ export async function publicShare(request:Request,db:TextDatabase,origin:string,
  const row=await db.prepare('UPDATE book_shares SET last_access_at=?2 WHERE share_id=?1 AND last_access_at>?3 RETURNING body').bind(id,now,now-SHARE_IDLE_MS).first<{body:string}>();
  if(!row)return reply({error:'공유가 종료되었거나 존재하지 않는 책이에요.'},404,origin);
  const book=JSON.parse(row.body) as Book;
+ delete book.bookmarks;
  const {results}=await db.prepare("SELECT image_id,name,role FROM share_media WHERE share_id=?1 AND role!='card' ORDER BY image_id DESC").bind(id).all<{image_id:string;name:string;role:string}>();
  const unique=[...new Map(results.map(image=>[image.name,image])).values()];
  book.assets=unique.map(image=>({id:image.image_id,name:image.name,type:image.role==='icon'?'icon':'asset',src:`${new URL(request.url).origin}/share-media/${id}/${image.image_id}`}));
@@ -73,6 +74,7 @@ export async function manageShare(request:Request,db:TextDatabase,owner:string,b
  if(!source)return reply({error:'서버에 저장된 책을 찾을 수 없어요.'},404,origin);
  if(!await allowShareAction(db,owner,'publish'))return reply({error:'공유 생성·갱신은 1분에 한 번, 하루 30회까지 가능해요. 잠시 후 다시 시도해 주세요.'},429,origin);
  const book=cloudBook(JSON.parse(source.body) as Book);
+ delete book.bookmarks;
  try{await canonicalImages(request,book);}catch{return reply({error:'이미지 참조를 확인하지 못했어요.'},400,origin);}
  delete book.seriesId;delete book.pageLayoutVersion;
  book.description='';

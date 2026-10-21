@@ -166,8 +166,24 @@ export class HTMLPage extends Page {
         // second animation. Keep only this sibling's ribbon outside the fold clip.
         layer.style.cssText = this.element.style.cssText;
         layer.style.position = 'absolute';
-        layer.style.clipPath = 'none';
-        layer.style.setProperty('-webkit-clip-path', 'none');
+        // Preserve the sheet's fold clipping for the bookmark body. Only the
+        // part above the paper (hole/string) may extend beyond the sheet. An
+        // entirely unclipped clone paints the whole ribbon over the next page.
+        let bookmarkClip = 'inset(-120px -8px -8px -8px)';
+        if(density === PageDensity.SOFT){
+            const points=this.state.area.filter(p=>p!==null).map(p=>Helper.GetRotatedPoint({
+                x:this.render.getDirection()===FlipDirection.BACK?this.state.position.x-p.x:p.x-this.state.position.x,
+                y:p.y-this.state.position.y,
+            },{x:0,y:0},this.state.angle));
+            const width=this.render.getRect().pageWidth;
+            const above=[{x:-width,y:-120},{x:width*2,y:-120},{x:width*2,y:0},{x:-width,y:0}];
+            const area=points.reduce((sum,p,index)=>{const next=points[(index+1)%points.length];return sum+p.x*next.y-next.x*p.y;},0);
+            if(area<0)above.reverse();
+            const contour=(values:{x:number;y:number}[])=>values.map((p,index)=>`${index?'L':'M'}${p.x.toFixed(3)} ${p.y.toFixed(3)}`).join(' ')+' Z';
+            bookmarkClip=`path(nonzero, "${contour(points)} ${contour(above)}")`;
+        }
+        layer.style.clipPath = bookmarkClip;
+        layer.style.setProperty('-webkit-clip-path', bookmarkClip);
         layer.style.overflow = 'visible';
         layer.style.contain = 'none';
         layer.style.pointerEvents = 'none';
