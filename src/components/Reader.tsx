@@ -40,6 +40,8 @@ type SearchHit = Anchor & { length: number; excerpt: string; name: string };
 type ReaderPreferences = { theme: Theme; fontSize: number };
 
 const PREFERENCES_KEY = 'galpi.reader.appearance.v1';
+const FULLWINDOW_KEY = 'galpi.reader.fullwindow.v1';
+const MAX_FULLWINDOW_PAGE_RATIO = .75;
 const readerCopy = {
   unknownAuthor: '저자 모델 미상',
 };
@@ -59,6 +61,14 @@ function readReaderPreferences(): ReaderPreferences {
   } catch {
     return defaults;
   }
+}
+
+function readFullwindowPreference(): boolean {
+  try {
+    const saved = window.localStorage.getItem(FULLWINDOW_KEY);
+    if (saved === 'true' || saved === 'false') return saved === 'true';
+  } catch { /* Unavailable storage must not prevent opening a book. */ }
+  return window.matchMedia('(pointer: coarse)').matches && window.matchMedia('(hover: none)').matches;
 }
 
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
@@ -153,9 +163,9 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
   const [editError,setEditError]=useState('');
   const [leafRevision,setLeafRevision]=useState(0);
   const draftsRef=useRef(new Map<string,string>());
-  // A narrow desktop window or a touch-capable PC is still a desktop start.
-  // Auto-expand only when touch is the primary input and hovering is absent.
-  const [fullscreen,setFullscreen]=useState(()=>window.matchMedia('(pointer: coarse)').matches&&window.matchMedia('(hover: none)').matches);
+  // Restore the browser's choice; use the input-based default on first use.
+  const [fullscreen,setFullscreen]=useState(readFullwindowPreference);
+  useEffect(()=>{try{window.localStorage.setItem(FULLWINDOW_KEY,String(fullscreen));}catch{}},[fullscreen]);
   const [drawerOpen,setDrawerOpen]=useState(false);
   const drawerRef=useRef(false);drawerRef.current=drawerOpen;
   const drawerHandleRef=useRef<HTMLButtonElement>(null);
@@ -328,8 +338,8 @@ export function Reader({ book, onClose, initialBookmark, onNextVolume, nextVolum
         activeMessagesRef.current=currentBook.messages;
       }
       const count = readerPageCount(dimensions.width, viewport);
-      const width = Math.max(120, fullscreen?dimensions.width/count:Math.min(540, Math.floor((dimensions.width - 16) / count)));
       const height = Math.max(100, fullscreen?dimensions.height:Math.min(790, dimensions.height - Math.min(56, dimensions.height * .12)));
+      const width = Math.max(120, fullscreen?Math.min(dimensions.width/count,height*MAX_FULLWINDOW_PAGE_RATIO):Math.min(540, Math.floor((dimensions.width - 16) / count)));
       const padding = width < 350 ? 22 : width < 440 ? 32 : 46;
       const {top:contentTop,bottom:contentBottom} = pageTextInsets(height,fontSize);
       const measure = measureRef.current;
