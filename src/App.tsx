@@ -255,7 +255,8 @@ function AccountApp({owner}:{owner:string|null}) {
   const [readerReady,setReaderReady]=useState<string|null>(null);
   const onReaderReady=useCallback(()=>setReaderReady(route),[route]);
   useEffect(()=>{setReaderReady(null);},[route]);
-  const [drawerOpen,setDrawerOpen]=useState(false);const [intakeMode,setIntakeMode]=useState<'file'|'text'>('file');const [importing,setImporting]=useState(false);const [busy,setBusy]=useState(false);const [theme,setTheme]=useState<Theme>(readTheme);const [backupOpen,setBackupOpen]=useState(false);const [edit,setEdit]=useState<Book|null>(null);const [remove,setRemove]=useState<Book|null>(null);const [menu,setMenu]=useState<string|null>(null);const [view,setView]=useState<'covers'|'spines'>('covers');
+  const [drawerOpen,setDrawerOpen]=useState(false);const [intakeMode,setIntakeMode]=useState<'file'|'text'>('file');const [importing,setImporting]=useState(false);const [busy,setBusy]=useState(false);const [theme,setTheme]=useState<Theme>(readTheme);const [backupOpen,setBackupOpen]=useState(false);const [edit,setEdit]=useState<Book|null>(null);const [remove,setRemove]=useState<Book|null>(null);const [menu,setMenu]=useState<string|null>(null);const [view,setView]=useState<'covers'|'spines'>(()=>{try{return localStorage.getItem('galpi.library.view.v1')==='spines'?'spines':'covers';}catch{return 'covers';}});
+  useEffect(()=>{try{localStorage.setItem('galpi.library.view.v1',view);}catch{/* Keep the selected view in memory when storage is unavailable. */}},[view]);
   const [clearConfirm,setClearConfirm]=useState<{title:string;ids:string[]}|null>(null);const [deleting,setDeleting]=useState(false);const [clearError,setClearError]=useState('');
   const [sharing,setSharing]=useState<Book|null>(null);
   const [shareQuotes,setShareQuotes]=useState<Record<string,string>>({});
