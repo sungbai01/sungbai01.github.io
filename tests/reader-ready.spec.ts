@@ -1,0 +1,55 @@
+import {test,expect} from '@playwright/test';
+
+for(const mobile of [false,true])test(`reader readiness and duplicate font events (${mobile?'phone':'desktop'})`,async({browser})=>{
+ const context=await browser.newContext({viewport:mobile?{width:390,height:844}:{width:1440,height:1000},screen:mobile?{width:390,height:844}:{width:1440,height:1000}});
+ const page=await context.newPage();const errors:string[]=[];
+ page.on('pageerror',error=>errors.push(error.message));
+ await page.route('https://fonts.googleapis.com/**',route=>route.abort());
+ await page.route('https://fonts.gstatic.com/**',route=>route.abort());
+ try{
+  await page.goto('http://127.0.0.1:5175/');
+  await page.evaluate(async()=>{
+   const {saveBook}=await import('/src/lib/library.ts');
+   await saveBook({id:'reader-ready-spec',title:'초기화 검증',author:'테스트',description:'',color:'#1d3b31',createdAt:'2026-10-01T00:00:00.000Z',updatedAt:'2026-10-01T00:00:00.000Z',volumePolicy:'chapters-200-v1',pageLayoutVersion:5,pageCount:20,messages:Array.from({length:12},(_,index)=>({role:'assistant',name:'화자',content:`${index} `+'바람이 불었다. 책장을 넘겨 이야기를 읽었다. '.repeat(35)}))});
+  });
+  await page.reload();
+  await expect(page.getByRole('button',{name:'초기화 검증 읽기',exact:true})).toBeVisible();
+  await page.evaluate(async()=>{
+   const {PageFlip}=await import('/src/vendor/page-flip/PageFlip.ts');
+   const original=PageFlip.prototype.loadFromHTML;
+   (window as any).readerInitializations=0;
+   (window as any).initWhileLoading=[];
+   PageFlip.prototype.loadFromHTML=function(items:any){
+    (window as any).readerInitializations++;
+    this.on('init',()=>{(window as any).initWhileLoading.push(document.querySelector('.reader-stage')?.getAttribute('aria-busy'));});
+    original.call(this,items);
+   };
+   location.hash='/book/reader-ready-spec';
+  });
+  await expect(page.locator('.reader-stage')).toHaveAttribute('aria-busy','false');
+  await expect(page.locator('.reader-progress')).toBeEnabled();
+  expect(await page.evaluate(()=>(window as any).initWhileLoading)).toEqual(['true']);
+  const initializations=await page.evaluate(()=>(window as any).readerInitializations);
+  await page.evaluate(async()=>{
+   document.fonts.dispatchEvent(new Event('loadingdone'));
+   document.fonts.dispatchEvent(new Event('loadingdone'));
+   await new Promise(resolve=>setTimeout(resolve,250));
+  });
+  expect(await page.evaluate(()=>(window as any).readerInitializations)).toBe(initializations);
+  await expect(page.locator('.reader-loading')).toHaveCount(0);
+  const before=await page.locator('.reader-progress').inputValue();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('.reader-progress')).not.toHaveValue(before);
+  if(!mobile){
+   await page.getByRole('button',{name:'전체창',exact:true}).click();
+   await expect(page.locator('.reader-stage')).toHaveAttribute('aria-busy','false');
+   await page.getByRole('button',{name:'독서 메뉴',exact:true}).click();
+   await page.getByRole('button',{name:'전체창 해제',exact:true}).click();
+   await expect(page.locator('.reader-stage')).toHaveAttribute('aria-busy','false');
+   await expect(page.locator('.reader-progress')).toBeEnabled();
+   await expect(page.locator('.reader-loading')).toHaveCount(0);
+  }
+  expect(errors).toEqual([]);
+ }finally{await context.close();}
+});
+
