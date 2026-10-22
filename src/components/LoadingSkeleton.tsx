@@ -1,8 +1,22 @@
 import {useEffect,useState} from 'react';
+import {LoaderCircle} from 'lucide-react';
+import {beginSkeletonTask,useSkeletonLoading} from '../lib/loadingActivity';
 import {classifyReaderViewport,readReaderViewport,readerPageCount} from '../lib/readerLayout';
 import './loading-skeleton.css';
 
 function Bar({className=''}:{className?:string}){return <span className={`skeleton-fill ${className}`}/>;}
+
+/** Track the reader bundle download without changing state during render. */
+export function NetworkLoadingMarker(){useEffect(()=>beginSkeletonTask('network'),[]);return null;}
+
+export function GeneralLoading({label='불러오는 중…'}:{label?:string}){
+ return <div className="general-loading" role="status" aria-busy="true"><LoaderCircle size={22} aria-hidden="true"/><span>{label}</span></div>;
+}
+
+export function LibraryLoading({view}:{view:'covers'|'spines'}){
+ const skeleton=useSkeletonLoading();
+ return skeleton?<LibrarySkeleton view={view}/>:<GeneralLoading label="서재를 열고 있어요…"/>;
+}
 
 export function LibrarySkeleton({shell=false,view='covers'}:{shell?:boolean;view?:'covers'|'spines'}){
  const shelves=<div className="skeleton-shelves">{[0,1].map(row=><section key={row} className="skeleton-shelf"><Bar className="skeleton-shelf-title"/><div className={`skeleton-books skeleton-books-${view}`}>{Array.from({length:view==='spines'?10:6},(_,index)=><div className="skeleton-book" key={index}><Bar className="skeleton-cover"/>{view==='covers'&&<><Bar className="skeleton-caption"/><Bar className="skeleton-author"/></>}</div>)}</div></section>)}</div>;

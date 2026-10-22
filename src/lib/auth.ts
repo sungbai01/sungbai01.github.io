@@ -1,3 +1,4 @@
+import {beginSkeletonTask} from './loadingActivity';
 export interface AuthSession {
   readonly token: string;
   /** Unix timestamp in milliseconds. */
@@ -96,6 +97,7 @@ async function restoreTicket(): Promise<void> {
   const expected = revision;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15_000);
+  const finishLoading=beginSkeletonTask('network');
   try {
     const response = await fetch(`${apiBase}/auth/me`, {
       method:'GET',credentials:'omit',cache:'no-store',signal:controller.signal,
@@ -111,5 +113,5 @@ async function restoreTicket(): Promise<void> {
     setAuthSession({...ticket,user:verified.user});
   } catch {
     if (expected === revision) throw new Error('로그인을 확인하지 못했어요. 연결을 확인하고 다시 시도해 주세요.');
-  } finally { clearTimeout(timer); }
+  } finally { clearTimeout(timer);finishLoading(); }
 }

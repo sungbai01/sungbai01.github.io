@@ -1,3 +1,4 @@
+import {beginSkeletonTask} from './loadingActivity';
 import * as local from './library';
 import type { Book, BookmarkUpdate } from './library';
 import { getAuthSession } from './auth';
@@ -57,6 +58,7 @@ export class CloudLibrary {
     const controller = new AbortController();const accountSignal = this.controller.signal;
     const abort = () => controller.abort();accountSignal.addEventListener('abort', abort, { once: true });
     const timer = setTimeout(abort, 20_000);
+    const finishLoading=beginSkeletonTask('network');
     try {
       const response = await fetch(`${apiBase}/library/books${path}`, {
         method, credentials: 'omit', cache: 'no-store', signal: controller.signal,
@@ -81,7 +83,7 @@ export class CloudLibrary {
       if (accountSignal.aborted || ticket !== this.ticket) throw aborted();
       if (error instanceof LibraryApiError) throw error;
       throw new Error('서버에 연결하지 못했어요. 연결을 확인하고 다시 시도해 주세요.');
-    } finally { clearTimeout(timer);accountSignal.removeEventListener('abort', abort); }
+    } finally { finishLoading();clearTimeout(timer);accountSignal.removeEventListener('abort', abort); }
   }
   private async listRemote(): Promise<Book[]> {
     const ticket=this.ticket;

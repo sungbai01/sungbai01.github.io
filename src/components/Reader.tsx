@@ -23,7 +23,8 @@ import ShareQuoteSelection from './ShareQuoteSelection';
 import { BookmarkMotion } from './bookmarkMotion';
 import AssetImage from './AssetImage';
 import BookCover from './BookCover';
-import {ReadingSkeleton} from './LoadingSkeleton';
+import {ReadingSkeleton,GeneralLoading} from './LoadingSkeleton';
+import {beginSkeletonTask,useSkeletonLoading} from '../lib/loadingActivity';
 import {squareAssetCrop} from '../lib/assetCrop';
 import './reader.css';
 
@@ -380,6 +381,7 @@ export function Reader({ book, onClose, onReady, onOpenError, initialBookmark, o
   const [spread, setSpread] = useState(1);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [loading, setLoading] = useState(true);
+  const skeletonLoading=useSkeletonLoading();
   const openedRef=useRef(false);
   const openErrorRef=useRef(onOpenError);openErrorRef.current=onOpenError;
   useEffect(()=>{if(!loading&&pagesReadyRef.current){openedRef.current=true;onReady?.();}},[loading,onReady]);
@@ -500,12 +502,13 @@ export function Reader({ book, onClose, onReady, onOpenError, initialBookmark, o
   const [fontsReady,setFontsReady]=useState(false);
   useEffect(() => {
     let alive = true;
-    const refresh = () => { if (alive&&!blockedRef.current) { setFontsReady(true);setFontRevision(value => value + 1); } };
+    const finishFontNetwork=document.fonts.status==='loading'?beginSkeletonTask('network'):()=>{};
+    const refresh = () => {finishFontNetwork(); if (alive&&!blockedRef.current) { setFontsReady(true);setFontRevision(value => value + 1); } };
     // A cold or unavailable remote font must not block opening indefinitely.
     const timeout=window.setTimeout(()=>{if(alive)setFontsReady(true);},1500);
-    void document.fonts.ready.then(()=>{clearTimeout(timeout);refresh();},()=>{clearTimeout(timeout);if(alive)setFontsReady(true);});
+    void document.fonts.ready.then(()=>{clearTimeout(timeout);refresh();},()=>{finishFontNetwork();clearTimeout(timeout);if(alive)setFontsReady(true);});
     document.fonts.addEventListener('loadingdone', refresh);
-    return () => { alive = false;clearTimeout(timeout); document.fonts.removeEventListener('loadingdone', refresh); };
+    return () => { alive = false;finishFontNetwork();clearTimeout(timeout); document.fonts.removeEventListener('loadingdone', refresh); };
   }, []);
 
   useEffect(() => {
@@ -516,6 +519,7 @@ export function Reader({ book, onClose, onReady, onOpenError, initialBookmark, o
     let host: HTMLDivElement | null = null;
     let queuedFrame=0;
     pagesReadyRef.current=false;
+    const finishCalculation=beginSkeletonTask('pagination');
     setLoading(true);
     setError('');
     const frame = requestAnimationFrame(() => {
@@ -543,6 +547,7 @@ export function Reader({ book, onClose, onReady, onOpenError, initialBookmark, o
       measure.style.fontSize = `${fontSize}px`;
       measure.style.setProperty('--paper-height',`${height}px`);
       const body=paginate(currentBook, measure,{pageHeight:height,contentTop});
+      finishCalculation();
       body.forEach((page,index)=>{page.pageNumber=index+1;});
       let bodyCount=body.length;
       const prefix:PaperPage[]=device==='phone'?[]:count===2?[{fragments:[],intro:false,kind:'front-endpaper'},{fragments:[],intro:false,kind:'front-cover'}]:[{fragments:[],intro:false,kind:'front-cover'}];
@@ -733,10 +738,10 @@ export function Reader({ book, onClose, onReady, onOpenError, initialBookmark, o
         const message='책 화면을 준비하지 못했어요. 다시 시도해 주세요.';
         setError(message);setLoading(false);
         if(!openedRef.current)openErrorRef.current?.(message);
-      }
+      } finally {finishCalculation();}
     });
     return () => {
-      cancelled = true;
+      cancelled = true;finishCalculation();
       pagesReadyRef.current=false;
       cancelAnimationFrame(frame);
       cancelAnimationFrame(queuedFrame);
@@ -1074,7 +1079,7 @@ export function Reader({ book, onClose, onReady, onOpenError, initialBookmark, o
         {!loading&&device==='phone'&&markedPage>=0&&shelfBookmark&&<div className="reader-phone-bookmark" aria-label="책갈피"><BookmarkSlip {...bookmarkInteraction} style={ribbonStyle} icon={ribbonIcon} image={ribbonImage} title={shelfBookmark.title} color={book.color} side="after"/></div>}
       {selectingQuote&&onQuoteSelected&&<ShareQuoteSelection host={mountRef} onDone={onQuoteSelected} onPrevious={()=>jump(Math.max(0,pageIndex-spread))} onNext={()=>jump(Math.min(pages.length-1,pageIndex+spread))}/>}
       {editing&&<div className="reader-edit-navigation" data-no-flip><button type="button" aria-label="편집 이전 페이지" disabled={saving||loading||pageIndex===0} onClick={()=>jump(Math.max(0,pageIndex-spread))}><span aria-hidden="true">&lt;</span></button><button type="button" aria-label={pageIndex+spread>=proseStart+contentCount?"빈 페이지 추가":"편집 다음 페이지"} title={pageIndex+spread>=proseStart+contentCount?"본문 끝에 빈 페이지 추가":undefined} data-add-page={pageIndex+spread>=proseStart+contentCount||undefined} disabled={saving||loading} onPointerDown={event=>event.preventDefault()} onClick={()=>pageIndex+spread>=proseStart+contentCount?insertPageRef.current(proseStart+contentCount-1):jump(Math.min(pages.length-1,pageIndex+spread))}><span aria-hidden="true">{pageIndex+spread>=proseStart+contentCount?"+":">"}</span></button></div>}
-        {loading && (!onReady||openedRef.current) && <ReadingSkeleton embedded pages={readerPageCount(dimensions.width||viewport.width,viewport)} fullwindow={fullscreen}/>}
+        {loading && (!onReady||openedRef.current) && (skeletonLoading?<ReadingSkeleton embedded pages={readerPageCount(dimensions.width||viewport.width,viewport)} fullwindow={fullscreen}/>:<div className="reader-loading"><GeneralLoading label="책을 준비하고 있어요…"/></div>)}
       </div>
       {error && <p className="reader-error" role="alert">{error} <button type="button" className="secondary-btn" onClick={()=>setOpenRevision(value=>value+1)}>다시 시도</button></p>}
       {editError&&<p className="reader-error" role="alert">{editError}</p>}

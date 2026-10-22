@@ -32,3 +32,7 @@
 .reading-skeleton-embedded{position:absolute;inset:0;z-index:8}.reading-skeleton-embedded .skeleton-reader-stage{padding:0}.reading-skeleton-embedded .skeleton-paper-stack{width:var(--reader-book-width,100%);height:var(--paper-height,100%);max-width:100%;max-height:100%}
 @media(max-width:560px){.skeleton-site-header{height:72px}.skeleton-library-main{padding:24px 16px}.skeleton-books{grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 16px;padding-inline:12px;max-height:342px}.skeleton-cover{height:208px;width:132px}.skeleton-reader-toolbar{padding:12px}.skeleton-reader-toolbar>.skeleton-fill:last-child{width:65px}}
 @media(prefers-reduced-motion:reduce){.skeleton-fill{animation:none;opacity:.7}}
+.general-loading{display:flex;align-items:center;justify-content:center;gap:10px;min-height:180px;width:100%;color:var(--reader-muted,var(--sand-11));font-size:13px}
+.general-loading>svg{flex:none;animation:general-loading-spin 1s linear infinite}
+@keyframes general-loading-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.general-loading>svg{animation:none}}

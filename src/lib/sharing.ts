@@ -1,3 +1,4 @@
+import {beginSkeletonTask} from './loadingActivity';
 import {getAuthSession} from './auth';
 import type {Book} from './library';
 import {extractAssetSegments} from './assets';
@@ -15,10 +16,13 @@ export async function shareRequest(bookId:string,method='GET',signal?:AbortSigna
 }
 export async function loadSharedBook(id:string,signal:AbortSignal):Promise<Book>{
  if(!apiBase||! /^[A-Za-z0-9_-]{43}$/.test(id))throw new Error('공유 주소가 올바르지 않아요.');
+ const finishLoading=beginSkeletonTask('network');
+ try{
  const response=await fetch(`${apiBase}/shares/${id}`,{credentials:'omit',cache:'no-store',signal});
  const result=await response.json() as {book?:Book;error?:string};
  if(!response.ok||!result.book)throw new Error(result.error||'공유한 책을 불러오지 못했어요.');
  return result.book;
+ }finally{finishLoading();}
 }
 export function downloadBlob(blob:Blob,name:string){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 const escapeHtml=(text:string)=>text.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));

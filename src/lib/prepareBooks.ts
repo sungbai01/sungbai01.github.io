@@ -1,3 +1,4 @@
+import {beginSkeletonTask} from './loadingActivity';
 import type { Book } from './library';
 import { cleanText, paginate, pageTextInsets, PAGE_LAYOUT_VERSION } from './pagination';
 import { CURRENT_VOLUME_POLICY, splitBookByPages } from './volumes';
@@ -89,6 +90,7 @@ async function withFixedMeasurement<T>(task:(measure:HTMLDivElement,insets:{top:
   measure.style.setProperty('--paper-height', '650px');
   Object.assign(measure.style, { width: '336px', height: `${IMPORT_PAGE_LAYOUT.height - insets.top - insets.bottom}px`, fontSize: '18px', padding: '0', boxSizing: 'content-box' });
   host.append(measure); document.body.append(host);
+  const finishLoading=beginSkeletonTask('pagination');
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     // Request the actual prose/name faces before awaiting readiness. Bound this
@@ -99,7 +101,7 @@ async function withFixedMeasurement<T>(task:(measure:HTMLDivElement,insets:{top:
       if (timeout) clearTimeout(timeout);
     }
     return await task(measure,insets);
-  } finally { if (timeout) clearTimeout(timeout); host.remove(); }
+  } finally { finishLoading();if (timeout) clearTimeout(timeout); host.remove(); }
 }
 
 /** Counts body leaves only: no preprocessing, splitting, bookmark remapping or storage. */
