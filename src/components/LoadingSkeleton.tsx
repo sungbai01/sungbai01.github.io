@@ -1,6 +1,6 @@
 import {useEffect,useState} from 'react';
 import {LoaderCircle} from 'lucide-react';
-import {beginSkeletonTask,useSkeletonLoading} from '../lib/loadingActivity';
+import {beginSkeletonTask} from '../lib/loadingActivity';
 import {classifyReaderViewport,readReaderViewport,readerPageCount} from '../lib/readerLayout';
 import './loading-skeleton.css';
 import ShelfBox from './ShelfBox';
@@ -15,12 +15,11 @@ export function GeneralLoading({label='불러오는 중…'}:{label?:string}){
 }
 
 export function LibraryLoading({view}:{view:'covers'|'spines'}){
- const skeleton=useSkeletonLoading();
  return <section className="series-shelf shelf-loading" aria-label="책장을 불러오는 중" aria-busy="true">
-  <header className="series-heading">{skeleton?<Bar className="skeleton-shelf-title"/>:<span className="shelf-loading-heading"/>}</header>
+  <header className="series-heading"><Bar className="skeleton-shelf-title"/></header>
   <ShelfBox view={view}>
    {view==='spines'&&<span className="shelf-bookstop shelf-bookstop-start" aria-hidden="true"/>}
-   {skeleton?Array.from({length:view==='spines'?8:4},(_,index)=><article key={index} className={`book-item shelf-loading-book ${view==='spines'?'spine-item':''}`} aria-hidden="true"><div className="book-stage"><Bar className={view==='spines'?'shelf-loading-spine':'shelf-loading-cover'}/></div>{view==='covers'&&<div className="shelf-loading-details"><Bar className="skeleton-caption"/><Bar className="skeleton-author"/></div>}</article>):<GeneralLoading label="서재를 열고 있어요…"/>}
+   {Array.from({length:view==='spines'?8:4},(_,index)=><article key={index} className={`book-item shelf-loading-book ${view==='spines'?'spine-item':''}`} aria-hidden="true"><div className="book-stage"><Bar className={view==='spines'?'shelf-loading-spine':'shelf-loading-cover'}/></div>{view==='covers'&&<div className="shelf-loading-details"><Bar className="skeleton-caption"/><Bar className="skeleton-author"/></div>}</article>)}
    {view==='spines'&&<span className="shelf-bookstop shelf-bookstop-end" aria-hidden="true"/>}
   </ShelfBox>
  </section>;

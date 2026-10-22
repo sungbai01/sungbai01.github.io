@@ -26,8 +26,8 @@ export default function BookCover({book,small=false,fit=false}:{book:Book;small?
  const icon=book.characterIcon??book.assets?.find(asset=>asset.type==='icon')?.src;
  const title=book.title.replace(/\s*·\s*\d+권\s*$/,'').trim()||book.title;
  const content=<div ref={cover} className={`book-cover ${small?'cover-small':''}${fit?' book-cover-reader':''}`} style={{'--cover':book.color||BOOK_COLORS[0],...(fit?{'--cover-fit-scale':scale}:{})} as CSSProperties}>
-  {book.cover&&<AssetImage className="cover-image" src={book.cover} alt="" resolutionScale={fit?scale:1}/>}
-  <div className="cover-content"><CoverTitle title={title} small={small}/><div className="cover-portrait">{icon?<AssetImage src={icon} alt={`${book.author||'캐릭터'} 초상`} resolutionScale={fit?scale:1}/>:<span className="cover-ornament" aria-hidden="true">✳</span>}</div><span className="cover-volume">{String(book.volumeNumber??1).padStart(2,'0')}</span></div>
+  {book.cover&&<AssetImage skeleton={!fit} className="cover-image" src={book.cover} alt="" resolutionScale={fit?scale:1}/>}
+  <div className="cover-content"><CoverTitle title={title} small={small}/><div className="cover-portrait">{icon?<AssetImage skeleton={!fit} src={icon} alt={`${book.author||'캐릭터'} 초상`} resolutionScale={fit?scale:1}/>:<span className="cover-ornament" aria-hidden="true">✳</span>}</div><span className="cover-volume">{String(book.volumeNumber??1).padStart(2,'0')}</span></div>
  </div>;
  return fit?<div ref={frame} className="book-cover-fit" style={{'--cover':book.color||BOOK_COLORS[0]} as CSSProperties}>{content}</div>:content;
 }

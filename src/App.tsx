@@ -609,7 +609,7 @@ function AccountApp({owner}:{owner:string|null}) {
     </>;
   }
   return <div className="app-shell">
-    <header className="site-header" inert={deleting}><button className="drawer-trigger" aria-label="서재 메뉴 열기" title="내 서재" aria-expanded={drawerOpen} aria-controls="library-drawer" onClick={()=>setDrawerOpen(true)}><Menu size={20}/></button><a href="#/" className="brand" aria-label="갈피 서재"><span className="brand-mark"><BookOpen size={23} strokeWidth={1.4}/><span/></span><span>갈피<span className="brand-en">galpi</span></span></a></header>
+    <header className="site-header" inert={deleting}><button className="drawer-trigger" aria-label="서재 메뉴 열기" title="내 서재" aria-expanded={drawerOpen} aria-controls="library-drawer" onClick={()=>setDrawerOpen(true)}><Menu size={20}/></button><a href="#/" className="brand" aria-label="갈피 서재"><span className="brand-mark"><BookOpen size={23} strokeWidth={1.4}/><span/></span><span>갈피<span className="brand-en">galpi</span></span></a><button className="primary-btn header-import" aria-label="로그 가져오기" title="로그 가져오기" disabled={!canEdit||busy} onClick={()=>{setError('');setIntakeMode('file');setCreating(null);setImporting(true);}}><Upload size={20}/></button></header>
     <div className="workspace" inert={deleting}>
       <LibraryDrawer open={drawerOpen} account={<GoogleAccount compact disabled={loading||busy||deleting||editingShelf.current||preparingAssets.current}/>} onClose={()=>setDrawerOpen(false)}>
         <nav className="drawer-navigation" aria-label="서재 메뉴">
@@ -628,7 +628,7 @@ function AccountApp({owner}:{owner:string|null}) {
       </LibraryDrawer>
 
       <main className="main-content">
-        <section className="library-intro"><div className="library-title-row"><h1>내 서재</h1>{markedBooks.length>0&&<div className="resume-list" aria-label="이어읽기">{markedBooks.map(book=><button key={book.id} className="resume-link" title="책갈피에서 이어읽기" onClick={()=>openBook(book)}><Bookmark size={14}/><span>{book.title}</span><ArrowRight size={14}/></button>)}</div>}</div>{canEdit&&<button className="primary-btn" title="로그 가져오기" onClick={()=>{setError('');setIntakeMode('file');setCreating(null);setImporting(true);}}><Upload size={17}/>로그 가져오기</button>}</section>
+        <section className="library-intro"><div className="library-title-row"><h1>내 서재</h1>{markedBooks.length>0&&<div className="resume-list" aria-label="이어읽기">{markedBooks.map(book=><button key={book.id} className="resume-link" title="책갈피에서 이어읽기" onClick={()=>openBook(book)}><Bookmark size={14}/><span>{book.title}</span><ArrowRight size={14}/></button>)}</div>}</div></section>
         {error&&<div className="error-banner" role="alert">{error}<button className="icon-btn" aria-label="오류 닫기" onClick={()=>setError('')}><X size={16}/></button></div>}
         {route&&!selected&&!loading&&<div className="error-banner">이 브라우저에 저장되지 않은 책이에요.<a href="#/">서재로 돌아가기</a></div>}
 
