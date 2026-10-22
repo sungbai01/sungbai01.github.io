@@ -20,7 +20,6 @@ export function LibraryLoading({view}:{view:'covers'|'spines'}){
   <ShelfBox view={view}>
    {view==='spines'&&<span className="shelf-bookstop shelf-bookstop-start" aria-hidden="true"/>}
    {Array.from({length:view==='spines'?8:4},(_,index)=><article key={index} className={`book-item shelf-loading-book ${view==='spines'?'spine-item':''}`} aria-hidden="true"><div className="book-stage"><Bar className={view==='spines'?'shelf-loading-spine':'shelf-loading-cover'}/></div>{view==='covers'&&<div className="shelf-loading-details"><Bar className="skeleton-caption"/><Bar className="skeleton-author"/></div>}</article>)}
-   {view==='spines'&&<span className="shelf-bookstop shelf-bookstop-end" aria-hidden="true"/>}
   </ShelfBox>
  </section>;
 }
