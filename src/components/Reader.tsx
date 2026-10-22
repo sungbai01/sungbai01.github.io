@@ -547,7 +547,6 @@ export function Reader({ book, onClose, onReady, onOpenError, initialBookmark, o
       measure.style.fontSize = `${fontSize}px`;
       measure.style.setProperty('--paper-height',`${height}px`);
       const body=paginate(currentBook, measure,{pageHeight:height,contentTop});
-      finishCalculation();
       body.forEach((page,index)=>{page.pageNumber=index+1;});
       let bodyCount=body.length;
       const prefix:PaperPage[]=device==='phone'?[]:count===2?[{fragments:[],intro:false,kind:'front-endpaper'},{fragments:[],intro:false,kind:'front-cover'}]:[{fragments:[],intro:false,kind:'front-cover'}];
