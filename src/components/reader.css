@@ -436,3 +436,18 @@
 .reader-quote-tools{position:fixed;z-index:46;bottom:max(24px,env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:4px;width:max-content;max-width:calc(100vw - 20px);padding:6px;border:1px solid var(--reader-line);border-radius:10px;background:var(--reader-panel-bg);box-shadow:0 6px 24px #0002}
 .reader-quote-tools>span{font-size:11px;min-width:100px;text-align:center;color:var(--reader-muted)}
 .reader-quote-tools>.reader-icon-button{width:34px;height:38px}
+/* Compact devices use flush cover boards in full-window mode. */
+.reader[data-flush-covers=true] .reader-cover-boards{width:var(--reader-book-width);height:var(--paper-height)}
+.reader[data-flush-covers=true] .reader-cover-boards>span{box-shadow:inset 0 -3px color-mix(in srgb,var(--book-cover),black 30%)}
+.reader[data-flush-covers=true] .reader-page[data-cover-face]::before{inset:0;box-shadow:inset 0 1px #fff3,inset 0 -3px color-mix(in srgb,var(--book-cover),black 35%)}
+.reader[data-flush-covers=true] .reader-page[data-cover-face]::after{left:0;right:0;bottom:0}
+.reader[data-flush-covers=true] .reader-page[data-page-kind=front-cover]>.reader-front-cover,.reader[data-flush-covers=true] .reader-page[data-page-kind=back-cover]>.reader-back-cover{inset:0}
+.reader[data-device=phone] :is(.reader-paper-shell,.reader-bookmark-fold-layer)>.reader-bookmark-slip{left:12px;top:-20px;height:24%;transform:none;padding:23px 3px 6px}
+.reader[data-device=phone] .reader-bookmark-peek{left:calc(50% - var(--paper-width)/2 + 12px);width:calc(var(--paper-height)*.08);transition:none;clip-path:inset(-120px -100vw 0 -100vw)}
+.reader[data-device=phone] .reader-bookmark-peek>.reader-bookmark-slip{height:calc(var(--paper-height)*.24);transform:none;padding:23px 3px 6px}
+.reader[data-device=phone] .reader-bookmark-slip strong{font-size:11px;left:3px;bottom:5px}
+.reader[data-device=phone] .reader-bookmark-punch{width:10px;height:10px;left:calc(50% - 5px)}
+.reader[data-device=phone] .reader-bookmark-string{width:5px;height:30px;left:calc(50% - 2.5px);top:-14px}
+.reader[data-device=phone] .reader-bookmark-string:after{width:10px;height:8px;border-width:2px;left:-2.5px}
+.reader[data-device=fold][data-flush-covers=true] .reader-bookmark-peek{clip-path:polygon(evenodd,-200vw -200vh,200vw -200vh,200vw 200vh,-200vw 200vh,-200vw -200vh,var(--peek-page-left) 20px,var(--peek-page-right) 20px,var(--peek-page-right) calc(var(--paper-height) + 20px),var(--peek-page-left) calc(var(--paper-height) + 20px),var(--peek-page-left) 20px)}
+.reader[data-flush-covers=true] .reader-stage:has(.reader-flip-host:not([data-flip-state='read'])) .reader-bookmark-peek{clip-path:inset(-120px -100vw 0 -100vw)}

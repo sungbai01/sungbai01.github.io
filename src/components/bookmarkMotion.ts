@@ -58,7 +58,9 @@ export class BookmarkMotion {
       const host = this.root()?.querySelector<HTMLElement>('.reader-flip-host');
       if (host) {
         const box = host.getBoundingClientRect();
-        const left=box.left-5, right=box.right+5, top=box.top-5, bottom=box.bottom+8;
+        const flush=this.root()?.dataset.flushCovers==='true';
+        const edge=flush?0:5, depth=flush?0:8;
+        const left=box.left-edge, right=box.right+edge, top=box.top-edge, bottom=box.bottom+depth;
         plane.style.clipPath=`polygon(evenodd, -100vw -100vh, 200vw -100vh, 200vw 200vh, -100vw 200vh, -100vw -100vh, ${left}px ${top}px, ${right}px ${top}px, ${right}px ${bottom}px, ${left}px ${bottom}px, ${left}px ${top}px)`;
       }
     }
@@ -73,6 +75,10 @@ export class BookmarkMotion {
     const host = this.root()?.querySelector<HTMLElement>('.reader-flip-host');
     if (!host) return false;
     const rect = host.getBoundingClientRect();
+    if(this.root()?.dataset.device==='phone'){
+      const width=rect.height*.08;
+      return x>=rect.left-28&&x<=rect.left+12+width+40&&y>=rect.top-60&&y<=rect.top+rect.height*.24+40;
+    }
     const width = rect.height * 2 / 15;
     const gutter = rect.left + rect.width / 2;
     return x >= gutter - width - 40 && x <= gutter + width + 40 &&
