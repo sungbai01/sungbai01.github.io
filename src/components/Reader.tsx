@@ -23,6 +23,7 @@ import ShareQuoteSelection from './ShareQuoteSelection';
 import { BookmarkMotion } from './bookmarkMotion';
 import AssetImage from './AssetImage';
 import BookCover from './BookCover';
+import {ReadingSkeleton} from './LoadingSkeleton';
 import {squareAssetCrop} from '../lib/assetCrop';
 import './reader.css';
 
@@ -1073,7 +1074,7 @@ export function Reader({ book, onClose, onReady, onOpenError, initialBookmark, o
         {!loading&&device==='phone'&&markedPage>=0&&shelfBookmark&&<div className="reader-phone-bookmark" aria-label="책갈피"><BookmarkSlip {...bookmarkInteraction} style={ribbonStyle} icon={ribbonIcon} image={ribbonImage} title={shelfBookmark.title} color={book.color} side="after"/></div>}
       {selectingQuote&&onQuoteSelected&&<ShareQuoteSelection host={mountRef} onDone={onQuoteSelected} onPrevious={()=>jump(Math.max(0,pageIndex-spread))} onNext={()=>jump(Math.min(pages.length-1,pageIndex+spread))}/>}
       {editing&&<div className="reader-edit-navigation" data-no-flip><button type="button" aria-label="편집 이전 페이지" disabled={saving||loading||pageIndex===0} onClick={()=>jump(Math.max(0,pageIndex-spread))}><span aria-hidden="true">&lt;</span></button><button type="button" aria-label={pageIndex+spread>=proseStart+contentCount?"빈 페이지 추가":"편집 다음 페이지"} title={pageIndex+spread>=proseStart+contentCount?"본문 끝에 빈 페이지 추가":undefined} data-add-page={pageIndex+spread>=proseStart+contentCount||undefined} disabled={saving||loading} onPointerDown={event=>event.preventDefault()} onClick={()=>pageIndex+spread>=proseStart+contentCount?insertPageRef.current(proseStart+contentCount-1):jump(Math.min(pages.length-1,pageIndex+spread))}><span aria-hidden="true">{pageIndex+spread>=proseStart+contentCount?"+":">"}</span></button></div>}
-        {loading && (!onReady||openedRef.current) && <div className="reader-loading" role="status"><BookOpen size={25} /><span>책을 펼치고 있어요…</span></div>}
+        {loading && (!onReady||openedRef.current) && <ReadingSkeleton embedded pages={readerPageCount(dimensions.width||viewport.width,viewport)} fullwindow={fullscreen}/>}
       </div>
       {error && <p className="reader-error" role="alert">{error} <button type="button" className="secondary-btn" onClick={()=>setOpenRevision(value=>value+1)}>다시 시도</button></p>}
       {editError&&<p className="reader-error" role="alert">{editError}</p>}

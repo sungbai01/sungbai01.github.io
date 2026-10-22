@@ -2,3 +2,5 @@
 .book-opening>svg{color:var(--jade-11)}
 .book-opening p{max-width:420px;margin:0;font:15px/1.8 var(--font-serif);word-break:keep-all}
 .book-opening-actions{display:flex;gap:8px;margin-top:8px}
+
+.book-opening.book-opening-skeleton{display:block;padding:0;overflow:hidden}
