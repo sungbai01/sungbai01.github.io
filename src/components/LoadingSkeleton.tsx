@@ -18,7 +18,6 @@ export function LibraryLoading({view}:{view:'covers'|'spines'}){
  return <section className="series-shelf shelf-loading" aria-label="책장을 불러오는 중" aria-busy="true">
   <header className="series-heading"><Bar className="skeleton-shelf-title"/></header>
   <ShelfBox view={view}>
-   {view==='spines'&&<span className="shelf-bookstop shelf-bookstop-start" aria-hidden="true"/>}
    {Array.from({length:view==='spines'?8:4},(_,index)=><article key={index} className={`book-item shelf-loading-book ${view==='spines'?'spine-item':''}`} aria-hidden="true"><div className="book-stage"><Bar className={view==='spines'?'shelf-loading-spine':'shelf-loading-cover'}/></div>{view==='covers'&&<div className="shelf-loading-details"><Bar className="skeleton-caption"/><Bar className="skeleton-author"/></div>}</article>)}
   </ShelfBox>
  </section>;
