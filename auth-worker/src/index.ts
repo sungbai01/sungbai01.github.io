@@ -10,7 +10,7 @@ const googleKeys=createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v
 const encoder=new TextEncoder();
 const issuer='galpi-bookshelf-auth';
 const audience='galpi-bookshelf';
-const lifetime=3600;
+const lifetime=7*24*60*60;
 
 function configured(env:Env){return !!env.GOOGLE_CLIENT_ID?.endsWith('.apps.googleusercontent.com')&&!!env.AUTH_SECRET&&env.AUTH_SECRET.length>=43;}
 function reply(body:unknown,status:number,origin:string){return new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','Access-Control-Allow-Origin':origin,'Vary':'Origin','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'}});}
@@ -19,7 +19,7 @@ function reply(body:unknown,status:number,origin:string){return new Response(JSO
 export async function authenticate(request:Request,env:Env){
  const authorization=request.headers.get('Authorization')??'';
  if(!configured(env)||!authorization.startsWith('Bearer ')||authorization.length>4096)throw new Error('unauthorized');
- const {payload}=await jwtVerify(authorization.slice(7),encoder.encode(env.AUTH_SECRET!),{algorithms:['HS256'],issuer,audience,requiredClaims:['sub','exp','iat'],maxTokenAge:'1h'});
+ const {payload}=await jwtVerify(authorization.slice(7),encoder.encode(env.AUTH_SECRET!),{algorithms:['HS256'],issuer,audience,requiredClaims:['sub','exp','iat'],maxTokenAge:lifetime});
  if(typeof payload.sub!=='string'||!/^u_[A-Za-z0-9_-]{43}$/.test(payload.sub))throw new Error('unauthorized');
  return {id:payload.sub};
 }
@@ -37,6 +37,7 @@ export default {
   if(!origin||!origins.includes(origin))return new Response(null,{status:403});
   if(request.method==='OPTIONS')return new Response(null,{status:204,headers:{'Access-Control-Allow-Origin':origin,'Vary':'Origin','Access-Control-Allow-Methods':'GET,POST,PUT,DELETE,OPTIONS','Access-Control-Allow-Headers':'Content-Type,Authorization,X-Image-Name,X-Image-Role','Access-Control-Max-Age':'600'}});
   if(path.startsWith('/library/')){
+   if(!configured(env))return reply({error:'로그인 연결 준비 중이에요.'},503,origin);
    let user:{id:string};try{user=await authenticate(request,env);}catch{return reply({error:'다시 로그인해 주세요.'},401,origin);}
    if(!env.DB)return reply({error:'저장소 연결 준비 중이에요.'},503,origin);
    if(path==='/library/shares'||path.startsWith('/library/shares/'))return shareManagement(request,env.DB,user.id,origin,reply);
@@ -52,6 +53,7 @@ export default {
   }
   if(path==='/auth/config'&&request.method==='GET')return configured(env)?reply({clientId:env.GOOGLE_CLIENT_ID},200,origin):reply({error:'로그인 연결 준비 중이에요.'},503,origin);
   if(path==='/auth/me'&&request.method==='GET'){
+   if(!configured(env))return reply({error:'로그인 연결 준비 중이에요.'},503,origin);
    try{return reply({user:await authenticate(request,env)},200,origin);}catch{return reply({error:'다시 로그인해 주세요.'},401,origin);}
   }
   if(path!=='/auth/google')return reply({error:'찾을 수 없어요.'},404,origin);

@@ -7,7 +7,7 @@ export interface AuthSession {
 }
 
 const SESSION_KEY = 'galpi.auth.session.v1';
-const MAX_AGE = 60 * 60 * 1000;
+const MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 const apiBase = (import.meta.env.VITE_AUTH_API_URL as string | undefined)?.trim().replace(/\/+$/, '');
 let session: AuthSession | null = null;
 let revision = 0;
@@ -17,6 +17,7 @@ const listeners = new Set<() => void>();
 
 function notify() { listeners.forEach(listener => listener()); }
 function removeStoredTicket() {
+  try { window.localStorage.removeItem(SESSION_KEY); } catch { /* Storage may be restricted. */ }
   try { window.sessionStorage.removeItem(SESSION_KEY); } catch { /* Memory login remains available. */ }
 }
 
@@ -64,8 +65,9 @@ export function setAuthSession(value: unknown): void {
     expiresAt: Math.min(expiry, Date.now() + MAX_AGE),
     user: Object.freeze({ id: user.id }),
   });
-  // Tab-scoped service ticket only: no Google credential, profile or book text.
-  try { window.sessionStorage.setItem(SESSION_KEY, JSON.stringify({token:session.token,expiresAt:session.expiresAt})); }
+  // Persist only the service ticket. Identity is reverified by the server on bootstrap.
+  try { window.localStorage.setItem(SESSION_KEY, JSON.stringify({token:session.token,expiresAt:session.expiresAt}));
+    window.sessionStorage.removeItem(SESSION_KEY); }
   catch { /* Restricted browser storage must not prevent login. */ }
   scheduleExpiry();
   notify();
@@ -82,7 +84,9 @@ export function restoreAuthSession(): Promise<void> {
 async function restoreTicket(): Promise<void> {
   let ticket: {token:string;expiresAt:number};
   try {
-    const raw = window.sessionStorage.getItem(SESSION_KEY);
+    let raw: string | null = null;
+    try { raw = window.localStorage.getItem(SESSION_KEY); } catch { /* Try the previous tab ticket. */ }
+    raw ??= window.sessionStorage.getItem(SESSION_KEY);
     if (!raw) return;
     if (raw.length > 6000) throw new Error('Invalid ticket');
     const value: unknown = JSON.parse(raw);
@@ -104,7 +108,7 @@ async function restoreTicket(): Promise<void> {
       headers:{Authorization:`Bearer ${ticket.token}`},
     });
     if (expected !== revision) return;
-    if (response.status === 401 || response.status === 403) { removeStoredTicket(); return; }
+    if (response.status === 401) { removeStoredTicket(); return; }
     if (!response.ok) throw new Error('Verification unavailable');
     const verified: unknown = await response.json();
     if (expected !== revision) return;
@@ -115,3 +119,14 @@ async function restoreTicket(): Promise<void> {
     if (expected === revision) throw new Error('로그인을 확인하지 못했어요. 연결을 확인하고 다시 시도해 주세요.');
   } finally { clearTimeout(timer);finishLoading(); }
 }
+
+// Explicit logout in another tab must also cancel restoration and clear memory.
+if (typeof window !== 'undefined') window.addEventListener('storage', event => {
+  if (event.storageArea !== window.localStorage || (event.key !== SESSION_KEY && event.key !== null)) return;
+  if (event.newValue === null) {
+    revision += 1;
+    clearTimeout(expiryTimer); expiryTimer = undefined;
+    try { window.sessionStorage.removeItem(SESSION_KEY); } catch { /* Restricted storage. */ }
+    if (session) { session = null; notify(); }
+  }
+});
