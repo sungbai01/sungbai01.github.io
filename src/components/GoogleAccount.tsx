@@ -262,10 +262,10 @@ export function GoogleAccount({ className = '', disabled = false, compact=false,
     </div>}
 
     <div className="google-account-actions" aria-busy={busy}>
-      {!session&&<button type="button" className="google-account-button" disabled={disabled} onClick={()=>setLoginOpen(true)}>Google로 로그인</button>}
+      {!session&&<button type="button" className="google-account-button" disabled={disabled} onClick={()=>setLoginOpen(true)}>로그인</button>}
     </div>
-    {loginOpen&&createPortal(<dialog ref={loginDialog} className="modal google-login-modal" aria-label="Google 로그인" onCancel={event=>{event.preventDefault();closeLogin();}} onClick={event=>{if(event.target===event.currentTarget)closeLogin();}}>
-      <div className="modal-header"><h2>Google 로그인</h2><button type="button" className="icon-btn" aria-label="닫기" onClick={closeLogin}><X size={19}/></button></div>
+    {loginOpen&&createPortal(<dialog ref={loginDialog} className="modal google-login-modal" aria-label="로그인" onCancel={event=>{event.preventDefault();closeLogin();}} onClick={event=>{if(event.target===event.currentTarget)closeLogin();}}>
+      <div className="modal-header"><h2>로그인</h2><button type="button" className="icon-btn" aria-label="닫기" onClick={closeLogin}><X size={19}/></button></div>
       <div className="google-login-slot" aria-busy={busy}>
         {(phase==='idle'||busy)&&<div className="google-login-progress" role="status"><LoaderCircle size={20} className="google-account-spinner"/><span>{phase==='verifying'?'로그인 확인 중…':'연결 중…'}</span></div>}
         <div ref={googleButton} className="google-account-provider" data-ready={phase==='ready'} aria-hidden={phase!=='ready'} inert={disabled||phase!=='ready'}/>
