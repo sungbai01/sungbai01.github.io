@@ -517,10 +517,19 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
   useEffect(() => {
     let alive = true;
     const finishFontNetwork=document.fonts.status==='loading'?beginSkeletonTask('network'):()=>{};
-    const refresh = () => {finishFontNetwork(); if (alive&&!blockedRef.current) { setFontsReady(true);setFontRevision(value => value + 1); } };
+    let signature='';
+    const refresh = () => {
+      finishFontNetwork();if(!alive||blockedRef.current)return;
+      // Ignore duplicate ready/loadingdone events and unrelated UI fonts.
+      const context=document.createElement('canvas').getContext('2d');
+      const sample='가나다라마바사아자차카타파하 한글 이야기 ABCDEFG abcdefg 0123456789';
+      const next=['18px "Gowun Batang"','600 10px "Noto Sans KR"'].map(font=>{if(!context)return font;context.font=font;return context.measureText(sample).width;}).join(':');
+      setFontsReady(true);
+      if(next!==signature){signature=next;setFontRevision(value=>value+1);}
+    };
     // A cold or unavailable remote font must not block opening indefinitely.
     const timeout=window.setTimeout(()=>{if(alive)setFontsReady(true);},1500);
-    void document.fonts.ready.then(()=>{clearTimeout(timeout);refresh();},()=>{finishFontNetwork();clearTimeout(timeout);if(alive)setFontsReady(true);});
+    void Promise.allSettled([document.fonts.load('18px "Gowun Batang"','한글 이야기'),document.fonts.load('600 10px "Noto Sans KR"','한글 이야기')]).then(()=>document.fonts.ready).then(()=>{clearTimeout(timeout);refresh();},()=>{finishFontNetwork();clearTimeout(timeout);if(alive)setFontsReady(true);});
     document.fonts.addEventListener('loadingdone', refresh);
     return () => { alive = false;finishFontNetwork();clearTimeout(timeout); document.fonts.removeEventListener('loadingdone', refresh); };
   }, []);
@@ -721,6 +730,12 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
             queuedFrame=requestAnimationFrame(()=>{if(!cancelled&&revision===navigationRevisionRef.current)turnRef.current(direction);});
           }
         });
+        instance.on('init',()=>{
+          if(cancelled)return;
+          // The engine's deferred layout update must finish before revealing prose.
+          setPages(nextPages);setContentCount(bodyCount);setSpread(count);
+          pagesReadyRef.current=true;setLoading(false);finishCalculation();
+        });
         instance.loadFromHTML(nodes);
         flipRef.current = instance;
         instance.setInteractionEnabled(!blockedRef.current&&!drawerRef.current);
@@ -730,11 +745,6 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
         // not a readable fallback and must never signal successful opening.
         throw new Error('Reader initialization failed');
       }
-      setPages(nextPages);
-      setContentCount(bodyCount);
-      setSpread(count);
-      pagesReadyRef.current=true;
-      setLoading(false);
       } catch {
         if(cancelled)return;
         const message='책 화면을 준비하지 못했어요. 다시 시도해 주세요.';
