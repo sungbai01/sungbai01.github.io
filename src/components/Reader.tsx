@@ -30,6 +30,7 @@ export interface ReaderProps {
   book: Book;
   onClose: () => void;
   onReady?: () => void;
+  onOpenError?: (message:string) => void;
   initialBookmark?: { message: number; char: number };
   onNextVolume?: () => void;
   nextVolumeTitle?: string;
@@ -292,7 +293,7 @@ function NextVolumeDialog({title,onConfirm,onClose}:{title?:string;onConfirm:()=
   return <dialog ref={dialog} className="reader-next-dialog" aria-label="다음 권 읽기" onCancel={e=>{e.preventDefault();onClose();}}><h2>다음 권을 읽을까요?</h2><p>{title}</p><div><button autoFocus onClick={onClose}>취소</button><button onClick={onConfirm}>읽기<ArrowRight size={17}/></button></div></dialog>;
 }
 
-export function Reader({ book, onClose, onReady, initialBookmark, onNextVolume, nextVolumeTitle, onSaveBook, onShare, selectingQuote=false, onQuoteSelected, shelfBookmark, onBookmarkChange, onBookmarkStyleChange, bookmarkStyle, characterIcon, bookmarkImage }: ReaderProps) {
+export function Reader({ book, onClose, onReady, onOpenError, initialBookmark, onNextVolume, nextVolumeTitle, onSaveBook, onShare, selectingQuote=false, onQuoteSelected, shelfBookmark, onBookmarkChange, onBookmarkStyleChange, bookmarkStyle, characterIcon, bookmarkImage }: ReaderProps) {
   const [editing,setEditing]=useState(false);
   const [assetPreview,setAssetPreview]=useState<AssetPreview|null>(null);
   const assetPreviewRef=useRef(assetPreview);assetPreviewRef.current=assetPreview;
@@ -379,8 +380,10 @@ export function Reader({ book, onClose, onReady, initialBookmark, onNextVolume, 
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [loading, setLoading] = useState(true);
   const openedRef=useRef(false);
+  const openErrorRef=useRef(onOpenError);openErrorRef.current=onOpenError;
   useEffect(()=>{if(!loading&&pagesReadyRef.current){openedRef.current=true;onReady?.();}},[loading,onReady]);
   const [error, setError] = useState('');
+  const [openRevision,setOpenRevision]=useState(0);
   const stageRef = useRef<HTMLDivElement>(null);
   const mountRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
@@ -497,9 +500,11 @@ export function Reader({ book, onClose, onReady, initialBookmark, onNextVolume, 
   useEffect(() => {
     let alive = true;
     const refresh = () => { if (alive&&!blockedRef.current) { setFontsReady(true);setFontRevision(value => value + 1); } };
-    void document.fonts.ready.then(refresh);
+    // A cold or unavailable remote font must not block opening indefinitely.
+    const timeout=window.setTimeout(()=>{if(alive)setFontsReady(true);},1500);
+    void document.fonts.ready.then(()=>{clearTimeout(timeout);refresh();},()=>{clearTimeout(timeout);if(alive)setFontsReady(true);});
     document.fonts.addEventListener('loadingdone', refresh);
-    return () => { alive = false; document.fonts.removeEventListener('loadingdone', refresh); };
+    return () => { alive = false;clearTimeout(timeout); document.fonts.removeEventListener('loadingdone', refresh); };
   }, []);
 
   useEffect(() => {
@@ -514,6 +519,7 @@ export function Reader({ book, onClose, onReady, initialBookmark, onNextVolume, 
     setError('');
     const frame = requestAnimationFrame(() => {
       if (cancelled || !mountRef.current || !measureRef.current) return;
+      try {
       const currentBook = bookRef.current;
       if (activeBookRef.current !== currentBook.id || activeMessagesRef.current!==currentBook.messages) {
         anchorRef.current = null;frontRequestedRef.current=false;
@@ -710,15 +716,21 @@ export function Reader({ book, onClose, onReady, initialBookmark, onNextVolume, 
         instance.setInteractionEnabled(!blockedRef.current&&!drawerRef.current);
         report(instance.getCurrentPageIndex(), !anchorRef.current);
       } catch {
-        setError('책장 넘기기를 사용할 수 없어요. 화면을 스크롤해 계속 읽어 주세요.');
-        host.classList.add('reader-flip-fallback');
-        report(target, false);
+        // A partially initialized engine has already hidden its pages. It is
+        // not a readable fallback and must never signal successful opening.
+        throw new Error('Reader initialization failed');
       }
       setPages(nextPages);
       setContentCount(bodyCount);
       setSpread(count);
       pagesReadyRef.current=true;
       setLoading(false);
+      } catch {
+        if(cancelled)return;
+        const message='책 화면을 준비하지 못했어요. 다시 시도해 주세요.';
+        setError(message);setLoading(false);
+        if(!openedRef.current)openErrorRef.current?.(message);
+      }
     });
     return () => {
       cancelled = true;
@@ -741,7 +753,7 @@ export function Reader({ book, onClose, onReady, initialBookmark, onNextVolume, 
         host?.remove();
       });
     };
-  }, [book.id, contentKey, dimensions.width, dimensions.height, fontSize, fontRevision,fontsReady,fullscreen,viewport]);
+  }, [book.id, contentKey, dimensions.width, dimensions.height, fontSize, fontRevision,fontsReady,fullscreen,viewport,openRevision]);
 
   // Highlighting does not repaginate: marks have exactly the same font metrics.
   useEffect(() => {
@@ -1060,7 +1072,7 @@ export function Reader({ book, onClose, onReady, initialBookmark, onNextVolume, 
       {editing&&<div className="reader-edit-navigation" data-no-flip><button type="button" aria-label="편집 이전 페이지" disabled={saving||loading||pageIndex===0} onClick={()=>jump(Math.max(0,pageIndex-spread))}><span aria-hidden="true">&lt;</span></button><button type="button" aria-label={pageIndex+spread>=proseStart+contentCount?"빈 페이지 추가":"편집 다음 페이지"} title={pageIndex+spread>=proseStart+contentCount?"본문 끝에 빈 페이지 추가":undefined} data-add-page={pageIndex+spread>=proseStart+contentCount||undefined} disabled={saving||loading} onPointerDown={event=>event.preventDefault()} onClick={()=>pageIndex+spread>=proseStart+contentCount?insertPageRef.current(proseStart+contentCount-1):jump(Math.min(pages.length-1,pageIndex+spread))}><span aria-hidden="true">{pageIndex+spread>=proseStart+contentCount?"+":">"}</span></button></div>}
         {loading && (!onReady||openedRef.current) && <div className="reader-loading" role="status"><BookOpen size={25} /><span>책을 펼치고 있어요…</span></div>}
       </div>
-      {error && <p className="reader-error" role="status">{error}</p>}
+      {error && <p className="reader-error" role="alert">{error} <button type="button" className="secondary-btn" onClick={()=>setOpenRevision(value=>value+1)}>다시 시도</button></p>}
       {editError&&<p className="reader-error" role="alert">{editError}</p>}
 
       {editing&&<div className="reader-inline-actions"><span>페이지 편집</span><button disabled={saving} onClick={cancelEditing}>취소</button><button disabled={saving} onClick={()=>void saveEditing()}><Check size={16}/>{saving?'저장 중…':'저장'}</button></div>}

@@ -58,7 +58,7 @@ export class PageFlip extends EventObject {
     public destroy(): void {
         this.destroyed = true;
         this.render?.stop();
-        this.ui.destroy();
+        this.ui?.destroy();
         this.block.remove();
     }
 
@@ -119,6 +119,9 @@ export class PageFlip extends EventObject {
         this.render.start();
 
         this.pages.show(this.setting.startPage);
+        // HTML pages start display:none. Do not report a ready book while its
+        // first paint is still queued (cold fonts/layout can invalidate that frame).
+        this.render.drawNow();
 
         // safari fix
         setTimeout(() => {
