@@ -8,7 +8,7 @@
 .shelf-drag-active,.shelf-drag-active *{cursor:grabbing!important;user-select:none!important;-webkit-user-select:none!important}
 .shelf-drag-ghost.book-item{position:fixed!important;z-index:1200;pointer-events:none;opacity:.93;transform:rotate(-3deg);filter:drop-shadow(0 14px 18px #0004);margin:0!important;animation:none}
 .shelf-drag-ghost[data-trash=true]{animation:book-delete-shake .16s linear infinite}
-.shelf-trash-target{position:fixed;z-index:1201;left:50%;bottom:max(24px,env(safe-area-inset-bottom));transform:translateX(-50%);width:88px;height:76px;border:1px solid #bd3636;border-radius:20px;display:grid;place-items:center;color:#bd3636;background:transparent;box-shadow:none;pointer-events:none;transition:background .15s,color .15s,box-shadow .15s,scale .15s;animation:trash-appear .18s ease-out}
+.shelf-trash-target{position:fixed;z-index:1201;left:50%;bottom:max(24px,env(safe-area-inset-bottom));transform:translateX(-50%);width:88px;height:76px;border:2px solid #bd3636;border-radius:20px;display:grid;place-items:center;color:#bd3636;background:var(--sand-2);box-shadow:none;pointer-events:none;transition:background .15s,color .15s,box-shadow .15s,scale .15s;animation:trash-appear .18s ease-out}
 .shelf-trash-target[data-over=true]{background:#b83232;color:white;box-shadow:0 0 24px #d33d3d66;scale:1.1}
 .hold-delete{position:relative;overflow:hidden;isolation:isolate;touch-action:none;user-select:none;-webkit-user-select:none}
 .hold-delete:before{content:'';position:absolute;inset:0;background:#fff3;transform:scaleX(0);transform-origin:left;z-index:-1}
@@ -17,3 +17,5 @@
 @keyframes book-delete-shake{0%,100%{transform:rotate(-2deg) translateX(-1px)}50%{transform:rotate(2deg) translateX(1px)}}
 @keyframes trash-appear{from{opacity:0;translate:0 15px}to{opacity:1;translate:0 0}}
 @media(prefers-reduced-motion:reduce){.library-drawer#library-drawer,.library-drawer#library-drawer::backdrop{transition:display .01s allow-discrete,overlay .01s allow-discrete}.shelf-drag-ghost[data-trash=true],.hold-delete[data-holding=true],.shelf-trash-target{animation:none}}
+
+.shelf-trash-target svg path{stroke-width:2px;vector-effect:non-scaling-stroke}
