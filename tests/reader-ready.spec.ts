@@ -41,10 +41,21 @@ for(const mobile of [false,true])test(`reader readiness and duplicate font event
   await page.keyboard.press('ArrowRight');
   await expect(page.locator('.reader-progress')).not.toHaveValue(before);
   if(!mobile){
-   await page.getByRole('button',{name:'전체창',exact:true}).click();
+   const enter=await page.getByRole('button',{name:'전체창',exact:true}).evaluate(async button=>{
+    const count=(window as any).readerInitializations;
+    (button as HTMLButtonElement).click();
+    const immediate=!!document.querySelector('.reading-skeleton-embedded')&&document.querySelector('.reader-stage')?.getAttribute('aria-busy')==='true';
+    await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));
+    return {immediate,beforeCalculation:(window as any).readerInitializations===count,full:!!document.querySelector('.reader-fullscreen')};
+   });
+   expect(enter).toEqual({immediate:true,beforeCalculation:true,full:true});
    await expect(page.locator('.reader-stage')).toHaveAttribute('aria-busy','false');
    await page.getByRole('button',{name:'독서 메뉴',exact:true}).click();
-   await page.getByRole('button',{name:'전체창 해제',exact:true}).click();
+   const exit=await page.getByRole('button',{name:'전체창 해제',exact:true}).evaluate(button=>{
+    (button as HTMLButtonElement).click();
+    return {skeleton:!!document.querySelector('.reading-skeleton-embedded'),full:!!document.querySelector('.reader-fullscreen')};
+   });
+   expect(exit).toEqual({skeleton:true,full:false});
    await expect(page.locator('.reader-stage')).toHaveAttribute('aria-busy','false');
    await expect(page.locator('.reader-progress')).toBeEnabled();
    await expect(page.locator('.reader-loading')).toHaveCount(0);

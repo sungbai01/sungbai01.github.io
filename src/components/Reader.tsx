@@ -545,7 +545,9 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
     const finishCalculation=beginSkeletonTask('pagination');
     setLoading(true);
     setError('');
-    const frame = requestAnimationFrame(() => {
+    // Let the committed skeleton paint before synchronous pagination blocks JS.
+    let calculationFrame=0;
+    const frame = requestAnimationFrame(() => {calculationFrame=requestAnimationFrame(() => {
       if (cancelled || !mountRef.current || !measureRef.current) return;
       try {
       const currentBook = bookRef.current;
@@ -751,11 +753,12 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
         setError(message);setLoading(false);
         if(!openedRef.current)openErrorRef.current?.(message);
       } finally {finishCalculation();}
-    });
+    });});
     return () => {
       cancelled = true;finishCalculation();
       pagesReadyRef.current=false;
       cancelAnimationFrame(frame);
+      cancelAnimationFrame(calculationFrame);
       cancelAnimationFrame(queuedFrame);
       queuedTurnRef.current=null;
       flipRef.current = null;
@@ -880,8 +883,8 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
   }, [panel]);
 
   function closeDrawer(){setPanel(null);setDrawerOpen(false);requestAnimationFrame(()=>drawerHandleRef.current?.focus({preventScroll:true}));}
-  function enterFullwindow(){setLoading(true);setFullscreen(true);setDrawerOpen(false);setPanel(null);}
-  function exitFullwindow(){if(device==='phone')return;setLoading(true);setPanel(null);setDrawerOpen(false);setFullscreen(false);}
+  function enterFullwindow(){flushSync(()=>{setLoading(true);setFullscreen(true);setDrawerOpen(false);setPanel(null);});}
+  function exitFullwindow(){if(device==='phone')return;flushSync(()=>{setLoading(true);setPanel(null);setDrawerOpen(false);setFullscreen(false);});}
   function startDrawerDrag(event:ReactPointerEvent<HTMLButtonElement>){
     if(!event.isPrimary||event.button!==0)return;
     event.stopPropagation();suppressHandleClick.current=false;
