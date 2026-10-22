@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, useId, type CSSProperties, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useMemo, useEffect, useLayoutEffect, useRef, useState, useId, type CSSProperties, type ReactNode } from 'react';
 import { ArrowDownToLine, ArrowRight, BookOpen, Bookmark, Check, ChevronDown, Ellipsis, Library, LoaderCircle, Menu, Pencil, Images, Link, Plus, RotateCcw, Search, Trash2, Upload, X } from 'lucide-react';
 import { getLibraryGeneration, importChatFile, BOOK_COLORS, type Book } from './lib/library';
 import { CloudLibrary, stopCloudLibrary, type AccountStore, type CloudStatus } from './lib/cloudLibrary';
@@ -19,7 +19,7 @@ import useShelfDrag from './components/useShelfDrag';
 import './components/shelf-interactions.css';
 import GoogleAccount from './components/GoogleAccount';
 import BookOpening from './components/BookOpening';
-import {LibraryLoading,NetworkLoadingMarker} from './components/LoadingSkeleton';
+import {LibraryLoading} from './components/LoadingSkeleton';
 import ShareDialog from './components/ShareDialog';
 import ShareManager from './components/ShareManager';
 import './components/library-drawer.css';
@@ -205,7 +205,7 @@ function styleBook(book:Book,draft:Book,reset:boolean):Book{
 export default function App(){
   const [share,setShare]=useState(sharedBookId);
   useEffect(()=>{const change=()=>setShare(sharedBookId());addEventListener('hashchange',change);return()=>removeEventListener('hashchange',change);},[]);
-  return share?<Suspense fallback={<BookOpening network onBack={()=>{location.hash='/';}} onRetry={()=>location.reload()}/>}><SharedBook key={share} id={share}/></Suspense>:<AccountShell/>;
+  return share?<Suspense fallback={<BookOpening variant="library" onBack={()=>{location.hash='/';}} onRetry={()=>location.reload()}/>}><SharedBook key={share} id={share}/></Suspense>:<AccountShell/>;
 }
 function AccountShell() {
   const [account,setAccount]=useState(()=>({owner:getAuthSession()?.user.id??null,version:0}));
@@ -232,7 +232,7 @@ function AccountShell() {
     }).catch(cause=>{if(active)setAuthError(cause instanceof Error?cause.message:'로그인을 확인하지 못했어요.');});
     return()=>{active=false;unsubscribe();};
   },[authAttempt]);
-  if(!authReady)return <BookOpening variant={currentBookId()?'reader':'library'} error={authError} label={currentBookId()?'책을 펼치고 있어요…':'서재를 열고 있어요…'} backLabel="게스트로" onBack={()=>{clearAuthSession();history.replaceState(history.state,'',`${location.pathname}${location.search}#/`);authReadyRef.current=true;setAuthReady(true);}} onRetry={()=>setAuthAttempt(value=>value+1)}/>;
+  if(!authReady)return <BookOpening variant="library" error={authError} label={currentBookId()?'책을 펼치고 있어요…':'서재를 열고 있어요…'} backLabel="게스트로" onBack={()=>{clearAuthSession();history.replaceState(history.state,'',`${location.pathname}${location.search}#/`);authReadyRef.current=true;setAuthReady(true);}} onRetry={()=>setAuthAttempt(value=>value+1)}/>;
   // Unmount every reader/editor and discard old callbacks/state on an account change.
   return <AccountApp key={`${account.owner??'guest'}:${account.version}`} owner={account.owner}/>;
 }
@@ -563,6 +563,7 @@ function AccountApp({owner}:{owner:string|null}) {
     finally{setBusy(false);}
   }
   const shelfDrag=useShelfDrag(owner,canEdit&&!busy&&!route&&!loading&&!query,id=>{const book=latestBooks.current.find(book=>book.id===id);if(book)setRemove(book);});
+  const pendingBook=useMemo<Book>(()=>({id:route??'',title:'',author:'',description:'',color:BOOK_COLORS[0]!,createdAt:'',updatedAt:'',messages:[]}),[route]);
   const selected=books.find(b=>b.id===route);
   const selectedBookmark=selected?canonicalBookmark(shelfBooks(books,bookShelf(selected))):undefined;
   const markedBooks=books.filter(book=>canonicalBookmark(shelfBooks(books,bookShelf(book)))?.bookId===book.id).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
@@ -581,12 +582,12 @@ function AccountApp({owner}:{owner:string|null}) {
   if(route&&(loading||owner||selected)){
     const dataReady=!loading&&selected&&(!owner||readyRoute===route);
     const openingError=openError||(!loading&&!accountReady?error:'');
-    const revealed=readerReady===route&&!!dataReady;
+
     return <>
-      <div inert={!revealed} aria-hidden={!revealed||undefined} style={{visibility:revealed?'visible':'hidden'}}>
-        <Suspense fallback={<NetworkLoadingMarker/>}>{dataReady&&selected&&<Reader key={`${route}:${openAttempt}`} book={selected} onReady={onReaderReady} onOpenError={setOpenError} onClose={closeBook} onShare={()=>setSharing(selected)} selectingQuote={quoteBook===selected.id} onQuoteSelected={finishShareQuote} onSaveBook={canEdit?updateBook:undefined} shelfBookmark={selectedBookmark} bookmarkStyle={selectedBookmark?.style??selected.bookmarkStyle??shelfBooks(books,bookShelf(selected)).find(book=>book.bookmarkStyle)?.bookmarkStyle} bookmarkImage={bookmarkImage(selected)} characterIcon={portrait(selected)??shelfBooks(books,bookShelf(selected)).map(portrait).find(Boolean)} onBookmarkChange={(anchor,style)=>changeBookmark(selected,anchor,style)} onBookmarkStyleChange={style=>changeBookmarkStyle(selected,style)} initialBookmark={readerStart?.bookId===selected.id?readerStart.anchor:undefined} onNextVolume={nextVolume?onNextVolume:undefined} nextVolumeTitle={nextVolume?.title}/>}</Suspense>
+      <div>
+        <Suspense fallback={<BookOpening variant="library" onBack={closeBook} onRetry={()=>location.reload()}/>}><Reader key={`${route}:${openAttempt}`} book={selected??pendingBook} dataPending={!dataReady} onReady={onReaderReady} onOpenError={setOpenError} onClose={closeBook} onShare={()=>{if(selected)setSharing(selected);}} selectingQuote={quoteBook===selected?.id} onQuoteSelected={finishShareQuote} onSaveBook={canEdit?updateBook:undefined} shelfBookmark={selectedBookmark} bookmarkStyle={selectedBookmark?.style??selected?.bookmarkStyle??(selected?shelfBooks(books,bookShelf(selected)).find(book=>book.bookmarkStyle)?.bookmarkStyle:undefined)} bookmarkImage={selected?bookmarkImage(selected):undefined} characterIcon={selected?(portrait(selected)??shelfBooks(books,bookShelf(selected)).map(portrait).find(Boolean)):undefined} onBookmarkChange={async(anchor,style)=>{if(selected)await changeBookmark(selected,anchor,style);}} onBookmarkStyleChange={async style=>{if(selected)await changeBookmarkStyle(selected,style);}} initialBookmark={readerStart&&readerStart.bookId===selected?.id?readerStart.anchor:undefined} onNextVolume={nextVolume?onNextVolume:undefined} nextVolumeTitle={nextVolume?.title}/></Suspense>
       </div>
-      {!revealed&&<BookOpening error={openingError} onBack={()=>{setRoute(null);location.hash='/';}} onRetry={()=>{setReaderReady(null);setOpenError('');if(accountReady)setOpenAttempt(value=>value+1);else location.reload();}}/>}
+      {openingError&&<BookOpening error={openingError} onBack={()=>{setRoute(null);location.hash='/';}} onRetry={()=>{setReaderReady(null);setOpenError('');if(accountReady)setOpenAttempt(value=>value+1);else location.reload();}}/>}
       {assetManager}
       {managingShares&&<ShareManager onClose={()=>setManagingShares(false)}/>}
     {sharing&&<ShareDialog book={sharing} quote={shareQuotes[sharing.id]??''} initialMode={cardBook===sharing.id?'card':'url'} onSelectQuote={()=>selectShareQuote(sharing)} onClearQuote={()=>setShareQuotes(previous=>({...previous,[sharing.id]:''}))} onClose={()=>setSharing(null)} onManageAssets={()=>{if(sharing)void openAssets(bookShelf(sharing));}} onLogin={()=>{setSharing(null);setRoute(null);location.hash='/';setDrawerOpen(true);}}/>}

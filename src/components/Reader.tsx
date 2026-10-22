@@ -30,6 +30,7 @@ import './reader.css';
 
 export interface ReaderProps {
   book: Book;
+  dataPending?: boolean;
   onClose: () => void;
   onReady?: () => void;
   onOpenError?: (message:string) => void;
@@ -295,7 +296,7 @@ function NextVolumeDialog({title,onConfirm,onClose}:{title?:string;onConfirm:()=
   return <dialog ref={dialog} className="reader-next-dialog" aria-label="다음 권 읽기" onCancel={e=>{e.preventDefault();onClose();}}><h2>다음 권을 읽을까요?</h2><p>{title}</p><div><button autoFocus onClick={onClose}>취소</button><button onClick={onConfirm}>읽기<ArrowRight size={17}/></button></div></dialog>;
 }
 
-export function Reader({ book, onClose, onReady, onOpenError, initialBookmark, onNextVolume, nextVolumeTitle, onSaveBook, onShare, selectingQuote=false, onQuoteSelected, shelfBookmark, onBookmarkChange, onBookmarkStyleChange, bookmarkStyle, characterIcon, bookmarkImage }: ReaderProps) {
+export function Reader({ book, dataPending=false, onClose, onReady, onOpenError, initialBookmark, onNextVolume, nextVolumeTitle, onSaveBook, onShare, selectingQuote=false, onQuoteSelected, shelfBookmark, onBookmarkChange, onBookmarkStyleChange, bookmarkStyle, characterIcon, bookmarkImage }: ReaderProps) {
   const [editing,setEditing]=useState(false);
   const [assetPreview,setAssetPreview]=useState<AssetPreview|null>(null);
   const assetPreviewRef=useRef(assetPreview);assetPreviewRef.current=assetPreview;
@@ -512,7 +513,7 @@ export function Reader({ book, onClose, onReady, onOpenError, initialBookmark, o
   }, []);
 
   useEffect(() => {
-    if (!fontsReady || !dimensions.width || !dimensions.height) return;
+    if (dataPending || !fontsReady || !dimensions.width || !dimensions.height) return;
     let cancelled = false;
     let instance: PageFlip | null = null;
     let pageRoots: Root[] = [];
@@ -760,7 +761,7 @@ export function Reader({ book, onClose, onReady, onOpenError, initialBookmark, o
         host?.remove();
       });
     };
-  }, [book.id, contentKey, dimensions.width, dimensions.height, fontSize, fontRevision,fontsReady,fullscreen,viewport,openRevision]);
+  }, [book.id, contentKey, dimensions.width, dimensions.height, fontSize, fontRevision,fontsReady,fullscreen,viewport,openRevision,dataPending]);
 
   // Highlighting does not repaginate: marks have exactly the same font metrics.
   useEffect(() => {
@@ -1025,6 +1026,7 @@ export function Reader({ book, onClose, onReady, onOpenError, initialBookmark, o
   }
   function currentAnchor(){return bookmarkAnchor(pagesRef.current,Math.min(selectedLeaf??pageIndex,pagesRef.current.length-1),contentCount);}
   requestCloseRef.current=()=>{
+    if(dataPending){closeRef.current();return;}
     if(editing||saving||bookmarkBusy)return;
     const marked=shelfBookmark?.bookId===bookRef.current.id?bookmarkPage(pagesRef.current,shelfBookmark):-1;
     if(pagesRef.current.slice(pageIndex,pageIndex+spread).some(page=>page.kind==='back-cover'||page.kind==='end'||page.kind==='front-cover'||page.kind==='front-endpaper')||!onBookmarkChange||!currentAnchor()||(marked>=pageIndex&&marked<pageIndex+spread)){closeRef.current();return;}
@@ -1055,10 +1057,10 @@ export function Reader({ book, onClose, onReady, onOpenError, initialBookmark, o
     <div id="reader-drawer" className="reader-drawer" hidden={fullscreen&&!drawerOpen}>
     <header className="reader-toolbar">
       <button className="reader-back" onClick={()=>requestCloseRef.current()} aria-label="책을 닫고 서재로 돌아가기" title="서재로 돌아가기" disabled={editing||saving}><ChevronLeft size={19} /><span>서재</span></button>
-      <div className="reader-toolbar-title"><span>{book.title}</span><small>{book.author || readerCopy.unknownAuthor}</small></div>
+      <div className="reader-toolbar-title"><span>{book.title||<span className="skeleton-fill reader-title-loading" aria-label="책 제목을 불러오는 중"/>}</span><small>{book.title?(book.author || readerCopy.unknownAuthor):''}</small></div>
       <div className="reader-tools">
         {onShare&&<button className="reader-icon-button" aria-label="책 공유" title="공유" disabled={editing||saving||loading||bookmarkBusy} onClick={()=>{setPanel(null);onShare();}}><Share2 size={18}/></button>}
-        {onSaveBook&&<button className={`reader-icon-button ${editing?'reader-active':''}`} aria-label="본문 편집" title="페이지에서 편집" aria-pressed={editing} disabled={saving} onClick={()=>{if(editing){cancelEditing();return;}setPanel(null);draftsRef.current.clear();chapterDraftsRef.current.clear();chapterInsertionsRef.current.clear();setEditError('');setDrawerOpen(false);editingSourceRef.current=bookRef.current;editingReflowedRef.current=false;editBookmarkRef.current=shelfBookmark?.bookId===book.id?shelfBookmark:null;setEditing(true);}}><Pencil size={18}/></button>}
+        {onSaveBook&&<button className={`reader-icon-button ${editing?'reader-active':''}`} aria-label="본문 편집" title="페이지에서 편집" aria-pressed={editing} disabled={saving||loading||dataPending} onClick={()=>{if(editing){cancelEditing();return;}setPanel(null);draftsRef.current.clear();chapterDraftsRef.current.clear();chapterInsertionsRef.current.clear();setEditError('');setDrawerOpen(false);editingSourceRef.current=bookRef.current;editingReflowedRef.current=false;editBookmarkRef.current=shelfBookmark?.bookId===book.id?shelfBookmark:null;setEditing(true);}}><Pencil size={18}/></button>}
         {onBookmarkChange&&<button className={`reader-icon-button ${activeBookmarked?'reader-active':''}`} aria-label={bookmarkAction} title={bookmarkAction} aria-pressed={activeBookmarked} disabled={editing||saving||bookmarkBusy||loading||(!activeBookmarked&&!bookmarkAnchor(pages,activeLeaf,contentCount))} onClick={()=>void toggleBookmark(activeLeaf)}><Bookmark size={18} fill={activeBookmarked?'currentColor':'none'}/></button>}
         {device!=='phone'&&<button ref={windowModeButtonRef} className="reader-icon-button" aria-label={fullscreen?'전체창 해제':'전체창'} title={fullscreen?'전체창 해제':'전체창'} disabled={editing} onClick={()=>fullscreen?exitFullwindow():enterFullwindow()}><Maximize size={18}/></button>}
         <button ref={element => { panelButtonRefs.current.contents = element; }} className={`reader-icon-button ${panel === 'contents' ? 'reader-active' : ''}`} aria-label="목차 보기" title="목차" disabled={editing} aria-expanded={panel === 'contents'} aria-controls="reader-contents" onClick={() => togglePanel('contents')}><List size={20} /></button>
@@ -1078,7 +1080,7 @@ export function Reader({ book, onClose, onReady, onOpenError, initialBookmark, o
         {!loading&&device==='phone'&&markedPage>=0&&shelfBookmark&&<div className="reader-phone-bookmark" aria-label="책갈피"><BookmarkSlip {...bookmarkInteraction} style={ribbonStyle} icon={ribbonIcon} image={ribbonImage} title={shelfBookmark.title} color={book.color} side="after"/></div>}
       {selectingQuote&&onQuoteSelected&&<ShareQuoteSelection host={mountRef} onDone={onQuoteSelected} onPrevious={()=>jump(Math.max(0,pageIndex-spread))} onNext={()=>jump(Math.min(pages.length-1,pageIndex+spread))}/>}
       {editing&&<div className="reader-edit-navigation" data-no-flip><button type="button" aria-label="편집 이전 페이지" disabled={saving||loading||pageIndex===0} onClick={()=>jump(Math.max(0,pageIndex-spread))}><span aria-hidden="true">&lt;</span></button><button type="button" aria-label={pageIndex+spread>=proseStart+contentCount?"빈 페이지 추가":"편집 다음 페이지"} title={pageIndex+spread>=proseStart+contentCount?"본문 끝에 빈 페이지 추가":undefined} data-add-page={pageIndex+spread>=proseStart+contentCount||undefined} disabled={saving||loading} onPointerDown={event=>event.preventDefault()} onClick={()=>pageIndex+spread>=proseStart+contentCount?insertPageRef.current(proseStart+contentCount-1):jump(Math.min(pages.length-1,pageIndex+spread))}><span aria-hidden="true">{pageIndex+spread>=proseStart+contentCount?"+":">"}</span></button></div>}
-        {loading && (!onReady||openedRef.current) && (skeletonLoading?<ReadingSkeleton embedded pages={readerPageCount(dimensions.width||viewport.width,viewport)} fullwindow={fullscreen}/>:<div className="reader-loading"><GeneralLoading label="책을 준비하고 있어요…"/></div>)}
+        {(loading||dataPending) && (skeletonLoading?<ReadingSkeleton embedded pages={readerPageCount(dimensions.width||viewport.width,viewport)} fullwindow={fullscreen}/>:<div className="reader-loading"><GeneralLoading label="책을 준비하고 있어요…"/></div>)}
       </div>
       {error && <p className="reader-error" role="alert">{error} <button type="button" className="secondary-btn" onClick={()=>setOpenRevision(value=>value+1)}>다시 시도</button></p>}
       {editError&&<p className="reader-error" role="alert">{editError}</p>}

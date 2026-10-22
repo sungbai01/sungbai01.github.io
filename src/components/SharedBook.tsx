@@ -1,4 +1,4 @@
-import {useEffect,useRef,useState} from 'react';
+import {useEffect,useMemo,useRef,useState} from 'react';
 import Reader from './Reader';
 import BookOpening from './BookOpening';
 import {loadSharedBook} from '../lib/sharing';
@@ -15,6 +15,7 @@ export default function SharedBook({id}:{id:string}){
  }).catch(cause=>{if(!controller.signal.aborted)setError(cause instanceof Error?cause.message:'공유한 책을 열지 못했어요.');});return()=>{alive.current=false;controller.abort();};},[id,attempt]);
  useEffect(()=>{if(!book)return;const sync=(event:StorageEvent)=>{if(event.storageArea===localStorage&&(event.key===sharedBookmarkStorageKey(id)||event.key===null))setBookmark(readSharedBookmark(id,book));};window.addEventListener('storage',sync);return()=>window.removeEventListener('storage',sync);},[book,id]);
  async function save(anchor:SharedBookmark['anchor'],style=markRef.current.style){const next={anchor,style};saveSharedBookmark(id,next);markRef.current=next;setBookmark(next);}
+ const pendingBook=useMemo<Book>(()=>({id,title:'',author:'',description:'',color:'#244b35',createdAt:'',updatedAt:'',messages:[]}),[id]);
  const image=book?.assets?.find(asset=>asset.id===book.bookmarkAssetId)?.src??book?.characterIcon;
- return <><div inert={!ready} aria-hidden={!ready||undefined} style={{visibility:ready?'visible':'hidden'}}>{book&&<Reader key={`${id}:${attempt}`} book={book} initialBookmark={bookmark.anchor??undefined} shelfBookmark={bookmark.anchor?{...bookmark.anchor,bookId:book.id,title:book.title,style:bookmark.style,image,icon:book.characterIcon}:undefined} bookmarkStyle={bookmark.style} bookmarkImage={image} characterIcon={book.characterIcon} onBookmarkChange={(anchor,style)=>save(anchor,style)} onBookmarkStyleChange={style=>save(markRef.current.anchor,style)} onOpenError={setError} onReady={()=>{if(alive.current)setReady(true);}} onClose={()=>{location.hash='/';}}/>}</div>{!ready&&<BookOpening error={error} onBack={()=>{location.hash='/';}} onRetry={()=>setAttempt(value=>value+1)}/>}</>;
+ return <><div><Reader key={`${id}:${attempt}`} book={book??pendingBook} dataPending={!book} initialBookmark={bookmark.anchor??undefined} shelfBookmark={bookmark.anchor?{...bookmark.anchor,bookId:book?.id??id,title:book?.title??'',style:bookmark.style,image,icon:book?.characterIcon}:undefined} bookmarkStyle={bookmark.style} bookmarkImage={image} characterIcon={book?.characterIcon} onBookmarkChange={(anchor,style)=>save(anchor,style)} onBookmarkStyleChange={style=>save(markRef.current.anchor,style)} onOpenError={setError} onReady={()=>{if(alive.current)setReady(true);}} onClose={()=>{location.hash='/';}}/></div>{error&&<BookOpening error={error} onBack={()=>{location.hash='/';}} onRetry={()=>setAttempt(value=>value+1)}/>}</>;
 }
