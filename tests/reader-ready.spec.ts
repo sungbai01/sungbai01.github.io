@@ -46,9 +46,13 @@ for(const mobile of [false,true])test(`reader readiness and duplicate font event
     (button as HTMLButtonElement).click();
     const immediate=!!document.querySelector('.reading-skeleton-embedded')&&document.querySelector('.reader-stage')?.getAttribute('aria-busy')==='true';
     await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));
-    return {immediate,beforeCalculation:(window as any).readerInitializations===count,full:!!document.querySelector('.reader-fullscreen')};
+    return {immediate,beforeCalculation:(window as any).readerInitializations===count,full:!!document.querySelector('.reader-fullscreen'),topAnimation:getComputedStyle(document.querySelector('.reader-drawer')!).animationName,bottomAnimation:getComputedStyle(document.querySelector('.reader-footer')!).animationName};
    });
-   expect(enter).toEqual({immediate:true,beforeCalculation:true,full:true});
+   expect(enter).toEqual({immediate:true,beforeCalculation:true,full:true,topAnimation:'reader-chrome-hide-top',bottomAnimation:'reader-chrome-hide-bottom'});
+   await expect(page.locator('.reader-drawer')).toBeHidden();
+   await expect(page.locator('.reader-footer')).toBeHidden();
+   const handleWidth=await page.locator('.reader-drawer-handle>span').evaluate(node=>node.getBoundingClientRect().width);
+   expect(handleWidth).toBeCloseTo(1440*.12,0);
    await expect(page.locator('.reader-stage')).toHaveAttribute('aria-busy','false');
    await page.getByRole('button',{name:'독서 메뉴',exact:true}).click();
    const exit=await page.getByRole('button',{name:'전체창 해제',exact:true}).evaluate(button=>{

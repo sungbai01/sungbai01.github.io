@@ -462,3 +462,12 @@
 
 .reader-navigation-back{justify-self:start}
 @media(max-width:560px){.reader-navigation-back{width:31px}}
+
+/* The affordance scales with the viewport, with a useful touch target. */
+.reader-drawer-handle{width:clamp(72px,calc(12vw + 24px),264px)}
+.reader-drawer-handle>span{width:clamp(48px,12vw,240px);flex-shrink:0}
+.reader-fullscreen[data-window-entering] .reader-drawer{animation:reader-chrome-hide-top .22s ease-in forwards;pointer-events:none}
+.reader-fullscreen[data-window-entering] .reader-footer-concealed{visibility:visible;animation:reader-chrome-hide-bottom .22s ease-in forwards;pointer-events:none}
+@keyframes reader-chrome-hide-top{from{transform:translateY(0);opacity:1}to{transform:translateY(-100%);opacity:0}}
+@keyframes reader-chrome-hide-bottom{from{transform:translateX(-50%) translateY(0);opacity:1}to{transform:translateX(-50%) translateY(100%);opacity:0}}
+@media(prefers-reduced-motion:reduce){.reader-fullscreen[data-window-entering] .reader-drawer,.reader-fullscreen[data-window-entering] .reader-footer-concealed{animation:none;visibility:hidden}}

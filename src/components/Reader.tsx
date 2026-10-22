@@ -342,6 +342,8 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
   const previousDevice=useRef(device);
   useEffect(()=>{if(previousDevice.current!==device){previousDevice.current=device;setFullscreen(readFullwindowPreference());return;}if(device==='phone')return;try{window.localStorage.setItem(device==='fold'?FOLD_FULLWINDOW_KEY:FULLWINDOW_KEY,String(windowPreference));}catch{}},[device,windowPreference]);
   const [drawerOpen,setDrawerOpen]=useState(false);
+  const [windowEntering,setWindowEntering]=useState(false);
+  useEffect(()=>{if(!windowEntering)return;const timer=setTimeout(()=>setWindowEntering(false),240);return()=>clearTimeout(timer);},[windowEntering]);
   const drawerRef=useRef(false);drawerRef.current=drawerOpen;
   const drawerHandleRef=useRef<HTMLButtonElement>(null);
   const windowModeButtonRef=useRef<HTMLButtonElement>(null);
@@ -882,9 +884,9 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
     else if (panel) panelRef.current?.focus();
   }, [panel]);
 
-  function closeDrawer(){setPanel(null);setDrawerOpen(false);requestAnimationFrame(()=>drawerHandleRef.current?.focus({preventScroll:true}));}
-  function enterFullwindow(){flushSync(()=>{setLoading(true);setFullscreen(true);setDrawerOpen(false);setPanel(null);});}
-  function exitFullwindow(){if(device==='phone')return;flushSync(()=>{setLoading(true);setPanel(null);setDrawerOpen(false);setFullscreen(false);});}
+  function closeDrawer(){setWindowEntering(false);setPanel(null);setDrawerOpen(false);requestAnimationFrame(()=>drawerHandleRef.current?.focus({preventScroll:true}));}
+  function enterFullwindow(){flushSync(()=>{setWindowEntering(!matchMedia('(prefers-reduced-motion: reduce)').matches);setLoading(true);setFullscreen(true);setDrawerOpen(false);setPanel(null);});}
+  function exitFullwindow(){if(device==='phone')return;flushSync(()=>{setWindowEntering(false);setLoading(true);setPanel(null);setDrawerOpen(false);setFullscreen(false);});}
   function startDrawerDrag(event:ReactPointerEvent<HTMLButtonElement>){
     if(!event.isPrimary||event.button!==0)return;
     event.stopPropagation();suppressHandleClick.current=false;
@@ -1066,10 +1068,10 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
   const positionLabel=!pages.length?'책장을 준비하고 있어요':atFront?'표지':atEnd?'끝':`전체 ${contentCount}쪽 중 ${bodyPosition+1}${visibleEnd>bodyPosition+1?`–${visibleEnd}`:''}쪽`;
   const style = { '--reader-font-size': `${fontSize}px`, '--book-cover':book.color, '--reader-book-width':`${pageGeometry.width*pageGeometry.count}px`, '--paper-width':`${pageGeometry.width}px`, '--paper-height':`${pageGeometry.height}px`, '--reader-page-padding':`${pageGeometry.padding}px`, '--reader-content-top':`${pageGeometry.contentTop}px`, '--reader-content-bottom':`${pageGeometry.contentBottom}px` } as CSSProperties;
 
-  return <div ref={readerRef} className={`reader reader-theme-${theme}${theme === 'dark' ? ' dark' : ''}${fullscreen?' reader-fullscreen':''}${editing?' reader-is-editing':''}`} data-device={device} data-flush-covers={fullscreen&&device!=='desktop'||undefined} data-selecting-quote={selectingQuote||undefined} data-page-layout={spread===2?'spread':'single'} data-bookmark-current={markedPage>=pageIndex&&markedPage<pageIndex+spread||undefined} style={style} lang="ko">
-    {fullscreen&&<button ref={drawerHandleRef} className="reader-drawer-handle" data-no-flip aria-label="독서 메뉴" aria-expanded={drawerOpen} aria-controls="reader-drawer" onPointerDown={startDrawerDrag} onPointerMove={moveDrawerDrag} onPointerUp={endDrawerDrag} onPointerCancel={event=>{suppressHandleClick.current=true;endDrawerDrag(event);}} onLostPointerCapture={()=>{drawerDrag.current=null;}} onClick={()=>{if(suppressHandleClick.current){suppressHandleClick.current=false;return;}if(drawerOpen)closeDrawer();else setDrawerOpen(true);}}><span/></button>}
+  return <div ref={readerRef} className={`reader reader-theme-${theme}${theme === 'dark' ? ' dark' : ''}${fullscreen?' reader-fullscreen':''}${editing?' reader-is-editing':''}`} data-device={device} data-window-entering={windowEntering||undefined} data-flush-covers={fullscreen&&device!=='desktop'||undefined} data-selecting-quote={selectingQuote||undefined} data-page-layout={spread===2?'spread':'single'} data-bookmark-current={markedPage>=pageIndex&&markedPage<pageIndex+spread||undefined} style={style} lang="ko">
+    {fullscreen&&<button ref={drawerHandleRef} className="reader-drawer-handle" data-no-flip aria-label="독서 메뉴" aria-expanded={drawerOpen} aria-controls="reader-drawer" onPointerDown={startDrawerDrag} onPointerMove={moveDrawerDrag} onPointerUp={endDrawerDrag} onPointerCancel={event=>{suppressHandleClick.current=true;endDrawerDrag(event);}} onLostPointerCapture={()=>{drawerDrag.current=null;}} onClick={()=>{if(suppressHandleClick.current){suppressHandleClick.current=false;return;}if(drawerOpen)closeDrawer();else {setWindowEntering(false);setDrawerOpen(true);}}}><span/></button>}
     {fullscreen&&drawerOpen&&<button className="reader-drawer-backdrop" aria-label="독서 메뉴 닫기" onClick={closeDrawer} tabIndex={-1}/>}
-    <div id="reader-drawer" className="reader-drawer" hidden={fullscreen&&!drawerOpen}>
+    <div id="reader-drawer" className="reader-drawer" hidden={fullscreen&&!drawerOpen&&!windowEntering} inert={fullscreen&&!drawerOpen} aria-hidden={fullscreen&&!drawerOpen||undefined}>
     <header className="reader-toolbar">
       <button className="reader-icon-button reader-navigation-back" onClick={()=>requestCloseRef.current()} aria-label="책을 닫고 서재로 돌아가기" title="서재로 돌아가기" disabled={editing||saving}><ChevronLeft size={19} /></button>
       <div className="reader-toolbar-title"><span>{book.title||<span className="skeleton-fill reader-title-loading" aria-label="책 제목을 불러오는 중"/>}</span><small>{book.title?(book.author || readerCopy.unknownAuthor):''}</small></div>
