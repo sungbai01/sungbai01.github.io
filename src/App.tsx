@@ -379,23 +379,35 @@ function AccountApp({owner}:{owner:string|null}) {
   async function commitBookmarkFields(make:(current:Book[])=>Book[]){
     const assertAccount=accountGuard();if(!canEdit)throw new Error('서재를 열고 있어요.');
     if(deletingRef.current||editingShelf.current||preparingAssets.current||splittingBooks.current.size>0)throw new Error('책을 저장 중이에요. 잠시 후 다시 시도해 주세요.');
-    editingShelf.current=true;
-    try{
-      await library.edit(async store=>{
-      const current=latestBooks.current;
-      const updated=make(current);
-      const currentById=new Map(current.map(book=>[book.id,book]));
-      const changed=updated.filter(book=>{const previous=currentById.get(book.id);return !previous||(book.bookmarkStyle??'normal')!==(previous.bookmarkStyle??'normal')||book.updatedAt!==previous.updatedAt||JSON.stringify(book.bookmarks??[])!==JSON.stringify(previous.bookmarks??[]);});
-      if(!changed.length)return;
-      assertAccount();await store.updateBookmarks(changed.map(({id,bookmarks,bookmarkStyle,updatedAt})=>({id,bookmarks,bookmarkStyle,updatedAt})));assertAccount();
-      // Keep the existing text, assets and source maps by reference. A bookmark
-      // change must never reload or paginate the book's body.
-      const byId=new Map(changed.map(book=>[book.id,book]));
-      const next=latestBooks.current.map(book=>{const changedBook=byId.get(book.id);return changedBook?{...book,bookmarks:changedBook.bookmarks,bookmarkStyle:changedBook.bookmarkStyle,updatedAt:changedBook.updatedAt}:book;});
-      latestBooks.current=next;setBooks(next);
-      },{publish:!!owner});
-    }finally{editingShelf.current=false;}
+    const current=latestBooks.current;
+    const updated=make(current);
+    const currentById=new Map(current.map(book=>[book.id,book]));
+    const changed=updated.filter(book=>{const previous=currentById.get(book.id);return !previous||(book.bookmarkStyle??'normal')!==(previous.bookmarkStyle??'normal')||book.updatedAt!==previous.updatedAt||JSON.stringify(book.bookmarks??[])!==JSON.stringify(previous.bookmarks??[]);});
+    if(!changed.length)return;
+    assertAccount();
+    // Publish only bookmark fields immediately. Body/asset references stay stable,
+    // so the reader can animate now without repaginating or waiting for the API.
+    const byId=new Map(changed.map(book=>[book.id,book]));
+    const next=current.map(book=>{const mark=byId.get(book.id);return mark?{...book,bookmarks:mark.bookmarks,bookmarkStyle:mark.bookmarkStyle,updatedAt:mark.updatedAt}:book;});
+    editingShelf.current=true;latestBooks.current=next;setBooks(next);
+    // Serialize writes while this save is pending; navigation and page turning
+    // remain available. A second mutation cannot race this rollback.
+    void library.edit(async store=>{
+      assertAccount();
+      await store.updateBookmarks(changed.map(({id,bookmarks,bookmarkStyle,updatedAt})=>({id,bookmarks,bookmarkStyle,updatedAt})));
+      assertAccount();
+    },{publish:false}).catch(()=>{
+      try{assertAccount();}catch{return;}
+      const restored=latestBooks.current.map(book=>{
+        if(!byId.has(book.id))return book;
+        const previous=currentById.get(book.id);if(!previous)return book;
+        return {...book,bookmarks:previous.bookmarks,bookmarkStyle:previous.bookmarkStyle,updatedAt:previous.updatedAt};
+      });
+      latestBooks.current=restored;setBooks(restored);
+      setToast('책갈피 저장에 실패해 이전 위치로 되돌렸어요. 다시 시도해 주세요.');
+    }).finally(()=>{editingShelf.current=false;});
   }
+
   const decorateBook=async(draft:Book,reset:boolean)=>{
     if(!canEdit)return;
     await commitBooks([draft.id],current=>{
