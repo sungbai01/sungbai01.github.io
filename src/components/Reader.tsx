@@ -20,11 +20,11 @@ import {chapterLabel,editedMessages,fragmentKey} from '../lib/bookEditing';
 import type {ChapterDraft,ChapterInsertion,PageInsertion} from '../lib/bookEditing';
 import BookmarkTitle from './BookmarkTitle';
 import ShareQuoteSelection from './ShareQuoteSelection';
-import { BookmarkMotion } from './bookmarkMotion';
+import { BookmarkMotion, sampleBookmarkThrow } from './bookmarkMotion';
 import AssetImage from './AssetImage';
 import BookCover from './BookCover';
-import {ReadingSkeleton,GeneralLoading} from './LoadingSkeleton';
-import {beginSkeletonTask,useSkeletonLoading} from '../lib/loadingActivity';
+import {ReadingSkeleton} from './LoadingSkeleton';
+import {beginSkeletonTask} from '../lib/loadingActivity';
 import {squareAssetCrop} from '../lib/assetCrop';
 import './reader.css';
 
@@ -238,6 +238,7 @@ function BookmarkSlip({style,icon,image,title,color,side='after',disabled,onActi
   const active=drag.current;if(!active||active.id!==event.pointerId)return;
   event.stopPropagation();event.preventDefault();
   if(!allowed()){cancel();return;}
+  sampleBookmarkThrow(event.currentTarget,event.clientX,event.clientY);
   const dx=event.clientX-active.x,dy=event.clientY-active.y;
   active.distance=Math.max(active.distance,Math.hypot(dx,dy));
   if(active.distance>5){suppressClick.current=true;event.currentTarget.classList.add('reader-bookmark-dragging');}
@@ -249,7 +250,7 @@ function BookmarkSlip({style,icon,image,title,color,side='after',disabled,onActi
   event.currentTarget.style.setProperty('--bookmark-drag-x',`${dx}px`);event.currentTarget.style.setProperty('--bookmark-drag-y',`${dy}px`);
  };
  return <span ref={elementRef} data-no-flip data-bookmark-side={side} className={`reader-bookmark-slip reader-bookmark-${style}`} role="button" tabIndex={disabled?-1:0} aria-disabled={disabled||undefined} aria-label="책갈피로 이동" title={onRemove?'책갈피로 이동 · 끌어서 제거':'책갈피로 이동'} style={{'--bookmark-color':color} as CSSProperties}
- onPointerDown={event=>{event.stopPropagation();if(!actions.current.onRemove||!allowed()||!event.isPrimary||event.button!==0||drag.current)return;event.preventDefault();event.currentTarget.focus({preventScroll:true});suppressClick.current=false;const bounds=event.currentTarget.getBoundingClientRect();const pivotX=event.clientX-bounds.left<bounds.width/2?.25:.75,pivotY=event.clientY-bounds.top<bounds.height/2?.25:.75;event.currentTarget.style.transformOrigin=`${pivotX*100}% ${pivotY*100}%`;drag.current={id:event.pointerId,x:event.clientX,y:event.clientY,distance:0,bounds,angle:0,pivotX,pivotY};try{event.currentTarget.setPointerCapture(event.pointerId);}catch{cancel();}}}
+ onPointerDown={event=>{event.stopPropagation();if(!actions.current.onRemove||!allowed()||!event.isPrimary||event.button!==0||drag.current)return;event.preventDefault();event.currentTarget.focus({preventScroll:true});suppressClick.current=false;const bounds=event.currentTarget.getBoundingClientRect();const pivotX=event.clientX-bounds.left<bounds.width/2?.25:.75,pivotY=event.clientY-bounds.top<bounds.height/2?.25:.75;event.currentTarget.style.transformOrigin=`${pivotX*100}% ${pivotY*100}%`;sampleBookmarkThrow(event.currentTarget,event.clientX,event.clientY,true);drag.current={id:event.pointerId,x:event.clientX,y:event.clientY,distance:0,bounds,angle:0,pivotX,pivotY};try{event.currentTarget.setPointerCapture(event.pointerId);}catch{cancel();}}}
  onPointerMove={move}
  onPointerUp={event=>{event.stopPropagation();const active=drag.current;if(!active||active.id!==event.pointerId)return;move(event);if(drag.current!==active)return;const eligible=allowed();const distance=active.distance;suppressClick.current=true;if(!eligible){reset();return;}const safe=event.clientX>=active.bounds.left-40&&event.clientX<=active.bounds.right+40&&event.clientY>=active.bounds.top-40&&event.clientY<=active.bounds.bottom+40;if(distance>=36&&!safe){drag.current=null;try{if(event.currentTarget.hasPointerCapture(active.id))event.currentTarget.releasePointerCapture(active.id);}catch{}actions.current.onRemove?.(event.currentTarget);reset();}else{reset();if(distance<=5)actions.current.onActivate?.();}}}
  onPointerCancel={event=>{event.stopPropagation();if(drag.current?.id===event.pointerId)cancel();}}
@@ -395,7 +396,6 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
     return {count,height,width,padding,contentTop,contentBottom};
   },[dimensions,viewport,device,fullscreen,fontSize]);
   const [loading, setLoading] = useState(true);
-  const skeletonLoading=useSkeletonLoading();
   const openedRef=useRef(false);
   const openErrorRef=useRef(onOpenError);openErrorRef.current=onOpenError;
   useEffect(()=>{if(!loading&&pagesReadyRef.current){openedRef.current=true;onReady?.();}},[loading,onReady]);
@@ -870,8 +870,8 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
   }, [panel]);
 
   function closeDrawer(){setPanel(null);setDrawerOpen(false);requestAnimationFrame(()=>drawerHandleRef.current?.focus({preventScroll:true}));}
-  function enterFullwindow(){setFullscreen(true);setDrawerOpen(false);setPanel(null);}
-  function exitFullwindow(){if(device==='phone')return;setPanel(null);setDrawerOpen(false);setFullscreen(false);}
+  function enterFullwindow(){setLoading(true);setFullscreen(true);setDrawerOpen(false);setPanel(null);}
+  function exitFullwindow(){if(device==='phone')return;setLoading(true);setPanel(null);setDrawerOpen(false);setFullscreen(false);}
   function startDrawerDrag(event:ReactPointerEvent<HTMLButtonElement>){
     if(!event.isPrimary||event.button!==0)return;
     event.stopPropagation();suppressHandleClick.current=false;
@@ -1082,7 +1082,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
         {!loading&&device==='phone'&&markedPage>=0&&shelfBookmark&&<div className="reader-phone-bookmark" aria-label="책갈피"><BookmarkSlip {...bookmarkInteraction} style={ribbonStyle} icon={ribbonIcon} image={ribbonImage} title={shelfBookmark.title} color={book.color} side="after"/></div>}
       {selectingQuote&&onQuoteSelected&&<ShareQuoteSelection host={mountRef} onDone={onQuoteSelected} onPrevious={()=>jump(Math.max(0,pageIndex-spread))} onNext={()=>jump(Math.min(pages.length-1,pageIndex+spread))}/>}
       {editing&&<div className="reader-edit-navigation" data-no-flip><button type="button" aria-label="편집 이전 페이지" disabled={saving||loading||pageIndex===0} onClick={()=>jump(Math.max(0,pageIndex-spread))}><span aria-hidden="true">&lt;</span></button><button type="button" aria-label={pageIndex+spread>=proseStart+contentCount?"빈 페이지 추가":"편집 다음 페이지"} title={pageIndex+spread>=proseStart+contentCount?"본문 끝에 빈 페이지 추가":undefined} data-add-page={pageIndex+spread>=proseStart+contentCount||undefined} disabled={saving||loading} onPointerDown={event=>event.preventDefault()} onClick={()=>pageIndex+spread>=proseStart+contentCount?insertPageRef.current(proseStart+contentCount-1):jump(Math.min(pages.length-1,pageIndex+spread))}><span aria-hidden="true">{pageIndex+spread>=proseStart+contentCount?"+":">"}</span></button></div>}
-        {(loading||dataPending) && (skeletonLoading&&dimensions.width>0&&dimensions.height>0?<ReadingSkeleton embedded pages={readerPageCount(dimensions.width||viewport.width,viewport)} fullwindow={fullscreen}/>:<div className="reader-loading"><GeneralLoading label="책을 준비하고 있어요…"/></div>)}
+        {(loading||dataPending) && <ReadingSkeleton embedded pages={readerPageCount(dimensions.width||viewport.width,viewport)} fullwindow={fullscreen}/>}
       </div>
       {error && <p className="reader-error" role="alert">{error} <button type="button" className="secondary-btn" onClick={()=>setOpenRevision(value=>value+1)}>다시 시도</button></p>}
       {editError&&<p className="reader-error" role="alert">{editError}</p>}

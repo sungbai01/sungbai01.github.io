@@ -1,3 +1,15 @@
+type MotionSample={x:number;y:number;t:number};
+const throwSamples=new WeakMap<HTMLElement,MotionSample[]>();
+export function sampleBookmarkThrow(node:HTMLElement,x:number,y:number,reset=false){
+ const now=performance.now(),samples=reset?[]:(throwSamples.get(node)??[]).filter(point=>now-point.t<100);
+ samples.push({x,y,t:now});throwSamples.set(node,samples);
+}
+function releaseVelocity(node:HTMLElement){
+ const points=throwSamples.get(node)??[],last=points.at(-1),first=points[0];
+ if(!last||!first||performance.now()-last.t>100||last.t-first.t<8)return {x:0,y:0};
+ const dt=last.t-first.t;
+ return {x:Math.max(-2.5,Math.min(2.5,(last.x-first.x)/dt)),y:Math.max(-2.5,Math.min(2.5,(last.y-first.y)/dt))};
+}
 /** A removed bookmark has a visual lifetime separate from its saved anchor. */
 export class BookmarkMotion {
   private floating: HTMLElement | null = null;
@@ -6,6 +18,25 @@ export class BookmarkMotion {
   private animation: Animation | null = null;
   private destroyed = false;
   private busy = false;
+  private flight=0;
+  private stopFlight(){cancelAnimationFrame(this.flight);this.flight=0;}
+  private coast(velocity:{x:number;y:number}){
+    this.stopFlight();
+    if(matchMedia("(prefers-reduced-motion: reduce)").matches)return;
+    let last=performance.now(),vx=velocity.x,vy=velocity.y;
+    const step=(now:number)=>{
+      const node=this.floating;if(!node||this.destroyed||!this.detached)return;
+      const dt=Math.min(32,now-last);last=now;
+      const left=parseFloat(node.style.left),top=parseFloat(node.style.top);
+      const x=Math.max(0,Math.min(Math.max(0,innerWidth-node.offsetWidth),left+vx*dt));
+      const y=Math.max(0,Math.min(Math.max(0,innerHeight-node.offsetHeight),top+vy*dt));
+      if(x!==left+vx*dt)vx=0;if(y!==top+vy*dt)vy=0;
+      node.style.left=`${x}px`;node.style.top=`${y}px`;
+      const friction=Math.exp(-dt/180);vx*=friction;vy*=friction;
+      if(Math.hypot(vx,vy)>.015)this.flight=requestAnimationFrame(step);else this.flight=0;
+    };
+    this.flight=requestAnimationFrame(step);
+  }
 
   constructor(private root: () => HTMLElement | null, private reinsert: () => void) {}
 
@@ -95,6 +126,7 @@ export class BookmarkMotion {
       event.stopPropagation();
       if (this.busy || !this.detached || !event.isPrimary || event.button !== 0) return;
       event.preventDefault();
+      this.stopFlight();sampleBookmarkThrow(wrapper,event.clientX,event.clientY,true);
       const rect = wrapper.getBoundingClientRect();
       drag = {id: event.pointerId, x: event.clientX, y: event.clientY,
         left: parseFloat(wrapper.style.left), top: parseFloat(wrapper.style.top),
@@ -106,6 +138,7 @@ export class BookmarkMotion {
     wrapper.onpointermove = event => {
       if (!drag || event.pointerId !== drag.id) return;
       event.preventDefault();event.stopPropagation();
+      sampleBookmarkThrow(wrapper,event.clientX,event.clientY);
       const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
       drag.distance = Math.max(drag.distance, Math.hypot(dx, dy));
       const torque = (drag.px - .5) * dy - (drag.py - .5) * dx;
@@ -118,8 +151,10 @@ export class BookmarkMotion {
       if (!drag || event.pointerId !== drag.id) return;
       event.stopPropagation();event.preventDefault();
       const insert = drag.distance <= 5 || this.safe(event.clientX, event.clientY);
+      sampleBookmarkThrow(wrapper,event.clientX,event.clientY);
+      const velocity=releaseVelocity(wrapper);
       finish();
-      if (insert) this.reinsert();
+      if (insert) this.reinsert();else this.coast(velocity);
     };
     wrapper.onpointercancel = finish;
     wrapper.onlostpointercapture = () => {drag = null;};
@@ -141,7 +176,8 @@ export class BookmarkMotion {
 
   async change(save: () => Promise<boolean>, inserting: boolean, dragged?: HTMLElement) {
     if (this.busy || this.destroyed) return;
-    this.busy = true;
+    this.busy = true;this.stopFlight();
+    const velocity=dragged?releaseVelocity(dragged):{x:0,y:0};
     const wasDetached = this.detached;
     this.capture(dragged ?? this.source());
     this.root()?.setAttribute('data-bookmark-motion', 'true');
@@ -160,6 +196,7 @@ export class BookmarkMotion {
     } else if (dragged) {
       this.detached = true;
       if (this.plane) this.plane.style.clipPath = 'none';
+      this.coast(velocity);
     } else if (inserting) {
       // Let the saved anchor reach the independently mounted page roots.
       await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
@@ -192,6 +229,7 @@ export class BookmarkMotion {
   }
 
   private clear() {
+    this.stopFlight();
     this.animation?.cancel();this.animation = null;
     this.plane?.remove();this.plane = null;this.floating = null;this.detached = false;
   }
