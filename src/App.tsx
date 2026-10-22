@@ -552,10 +552,8 @@ function AccountApp({owner}:{owner:string|null}) {
     try{const full=owner?await library.ensureBook(book.id):book;assertAccount();download(`${full.title}.json`,[full]);}
     catch(cause){setError(cause instanceof Error?cause.message:'책을 내보내지 못했어요.');}finally{setBusy(false);}
   }
-  async function shareOne(book:Book){
-    if(busy)return;setBusy(true);
-    try{const full=owner?await library.ensureBook(book.id,true):book;library.assertCurrent();setSharing(full);}catch(cause){setError(cause instanceof Error?cause.message:'책을 불러오지 못했어요.');}finally{setBusy(false);}
-  }
+  function shareOne(book:Book){if(!busy)setSharing(book);}
+  const loadShareBook=useCallback((book:Book)=>owner?library.ensureBook(book.id):Promise.resolve(book),[owner,library]);
   async function editOne(book:Book){
     if(busy)return;setBusy(true);
     try{setEdit(owner?await library.ensureBook(book.id,true):book);}catch(cause){setError(cause instanceof Error?cause.message:'책을 불러오지 못했어요.');}finally{setBusy(false);}
@@ -604,7 +602,7 @@ function AccountApp({owner}:{owner:string|null}) {
       {openingError&&<BookOpening error={openingError} onBack={()=>{setRoute(null);location.hash='/';}} onRetry={()=>{setReaderReady(null);setOpenError('');if(accountReady)setOpenAttempt(value=>value+1);else location.reload();}}/>}
       {assetManager}
       {managingShares&&<ShareManager onClose={()=>setManagingShares(false)}/>}
-    {sharing&&<ShareDialog book={sharing} quote={shareQuotes[sharing.id]??''} initialMode={cardBook===sharing.id?'card':'url'} onSelectQuote={()=>selectShareQuote(sharing)} onClearQuote={()=>setShareQuotes(previous=>({...previous,[sharing.id]:''}))} onClose={()=>setSharing(null)} onManageAssets={()=>{if(sharing)void openAssets(bookShelf(sharing));}} onLogin={()=>{setSharing(null);setRoute(null);location.hash='/';setDrawerOpen(true);}}/>}
+    {sharing&&<ShareDialog book={sharing} loadBook={loadShareBook} quote={shareQuotes[sharing.id]??''} initialMode={cardBook===sharing.id?'card':'url'} onSelectQuote={()=>selectShareQuote(sharing)} onClearQuote={()=>setShareQuotes(previous=>({...previous,[sharing.id]:''}))} onClose={()=>setSharing(null)} onManageAssets={()=>{if(sharing)void openAssets(bookShelf(sharing));}} onLogin={()=>{setSharing(null);setRoute(null);location.hash='/';setDrawerOpen(true);}}/>}
       {toast&&<div className="toast" role="status">{toast}</div>}
     </>;
   }
@@ -667,7 +665,7 @@ function AccountApp({owner}:{owner:string|null}) {
       </div>
     </Modal>}
     {managingShares&&<ShareManager onClose={()=>setManagingShares(false)}/>}
-    {sharing&&<ShareDialog book={sharing} quote={shareQuotes[sharing.id]??''} initialMode={cardBook===sharing.id?'card':'url'} onSelectQuote={()=>selectShareQuote(sharing)} onClearQuote={()=>setShareQuotes(previous=>({...previous,[sharing.id]:''}))} onClose={()=>setSharing(null)} onManageAssets={()=>{if(sharing)void openAssets(bookShelf(sharing));}} onLogin={()=>{setSharing(null);setDrawerOpen(true);}}/>}
+    {sharing&&<ShareDialog book={sharing} loadBook={loadShareBook} quote={shareQuotes[sharing.id]??''} initialMode={cardBook===sharing.id?'card':'url'} onSelectQuote={()=>selectShareQuote(sharing)} onClearQuote={()=>setShareQuotes(previous=>({...previous,[sharing.id]:''}))} onClose={()=>setSharing(null)} onManageAssets={()=>{if(sharing)void openAssets(bookShelf(sharing));}} onLogin={()=>{setSharing(null);setDrawerOpen(true);}}/>}
     {canEdit&&remove&&<Modal title="책 삭제" onClose={()=>setRemove(null)}><p className="modal-description">‘{remove.title}’을 삭제할까요?</p><div className="modal-actions"><button className="secondary-btn" title="삭제 전 이 책을 백업" onClick={()=>void exportOne(remove)}><ArrowDownToLine size={16}/> 백업</button><button className="danger-btn" title="대화와 책갈피를 삭제합니다" disabled={busy} onClick={async()=>{if(!canEdit||deletingRef.current||editingShelf.current||preparingAssets.current||splittingBooks.current.size)return;const assertAccount=accountGuard();deletingRef.current=true;setBusy(true);try{await library.edit(store=>store.deleteBook(remove.id));assertAccount();const next=latestBooks.current.filter(b=>b.id!==remove.id);latestBooks.current=next;setBooks(next);setRemove(null);setToast('삭제 완료');}catch{setToast('삭제 실패');}finally{deletingRef.current=false;setBusy(false);}}}>삭제</button></div></Modal>}
     {toast&&<div className="toast" role="status"><Check size={16}/>{toast}</div>}
   </div>;

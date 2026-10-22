@@ -4,7 +4,9 @@ import type {Book} from '../lib/library';
 import {getAuthSession} from '../lib/auth';
 import {cardHtml,downloadBlob,makeShareCard,shareRequest,shareUrl,uploadShareCard,uploadBookShareAssets,usedShareAssets,type ShareInfo} from '../lib/sharing';
 import './share-dialog.css';
-export default function ShareDialog({book,onClose,onLogin,onManageAssets,quote='',onSelectQuote,onClearQuote,initialMode='url'}:{quote?:string;onSelectQuote?:()=>void;onClearQuote?:()=>void;initialMode?:'url'|'card';book:Book;onClose:()=>void;onLogin:()=>void;onManageAssets?:()=>void}){
+export default function ShareDialog({book:sourceBook,loadBook,onClose,onLogin,onManageAssets,quote='',onSelectQuote,onClearQuote,initialMode='url'}:{quote?:string;onSelectQuote?:()=>void;onClearQuote?:()=>void;initialMode?:'url'|'card';book:Book;loadBook?:(book:Book)=>Promise<Book>;onClose:()=>void;onLogin:()=>void;onManageAssets?:()=>void}){
+ const [book,setBook]=useState(sourceBook),[bookPending,setBookPending]=useState(!!loadBook),[bookError,setBookError]=useState('');
+ useEffect(()=>{let active=true;setBook(sourceBook);setBookPending(!!loadBook);setBookError('');if(loadBook)void loadBook(sourceBook).then(value=>{if(active)setBook(value);}).catch(()=>{if(active)setBookError('책을 불러오지 못했어요. 닫고 다시 열어 주세요.');}).finally(()=>{if(active)setBookPending(false);});return()=>{active=false;};},[sourceBook,loadBook]);
  const dialog=useRef<HTMLDialogElement>(null),title=useId();
  const [mode,setMode]=useState<'url'|'card'>(initialMode),[share,setShare]=useState<ShareInfo|null>(null),[busy,setBusy]=useState(false),[loading,setLoading]=useState(!!getAuthSession()),[error,setError]=useState(''),[notice,setNotice]=useState(''),[imageUrl,setImageUrl]=useState('');
  const [includeImages,setIncludeImages]=useState(true);
@@ -15,38 +17,43 @@ export default function ShareDialog({book,onClose,onLogin,onManageAssets,quote='
  useEffect(()=>{if(!session)return;const controller=new AbortController();void shareRequest(book.id,'GET',controller.signal).then(value=>{if(!controller.signal.aborted){setShare(value);}}).catch(cause=>{if(!controller.signal.aborted)setError(cause instanceof Error?cause.message:'공유를 확인하지 못했어요.');}).finally(()=>{if(!controller.signal.aborted)setLoading(false);});return()=>controller.abort();},[book.id,session?.user.id]);
  useEffect(()=>{setCard(undefined);setPreview('');setImageUrl('');},[book,quote]);
  useEffect(()=>{if(!card)return;const url=URL.createObjectURL(card);setPreview(url);return()=>URL.revokeObjectURL(url);},[card]);
- useEffect(()=>{if(mode!=='card')return;setCard(undefined);setPreview('');setImageUrl('');let active=true;void makeShareCard(book,quote).then(value=>{if(active)setCard(value);}).catch(cause=>{if(active)setError(cause instanceof Error?cause.message:'카드를 만들지 못했어요.');});return()=>{active=false;};},[mode,book,quote]);
+ useEffect(()=>{if(bookPending||bookError)return;setCard(undefined);setPreview('');setImageUrl('');let active=true;void makeShareCard(book,quote).then(value=>{if(active)setCard(value);}).catch(cause=>{if(active)setError(cause instanceof Error?cause.message:'카드를 만들지 못했어요.');});return()=>{active=false;};},[book,quote,bookPending,bookError]);
  async function change(method:'POST'|'DELETE'){
-  if(busy||loading)return;setBusy(true);setError('');setNotice('');
+  if(busy||loading||bookPending||bookError)return;setBusy(true);setError('');setNotice('');
   try{if(method==='POST'&&includeImages&&imageCount>40)throw new Error('공유 이미지는 한 권에 40개까지 넣을 수 있어요.');const value=await shareRequest(book.id,method,undefined,book);if(!alive.current)return;setShare(value);if(method==='DELETE')setImageUrl('');if(method==='POST'&&imageCount){await uploadBookShareAssets(book,(done,total)=>{if(alive.current)setNotice(`이미지 ${done}/${total} 업로드 중…`);},includeImages);}if(alive.current)setNotice(method==='DELETE'?'공유를 종료했어요.':'공유 링크가 준비됐어요.');}catch(cause){if(alive.current)setError(cause instanceof Error?cause.message:'공유하지 못했어요.');}finally{if(alive.current)setBusy(false);}
  }
  async function copy(value:string){try{await navigator.clipboard.writeText(value);if(alive.current)setNotice('복사했어요.');}catch{if(alive.current)setError('복사 권한이 없어요. 아래 내용을 직접 복사해 주세요.');}}
- async function hostCard(){if(!card||busy||!share)return;setBusy(true);setError('');try{const hosted=await uploadShareCard(book,card);if(alive.current){setImageUrl(hosted);setNotice('카드를 업로드했어요. HTML을 복사해 붙여 넣으세요.');}}catch(cause){if(alive.current)setError(cause instanceof Error?cause.message:'카드를 올리지 못했어요.');}finally{if(alive.current)setBusy(false);}}
+ async function hostCard(){if(!card||busy||!share)return;setBusy(true);setError('');try{const hosted=await uploadShareCard(book,card);if(alive.current){setImageUrl(hosted);await copy(cardHtml(book,shareUrl(share.id),hosted));}}catch(cause){if(alive.current)setError(cause instanceof Error?cause.message:'카드를 올리지 못했어요.');}finally{if(alive.current)setBusy(false);}}
  const url=share?shareUrl(share.id):'';
  let html='';try{if(url&&imageUrl.trim())html=cardHtml(book,url,imageUrl.trim());}catch{/* Input is validated before enabling copy. */}
- return <dialog ref={dialog} className="modal share-dialog" aria-labelledby={title} onCancel={event=>{event.preventDefault();if(event.target===event.currentTarget&&!busy)onClose();}}>
-  <div className="modal-header"><h2 id={title}>공유</h2><button className="icon-btn" aria-label="닫기" disabled={busy} onClick={onClose}><X size={20}/></button></div>
-  <div className="share-book-heading"><p className="share-book-title">{book.title}</p>{onManageAssets&&<button className="icon-btn" aria-label="에셋 이미지 관리" title="표지 · 책갈피 · 공유 카드 이미지" disabled={busy} onClick={onManageAssets}><Images size={18}/></button>}</div>
-  <div role="tablist" aria-label="공유 방식" className="share-tabs">{([{id:'url',label:'URL로 공유',icon:Link},{id:'card',label:'카드로 공유',icon:Image}] as const).map(item=><button type="button" key={item.id} role="tab" id={`${title}-${item.id}`} aria-controls={`${title}-panel`} aria-selected={mode===item.id} onClick={()=>{setMode(item.id);setNotice('');}}><item.icon size={17}/>{item.label}</button>)}</div>
-  <div id={`${title}-panel`} role="tabpanel" aria-labelledby={`${title}-${mode}`}>
-   {session&&imageCount>0&&<label className="share-images-option"><input type="checkbox" checked={includeImages} disabled={busy} onChange={event=>setIncludeImages(event.target.checked)}/>사용한 이미지 포함 · {imageCount}개</label>}
-   {!session?<div className="share-login"><p>공유하려면 로그인 후 책을 계정 서재에 저장해 주세요.</p><button className="primary-btn" onClick={onLogin}>Google로 로그인</button></div>:<>
-    {loading?<p className="share-status" role="status"><LoaderCircle size={16} className="animate-spin"/>공유 확인 중…</p>:!share?<div className="share-create"><p>이 권을 링크를 아는 사람에게 공개해요.</p><button className="primary-btn" disabled={busy} onClick={()=>void change('POST')}>{busy?<LoaderCircle size={16} className="animate-spin"/>:<Link size={16}/>}공유 링크 만들기</button></div>:<>
-      <label className="field">공유 링크<div className="share-url"><input readOnly value={url} onFocus={event=>event.currentTarget.select()}/><button className="icon-btn" aria-label="링크 복사" title="링크 복사" disabled={busy} onClick={()=>void copy(url)}><Copy size={17}/></button></div></label>
-      <div className="share-manage"><button title="현재 책의 텍스트로 갱신" disabled={busy} onClick={()=>void change('POST')}><RotateCcw size={14}/>공유 내용 갱신</button><button title="기존 링크의 읽기 권한 종료" disabled={busy} onClick={()=>void change('DELETE')}><Unlink size={14}/>공유 종료</button></div>
-    </>}
-   </>}
-   {mode==='card'&&<div className="share-card">
-    <div className="share-quote-actions">{onSelectQuote&&<button className="secondary-btn" disabled={busy} onClick={onSelectQuote}><Quote size={15}/>{quote?'대사 다시 선택':'대사 첨부'}</button>}{quote&&<button className="icon-btn" title="대사 제거" aria-label="대사 제거" disabled={busy} onClick={onClearQuote}><X size={16}/></button>}</div>
-    {quote&&<blockquote className="share-quote-text">{quote}</blockquote>}
-    {preview?<img src={preview} alt={`${book.title} 공유 카드`}/>:<div className="share-card-loading" role="status"><LoaderCircle size={20} className="animate-spin"/></div>}
-    <button className="secondary-btn" disabled={!card} onClick={()=>{if(card)downloadBlob(card,`${book.title.replace(/[\\/:*?"<>|]/g,'-')}-공유카드.${card.type==='image/webp'?'webp':'png'}`);}}><Download size={15}/>카드 이미지 저장</button>
-    <p className="share-hint">HTML 복사를 사용하면 카드를 따로 첨부할 필요 없어요.</p>{url&&<button className="secondary-btn" disabled={!card||busy} onClick={()=>void hostCard()}>{busy?<LoaderCircle size={15} className="animate-spin"/>:<Image size={15}/>}카드 업로드</button>}{html&&<button className="primary-btn" disabled={busy} onClick={()=>void copy(html)}><Copy size={15}/>HTML 복사</button>}
-    {url&&<details className="share-html"><summary>HTML 직접 복사 · 이미지 주소 변경</summary><label className="field">첨부한 카드 이미지 주소<input type="url" placeholder="https://…" value={imageUrl} onChange={event=>setImageUrl(event.target.value)}/></label><textarea aria-label="공유 카드 HTML" readOnly value={html||'이미지 주소를 입력하면 링크가 포함된 HTML이 만들어져요.'} onFocus={event=>event.currentTarget.select()}/><button className="secondary-btn" disabled={!html} onClick={()=>void copy(html)}><Copy size={15}/>HTML 복사</button></details>}
-   </div>}
+ const artwork=book.assets?.find(asset=>asset.id===book.shareCardAssetId)?.src??book.characterIcon;
+ const locked=busy||loading||bookPending||!!bookError;
+ return <dialog ref={dialog} className="share-ticket-dialog" aria-labelledby={title} onCancel={event=>{event.preventDefault();if(!busy)onClose();}}>
+  <h2 id={title} className="sr-only">책 공유</h2>
+  <div className="share-ticket-workspace">
+   <article className="share-interactive-ticket" style={{backgroundColor:book.color}}>
+    {artwork&&<img className="share-ticket-artwork" src={artwork} alt=""/>}
+    <div className="share-ticket-body"><small>GALPI / A STORY TO KEEP</small><h3>{book.title}</h3>
+     <button className="share-ticket-quote" disabled={busy||bookPending||!!bookError||!onSelectQuote} onClick={onSelectQuote} title="책 페이지에서 대사 선택"><Quote size={18}/><span>{quote||'대사 선택'}</span></button>
+     {quote&&<button className="share-ticket-clear" disabled={busy} onClick={onClearQuote} title="대사 제거" aria-label="대사 제거"><X size={14}/></button>}
+     <span className="share-ticket-author">{book.author||'저자 모델 미상'}</span>
+     {onManageAssets&&<button className="share-ticket-art" disabled={busy} onClick={onManageAssets} title="공유 카드 이미지 선택" aria-label="공유 카드 이미지 선택"><Images size={18}/></button>}
+    </div>
+    <div className="share-ticket-stub"><span className="share-ticket-volume">{String(book.volumeNumber??1).padStart(2,'0')}</span>
+     <div className="share-ticket-modes" role="group" aria-label="공유 방식"><button aria-label="URL로 공유" title="URL로 공유" aria-pressed={mode==='url'} onClick={()=>setMode('url')}><Link size={19}/></button><button aria-label="카드로 공유" title="카드로 공유" aria-pressed={mode==='card'} onClick={()=>setMode('card')}><Image size={19}/></button></div>
+     {session?<button className="share-ticket-primary" disabled={locked} onClick={()=>share?void copy(url):void change('POST')} title={share?'공유 링크 복사':'링크를 아는 사람에게 이 책 공개'}>{locked?<LoaderCircle className="animate-spin" size={18}/>:share?<Copy size={18}/>:<Link size={18}/>}<span>{share?'링크 복사':'공유 만들기'}</span></button>:<button className="share-ticket-primary" onClick={onLogin}>로그인</button>}
+     {session&&imageCount>0&&<label className="share-ticket-images" title="사용한 이미지 포함"><input type="checkbox" checked={includeImages} disabled={locked} onChange={event=>setIncludeImages(event.target.checked)}/>이미지 {imageCount}</label>}
+     <small title="7일 동안 열람하지 않으면 공유와 공유 이미지가 만료됩니다. 이미지당 2MB, 한 권 50MB, 공유는 1분 간격입니다.">7 DAYS</small>
+    </div>
+   </article>
+   <nav className="share-ticket-tools" aria-label="공유 도구">
+    <button aria-label="닫기" title="닫기" disabled={busy} onClick={onClose}><X size={20}/></button>
+    {mode==='card'&&<><button aria-label="카드 이미지 저장" title="카드 이미지 저장" disabled={!card||bookPending} onClick={()=>{if(card)downloadBlob(card,'갈피-공유카드.png');}}><Download size={20}/></button><button aria-label="카드 HTML 복사" title="카드 HTML 복사 · 공유 이미지 업로드" disabled={!card||!share||locked} onClick={()=>{if(html)void copy(html);else void hostCard();}}>{busy?<LoaderCircle className="animate-spin" size={20}/>:<Copy size={20}/>}</button></>}
+    {share&&<><button aria-label="공유 내용 갱신" title="공유 내용 갱신" disabled={locked} onClick={()=>void change('POST')}><RotateCcw size={20}/></button><button aria-label="공유 종료" title="공유 종료" disabled={locked} onClick={()=>void change('DELETE')}><Unlink size={20}/></button></>}
+   </nav>
   </div>
-  <p className="share-hint" title="공유 생성·갱신과 카드 업로드는 계정별 1분에 1회, 하루 30회까지 가능해요. 이미지 원본은 브라우저에 유지하고 공유용 사본만 올려요.">이미지당 2MB · 한 권 50MB · 공유는 1분 간격</p>
-  <p className="share-hint">7일 동안 책을 열지 않으면 공유가 만료되고 공유 이미지가 삭제돼요.</p>
-  {error&&<p className="error-message" role="alert">{error}</p>}{notice&&<p className="share-status" role="status"><Check size={14}/>{notice}</p>}
+  {mode==='card'&&preview&&<details className="share-ticket-preview"><summary>저장될 카드 미리보기</summary><img src={preview} alt="공유 카드 미리보기"/></details>}
+  {url&&<input className="share-ticket-url" aria-label="공유 링크" readOnly value={url} onFocus={event=>event.currentTarget.select()}/>}
+  {(error||bookError)&&<p className="share-ticket-message" role="alert">{bookError||error}</p>}{notice&&<p className="share-ticket-message" role="status"><Check size={14}/>{notice}</p>}
  </dialog>;
 }
