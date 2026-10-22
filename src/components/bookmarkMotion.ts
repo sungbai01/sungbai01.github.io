@@ -13,7 +13,7 @@ export class BookmarkMotion {
     const root = this.root();
     if (!root) return null;
     const candidates = root.querySelectorAll<HTMLElement>(
-      '.reader-bookmark-peek .reader-bookmark-slip, .reader-page:not([data-flip-copy]) .reader-bookmark-slip',
+      '.reader-phone-bookmark .reader-bookmark-slip, .reader-bookmark-peek .reader-bookmark-slip, .reader-page:not([data-flip-copy]) .reader-bookmark-slip',
     );
     for (const node of candidates) {
       if (!node.getClientRects().length || node.closest('[data-bookmark-hidden="true"]')) continue;

@@ -527,13 +527,13 @@ export function Reader({ book, onClose, onReady, onOpenError, initialBookmark, o
         activeMessagesRef.current=currentBook.messages;
       }
       const count = readerPageCount(dimensions.width, viewport);
-      const height = Math.max(100, fullscreen?dimensions.height-10:Math.min(790, dimensions.height - Math.min(56, dimensions.height * .12)));
+      const height = Math.max(100, device==='phone'?dimensions.height:fullscreen?dimensions.height-10:Math.min(790, dimensions.height - Math.min(56, dimensions.height * .12)));
       // Editing reuses this pagination and only scales its presentation for rails.
-      const sideSpace=fullscreen?10:16;
+      const sideSpace=device==='phone'?0:fullscreen?10:16;
       const availablePageWidth=Math.max(1,(dimensions.width-sideSpace)/count);
       // A 120px lower bound could overflow the reserved rails on a narrow
       // window. The actual stage width must always win over a preferred minimum.
-      const width = Math.max(1, fullscreen?Math.min(availablePageWidth,height*MAX_FULLWINDOW_PAGE_RATIO):Math.min(540,Math.floor(availablePageWidth)));
+      const width = Math.max(1, device==='phone'?availablePageWidth:fullscreen?Math.min(availablePageWidth,height*MAX_FULLWINDOW_PAGE_RATIO):Math.min(540,Math.floor(availablePageWidth)));
       const padding = width < 350 ? 22 : width < 440 ? 32 : 46;
       const {top:contentTop,bottom:contentBottom} = pageTextInsets(height,fontSize);
       const measure = measureRef.current;
@@ -544,13 +544,18 @@ export function Reader({ book, onClose, onReady, onOpenError, initialBookmark, o
       const body=paginate(currentBook, measure,{pageHeight:height,contentTop});
       body.forEach((page,index)=>{page.pageNumber=index+1;});
       let bodyCount=body.length;
-      const prefix:PaperPage[]=count===2?[{fragments:[],intro:false,kind:'front-endpaper'},{fragments:[],intro:false,kind:'front-cover'}]:[{fragments:[],intro:false,kind:'front-cover'}];
-      prefix.push({fragments:[],intro:false,kind:'opening-endpaper'},{fragments:[],intro:false,kind:'opening-endpaper'});
-      const nextPages:PaperPage[]=[...prefix,...body,{fragments:[],intro:false,kind:'endpaper'}];
-      if(count===2&&nextPages.length%2)nextPages.push({fragments:[],intro:false,kind:'endpaper'});
-      nextPages[nextPages.length-1]!.kind='colophon';
-      nextPages.push({fragments:[],intro:false,kind:'back-cover'});
-      if(count===2)nextPages.push({fragments:[],intro:false,kind:'end'});
+      const prefix:PaperPage[]=device==='phone'?[]:count===2?[{fragments:[],intro:false,kind:'front-endpaper'},{fragments:[],intro:false,kind:'front-cover'}]:[{fragments:[],intro:false,kind:'front-cover'}];
+      if(device!=='phone')prefix.push({fragments:[],intro:false,kind:'opening-endpaper'},{fragments:[],intro:false,kind:'opening-endpaper'});
+      const assemblePages=(content:PaperPage[]):PaperPage[]=>{
+        if(device==='phone')return [...content,{fragments:[],intro:false,kind:'colophon'},{fragments:[],intro:false,kind:'end'}];
+        const result:PaperPage[]=[...prefix,...content,{fragments:[],intro:false,kind:'endpaper'}];
+        if(count===2&&result.length%2)result.push({fragments:[],intro:false,kind:'endpaper'});
+        result[result.length-1]!.kind='colophon';
+        result.push({fragments:[],intro:false,kind:'back-cover'});
+        if(count===2)result.push({fragments:[],intro:false,kind:'end'});
+        return result;
+      };
+      const nextPages=assemblePages(body);
       pagesRef.current = nextPages;
       const target = frontRequestedRef.current?0:anchorRef.current ? pageForAnchor(nextPages, anchorRef.current)
         : initialBookmarkRef.current ? bookmarkPage(nextPages,initialBookmarkRef.current) : prefix.length;
@@ -572,7 +577,7 @@ export function Reader({ book, onClose, onReady, onOpenError, initialBookmark, o
         element.className = `reader-page ${index % 2 === 0 ? 'reader-page-left' : 'reader-page-right'}`;
         element.dataset.pageKind=page.kind??'paper';
         element.dataset.readerPageIndex=String(index);
-        const coverFace=page.kind==='front-cover'||page.kind==='opening-endpaper'&&index===(count===2?2:1)?'front':page.kind==='back-cover'||page.kind==='colophon'?'back':undefined;
+        const coverFace=device==='phone'?undefined:page.kind==='front-cover'||page.kind==='opening-endpaper'&&index===(count===2?2:1)?'front':page.kind==='back-cover'||page.kind==='colophon'?'back':undefined;
         if(coverFace)element.dataset.coverFace=coverFace;
         element.setAttribute('data-density', coverFace?'hard':'soft');
         element.setAttribute('role', 'article');
@@ -668,10 +673,7 @@ export function Reader({ book, onClose, onReady, onOpenError, initialBookmark, o
         editingSourceRef.current={...source,messages:edited.messages};editingReflowedRef.current=true;
         draftsRef.current.clear();chapterDraftsRef.current.clear();chapterInsertionsRef.current.clear();draftPagesRef.current.clear();
         const flowed=paginate(editingSourceRef.current,measure,{pageHeight:height,contentTop});
-        const replacement:PaperPage[]=[...prefix,...flowed,{fragments:[],intro:false,kind:'endpaper'}];
-        if(count===2&&replacement.length%2)replacement.push({fragments:[],intro:false,kind:'endpaper'});
-        replacement[replacement.length-1]!.kind='colophon';replacement.push({fragments:[],intro:false,kind:'back-cover'});
-        if(count===2)replacement.push({fragments:[],intro:false,kind:'end'});
+        const replacement=assemblePages(flowed);
         nextPages.splice(0,nextPages.length,...replacement);
         const destination=pageForAnchor(nextPages,caret);syncPages(destination);anchorRef.current=caret;setLeafRevision(value=>value+1);
         const keep=new Set([...baselinePages,...nextPages]);for(const page of nodeByPage.keys())if(!keep.has(page))nodeByPage.delete(page);
@@ -1005,7 +1007,7 @@ export function Reader({ book, onClose, onReady, onOpenError, initialBookmark, o
   const firstMessagePage=new Map<number,number>();pagesRef.current.forEach((page,index)=>page.fragments.forEach(fragment=>{if(!firstMessagePage.has(fragment.message))firstMessagePage.set(fragment.message,index);}));
   const chapterEvents=[...editingBook.messages.flatMap((message,index)=>(chapterDraftsRef.current.get(index)?.chapterStart??startsChapter(editingBook,index))?[{message:index,char:0,offset:-1,page:firstMessagePage.get(index)??index,title:chapterDraftsRef.current.get(index)?.chapterTitle??message.chapterTitle,id:undefined as string|undefined}]:[]),...chapterTools.insertions.map(entry=>({message:entry.fragment.message,char:entry.fragment.char,offset:entry.offset,page:fragmentPositions.get(fragmentKey(entry.fragment))??0,title:entry.chapterTitle,id:entry.id}))].sort((a,b)=>a.page-b.page||a.char-b.char||a.offset-b.offset);
   chapterEvents.forEach((entry,index)=>{if(entry.id)chapterTools.numbers.set(entry.id,index+1);else chapterTools.headings.set(entry.message,{number:index+1,title:entry.title});});
-  renderLeafRef.current=(page,index,mobile)=><ChapterToolsContext.Provider value={chapterTools}><PageLeaf page={page} book={editingSourceRef.current??bookRef.current} query={queryRef.current} index={index} mobile={mobile} editing={editing} onEdit={onEdit} drafts={draftsRef.current} chapterDrafts={chapterDraftsRef.current} onPreview={previewAsset} onChapterEdit={(message,patch)=>{chapterDraftsRef.current.set(message,{...chapterDraftsRef.current.get(message),...patch});if(patch.chapterStart===false)setLeafRevision(value=>value+1);}} onNext={nextVolumeRef.current?()=>requestNextRef.current():undefined} onClose={()=>requestCloseRef.current()} bookmark={shelfBookmark?.bookId===bookRef.current.id&&bookmarkPage(pagesRef.current,shelfBookmark)===index?{...bookmarkInteraction,style:ribbonStyle,icon:ribbonIcon,image:ribbonImage,title:shelfBookmark.title,color:bookRef.current.color,side:index<(selectedLeaf??pageIndex)?'before':'after'}:undefined}/></ChapterToolsContext.Provider>;
+  renderLeafRef.current=(page,index,mobile)=><ChapterToolsContext.Provider value={chapterTools}><PageLeaf page={page} book={editingSourceRef.current??bookRef.current} query={queryRef.current} index={index} mobile={mobile} editing={editing} onEdit={onEdit} drafts={draftsRef.current} chapterDrafts={chapterDraftsRef.current} onPreview={previewAsset} onChapterEdit={(message,patch)=>{chapterDraftsRef.current.set(message,{...chapterDraftsRef.current.get(message),...patch});if(patch.chapterStart===false)setLeafRevision(value=>value+1);}} onNext={nextVolumeRef.current?()=>requestNextRef.current():undefined} onClose={()=>requestCloseRef.current()} bookmark={device!=='phone'&&shelfBookmark?.bookId===bookRef.current.id&&bookmarkPage(pagesRef.current,shelfBookmark)===index?{...bookmarkInteraction,style:ribbonStyle,icon:ribbonIcon,image:ribbonImage,title:shelfBookmark.title,color:bookRef.current.color,side:index<(selectedLeaf??pageIndex)?'before':'after'}:undefined}/></ChapterToolsContext.Provider>;
   useEffect(()=>{if(!onSaveBook&&editing){draftsRef.current.clear();chapterDraftsRef.current.clear();chapterInsertionsRef.current.clear();draftPagesRef.current.clear();editingSourceRef.current=null;editingReflowedRef.current=false;setEditing(false);setLeafRevision(value=>value+1);}},[onSaveBook,editing]);
   function cancelEditing(){restoreDraftPagesRef.current();editingSourceRef.current=null;editingReflowedRef.current=false;draftsRef.current.clear();chapterDraftsRef.current.clear();chapterInsertionsRef.current.clear();draftPagesRef.current.clear();setEditing(false);setEditError('');setLeafRevision(value=>value+1);}
   async function saveEditing(){
@@ -1065,9 +1067,10 @@ export function Reader({ book, onClose, onReady, onOpenError, initialBookmark, o
 
     <main className="reader-main" aria-label={`${book.title} 읽기`}>
       <div className="reader-stage" ref={stageRef} aria-busy={loading} data-book-closed={pages.slice(pageIndex,pageIndex+spread).some(page=>page.kind==='back-cover'||page.kind==='front-cover')}>
-        {!loading&&<div className="reader-cover-boards" aria-hidden="true" inert><span className="reader-cover-board-left"/><span className="reader-cover-board-right"/></div>}
+        {!loading&&device!=='phone'&&<div className="reader-cover-boards" aria-hidden="true" inert><span className="reader-cover-board-left"/><span className="reader-cover-board-right"/></div>}
         <div className="reader-book-mount" ref={mountRef} onPointerDownCapture={event=>{const page=(event.target as HTMLElement).closest<HTMLElement>('[data-reader-page-index]');if(page&&!page.dataset.flipCopy)setSelectedLeaf(Number(page.dataset.readerPageIndex));}}/>
-        {!loading&&peekBookmark&&shelfBookmark&&<div className={`reader-bookmark-peek reader-bookmark-peek-${markedPage<pageIndex?'before':'after'}`} aria-label="페이지 사이 책갈피"><BookmarkSlip {...bookmarkInteraction} style={ribbonStyle} icon={ribbonIcon} image={ribbonImage} title={shelfBookmark.title} color={book.color} side={markedPage<pageIndex?'before':'after'}/></div>}
+        {!loading&&device!=='phone'&&peekBookmark&&shelfBookmark&&<div className={`reader-bookmark-peek reader-bookmark-peek-${markedPage<pageIndex?'before':'after'}`} aria-label="페이지 사이 책갈피"><BookmarkSlip {...bookmarkInteraction} style={ribbonStyle} icon={ribbonIcon} image={ribbonImage} title={shelfBookmark.title} color={book.color} side={markedPage<pageIndex?'before':'after'}/></div>}
+        {!loading&&device==='phone'&&markedPage>=0&&shelfBookmark&&<div className="reader-phone-bookmark" aria-label="책갈피"><BookmarkSlip {...bookmarkInteraction} style={ribbonStyle} icon={ribbonIcon} image={ribbonImage} title={shelfBookmark.title} color={book.color} side="after"/></div>}
       {selectingQuote&&onQuoteSelected&&<ShareQuoteSelection host={mountRef} onDone={onQuoteSelected} onPrevious={()=>jump(Math.max(0,pageIndex-spread))} onNext={()=>jump(Math.min(pages.length-1,pageIndex+spread))}/>}
       {editing&&<div className="reader-edit-navigation" data-no-flip><button type="button" aria-label="편집 이전 페이지" disabled={saving||loading||pageIndex===0} onClick={()=>jump(Math.max(0,pageIndex-spread))}><span aria-hidden="true">&lt;</span></button><button type="button" aria-label={pageIndex+spread>=proseStart+contentCount?"빈 페이지 추가":"편집 다음 페이지"} title={pageIndex+spread>=proseStart+contentCount?"본문 끝에 빈 페이지 추가":undefined} data-add-page={pageIndex+spread>=proseStart+contentCount||undefined} disabled={saving||loading} onPointerDown={event=>event.preventDefault()} onClick={()=>pageIndex+spread>=proseStart+contentCount?insertPageRef.current(proseStart+contentCount-1):jump(Math.min(pages.length-1,pageIndex+spread))}><span aria-hidden="true">{pageIndex+spread>=proseStart+contentCount?"+":">"}</span></button></div>}
         {loading && (!onReady||openedRef.current) && <div className="reader-loading" role="status"><BookOpen size={25} /><span>책을 펼치고 있어요…</span></div>}
