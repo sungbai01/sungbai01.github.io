@@ -145,7 +145,8 @@ export class BookmarkMotion {
     const wasDetached = this.detached;
     this.capture(dragged ?? this.source());
     this.root()?.setAttribute('data-bookmark-motion', 'true');
-    const leaving = !dragged && !wasDetached && this.floating
+    const removeOnPhone = !inserting && this.root()?.dataset.device === 'phone';
+    const leaving = (removeOnPhone || (!dragged && !wasDetached)) && this.floating
       ? this.animate([{transform: this.floating.style.transform}, {transform: `translateY(-${parseFloat(this.floating.style.top) + this.floating.offsetHeight + 60}px) rotate(0deg)`}])
       : Promise.resolve();
     const [saved] = await Promise.all([save(), leaving]);
@@ -153,6 +154,9 @@ export class BookmarkMotion {
     if (!saved) {
       this.animation?.cancel();
       if (!wasDetached) this.clear();
+    } else if (removeOnPhone) {
+      // Phones discard the visual copy too, including drag-to-remove.
+      this.clear();
     } else if (dragged) {
       this.detached = true;
       if (this.plane) this.plane.style.clipPath = 'none';
