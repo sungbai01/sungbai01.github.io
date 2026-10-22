@@ -493,6 +493,14 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
     return()=>{document.body.style.overflow=previous;};
   },[]);
 
+  // Mode CSS changes the stage immediately. Measure before paint so the first
+  // skeleton frame already has destination geometry instead of the old size.
+  useLayoutEffect(()=>{
+    const stage=stageRef.current;if(!stage)return;
+    const next={width:Math.floor(stage.clientWidth),height:Math.floor(stage.clientHeight)};
+    setDimensions(previous=>previous.width===next.width&&previous.height===next.height?previous:next);
+  },[fullscreen,device,book.title]);
+
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;

@@ -44,8 +44,12 @@ for(const mobile of [false,true])test(`reader readiness and duplicate font event
    const enter=await page.getByRole('button',{name:'전체창',exact:true}).evaluate(async button=>{
     const count=(window as any).readerInitializations;
     (button as HTMLButtonElement).click();
+    const rect=()=>{const r=document.querySelector('.skeleton-paper-stack')!.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height};};
+    const firstRect=rect();
     const immediate=!!document.querySelector('.reading-skeleton-embedded')&&document.querySelector('.reader-stage')?.getAttribute('aria-busy')==='true';
     await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));
+    const nextRect=rect();
+    if(JSON.stringify(firstRect)!==JSON.stringify(nextRect))throw new Error('Skeleton geometry moved between first frames: '+JSON.stringify({firstRect,nextRect}));
     return {immediate,beforeCalculation:(window as any).readerInitializations===count,full:!!document.querySelector('.reader-fullscreen'),topAnimation:getComputedStyle(document.querySelector('.reader-drawer')!).animationName,bottomAnimation:getComputedStyle(document.querySelector('.reader-footer')!).animationName};
    });
    expect(enter).toEqual({immediate:true,beforeCalculation:true,full:true,topAnimation:'reader-chrome-hide-top',bottomAnimation:'reader-chrome-hide-bottom'});
