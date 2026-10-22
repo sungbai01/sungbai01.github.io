@@ -36,3 +36,8 @@
 .general-loading>svg{flex:none;animation:general-loading-spin 1s linear infinite}
 @keyframes general-loading-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.general-loading>svg{animation:none}}
+/* Embedded placeholders use the actual reader geometry, never viewport guesses. */
+.reading-skeleton.reading-skeleton-embedded .skeleton-reader-stage{padding:0}
+.reading-skeleton.reading-skeleton-embedded .skeleton-paper-stack{width:var(--reader-book-width);height:var(--paper-height);max-width:none;max-height:none;flex-shrink:0}
+.reading-skeleton.reading-skeleton-embedded .skeleton-paper{padding:var(--reader-content-top) var(--reader-page-padding) var(--reader-content-bottom)}
+.reading-skeleton.reading-skeleton-embedded .skeleton-chapter,.reading-skeleton.reading-skeleton-embedded .skeleton-page-number{display:none}

@@ -381,6 +381,19 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
   const frontRequestedRef=useRef(false);
   const [spread, setSpread] = useState(1);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const pageGeometry=useMemo(()=>{
+    const count = readerPageCount(dimensions.width, viewport);
+    const height = Math.max(100, device==='phone'?dimensions.height:fullscreen?dimensions.height-10:Math.min(790, dimensions.height - Math.min(56, dimensions.height * .12)));
+    // Editing reuses this pagination and only scales its presentation for rails.
+    const sideSpace=device==='phone'?0:fullscreen?10:16;
+    const availablePageWidth=Math.max(1,(dimensions.width-sideSpace)/count);
+    // A 120px lower bound could overflow the reserved rails on a narrow
+    // window. The actual stage width must always win over a preferred minimum.
+    const width = Math.max(1, device==='phone'?availablePageWidth:fullscreen?Math.min(availablePageWidth,height*MAX_FULLWINDOW_PAGE_RATIO):Math.min(540,Math.floor(availablePageWidth)));
+    const padding = width < 350 ? 22 : width < 440 ? 32 : 46;
+    const {top:contentTop,bottom:contentBottom} = pageTextInsets(height,fontSize);
+    return {count,height,width,padding,contentTop,contentBottom};
+  },[dimensions,viewport,device,fullscreen,fontSize]);
   const [loading, setLoading] = useState(true);
   const skeletonLoading=useSkeletonLoading();
   const openedRef=useRef(false);
@@ -532,16 +545,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
         activeBookRef.current = currentBook.id;
         activeMessagesRef.current=currentBook.messages;
       }
-      const count = readerPageCount(dimensions.width, viewport);
-      const height = Math.max(100, device==='phone'?dimensions.height:fullscreen?dimensions.height-10:Math.min(790, dimensions.height - Math.min(56, dimensions.height * .12)));
-      // Editing reuses this pagination and only scales its presentation for rails.
-      const sideSpace=device==='phone'?0:fullscreen?10:16;
-      const availablePageWidth=Math.max(1,(dimensions.width-sideSpace)/count);
-      // A 120px lower bound could overflow the reserved rails on a narrow
-      // window. The actual stage width must always win over a preferred minimum.
-      const width = Math.max(1, device==='phone'?availablePageWidth:fullscreen?Math.min(availablePageWidth,height*MAX_FULLWINDOW_PAGE_RATIO):Math.min(540,Math.floor(availablePageWidth)));
-      const padding = width < 350 ? 22 : width < 440 ? 32 : 46;
-      const {top:contentTop,bottom:contentBottom} = pageTextInsets(height,fontSize);
+      const {count,height,width,padding,contentTop,contentBottom}=pageGeometry;
       const measure = measureRef.current;
       measure.style.width = `${width - padding * 2}px`;
       measure.style.height = `${Math.max(1,height - contentTop - contentBottom)}px`;
@@ -574,9 +578,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
       host.style.setProperty('--reader-content-top', `${contentTop}px`);
       host.style.setProperty('--reader-content-bottom', `${contentBottom}px`);
       host.style.setProperty('--paper-width',`${width}px`);host.style.setProperty('--paper-height',`${height}px`);host.dataset.flipState='read';
-      stageRef.current?.style.setProperty('--reader-book-width',`${width*count}px`);
       stageRef.current?.style.setProperty('--reader-edit-scale',String(Math.min(1,Math.max(.5,(dimensions.width-88)/(width*count)))));
-      stageRef.current?.style.setProperty('--paper-width',`${width}px`);stageRef.current?.style.setProperty('--paper-height',`${height}px`);
       mountRef.current.append(host);
       const makeNode = (page:PaperPage,index:number) => {
         const element = document.createElement('div');
@@ -1049,7 +1051,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
   const atFront=pageIndex<proseStart,atEnd=pageIndex>=proseStart+contentCount;
   const percent = !pages.length||atFront?0:atEnd?100:Math.round(Math.min(1,bodyPosition/Math.max(1,contentCount-1))*100);
   const positionLabel=!pages.length?'책장을 준비하고 있어요':atFront?'표지':atEnd?'끝':`전체 ${contentCount}쪽 중 ${bodyPosition+1}${visibleEnd>bodyPosition+1?`–${visibleEnd}`:''}쪽`;
-  const style = { '--reader-font-size': `${fontSize}px`, '--book-cover':book.color } as CSSProperties;
+  const style = { '--reader-font-size': `${fontSize}px`, '--book-cover':book.color, '--reader-book-width':`${pageGeometry.width*pageGeometry.count}px`, '--paper-width':`${pageGeometry.width}px`, '--paper-height':`${pageGeometry.height}px`, '--reader-page-padding':`${pageGeometry.padding}px`, '--reader-content-top':`${pageGeometry.contentTop}px`, '--reader-content-bottom':`${pageGeometry.contentBottom}px` } as CSSProperties;
 
   return <div ref={readerRef} className={`reader reader-theme-${theme}${theme === 'dark' ? ' dark' : ''}${fullscreen?' reader-fullscreen':''}${editing?' reader-is-editing':''}`} data-device={device} data-flush-covers={fullscreen&&device!=='desktop'||undefined} data-selecting-quote={selectingQuote||undefined} data-page-layout={spread===2?'spread':'single'} data-bookmark-current={markedPage>=pageIndex&&markedPage<pageIndex+spread||undefined} style={style} lang="ko">
     {fullscreen&&<button ref={drawerHandleRef} className="reader-drawer-handle" data-no-flip aria-label="독서 메뉴" aria-expanded={drawerOpen} aria-controls="reader-drawer" onPointerDown={startDrawerDrag} onPointerMove={moveDrawerDrag} onPointerUp={endDrawerDrag} onPointerCancel={event=>{suppressHandleClick.current=true;endDrawerDrag(event);}} onLostPointerCapture={()=>{drawerDrag.current=null;}} onClick={()=>{if(suppressHandleClick.current){suppressHandleClick.current=false;return;}if(drawerOpen)closeDrawer();else setDrawerOpen(true);}}><span/></button>}
@@ -1080,7 +1082,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
         {!loading&&device==='phone'&&markedPage>=0&&shelfBookmark&&<div className="reader-phone-bookmark" aria-label="책갈피"><BookmarkSlip {...bookmarkInteraction} style={ribbonStyle} icon={ribbonIcon} image={ribbonImage} title={shelfBookmark.title} color={book.color} side="after"/></div>}
       {selectingQuote&&onQuoteSelected&&<ShareQuoteSelection host={mountRef} onDone={onQuoteSelected} onPrevious={()=>jump(Math.max(0,pageIndex-spread))} onNext={()=>jump(Math.min(pages.length-1,pageIndex+spread))}/>}
       {editing&&<div className="reader-edit-navigation" data-no-flip><button type="button" aria-label="편집 이전 페이지" disabled={saving||loading||pageIndex===0} onClick={()=>jump(Math.max(0,pageIndex-spread))}><span aria-hidden="true">&lt;</span></button><button type="button" aria-label={pageIndex+spread>=proseStart+contentCount?"빈 페이지 추가":"편집 다음 페이지"} title={pageIndex+spread>=proseStart+contentCount?"본문 끝에 빈 페이지 추가":undefined} data-add-page={pageIndex+spread>=proseStart+contentCount||undefined} disabled={saving||loading} onPointerDown={event=>event.preventDefault()} onClick={()=>pageIndex+spread>=proseStart+contentCount?insertPageRef.current(proseStart+contentCount-1):jump(Math.min(pages.length-1,pageIndex+spread))}><span aria-hidden="true">{pageIndex+spread>=proseStart+contentCount?"+":">"}</span></button></div>}
-        {(loading||dataPending) && (skeletonLoading?<ReadingSkeleton embedded pages={readerPageCount(dimensions.width||viewport.width,viewport)} fullwindow={fullscreen}/>:<div className="reader-loading"><GeneralLoading label="책을 준비하고 있어요…"/></div>)}
+        {(loading||dataPending) && (skeletonLoading&&dimensions.width>0&&dimensions.height>0?<ReadingSkeleton embedded pages={readerPageCount(dimensions.width||viewport.width,viewport)} fullwindow={fullscreen}/>:<div className="reader-loading"><GeneralLoading label="책을 준비하고 있어요…"/></div>)}
       </div>
       {error && <p className="reader-error" role="alert">{error} <button type="button" className="secondary-btn" onClick={()=>setOpenRevision(value=>value+1)}>다시 시도</button></p>}
       {editError&&<p className="reader-error" role="alert">{editError}</p>}
