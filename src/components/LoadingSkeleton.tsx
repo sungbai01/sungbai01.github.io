@@ -3,6 +3,7 @@ import {LoaderCircle} from 'lucide-react';
 import {beginSkeletonTask,useSkeletonLoading} from '../lib/loadingActivity';
 import {classifyReaderViewport,readReaderViewport,readerPageCount} from '../lib/readerLayout';
 import './loading-skeleton.css';
+import ShelfBox from './ShelfBox';
 
 function Bar({className=''}:{className?:string}){return <span className={`skeleton-fill ${className}`}/>;}
 
@@ -15,7 +16,14 @@ export function GeneralLoading({label='불러오는 중…'}:{label?:string}){
 
 export function LibraryLoading({view}:{view:'covers'|'spines'}){
  const skeleton=useSkeletonLoading();
- return skeleton?<LibrarySkeleton view={view}/>:<GeneralLoading label="서재를 열고 있어요…"/>;
+ return <section className="series-shelf shelf-loading" aria-label="책장을 불러오는 중" aria-busy="true">
+  <header className="series-heading">{skeleton?<Bar className="skeleton-shelf-title"/>:<span className="shelf-loading-heading"/>}</header>
+  <ShelfBox view={view}>
+   {view==='spines'&&<span className="shelf-bookstop shelf-bookstop-start" aria-hidden="true"/>}
+   {skeleton?Array.from({length:view==='spines'?8:4},(_,index)=><article key={index} className={`book-item shelf-loading-book ${view==='spines'?'spine-item':''}`} aria-hidden="true"><div className="book-stage"><Bar className={view==='spines'?'shelf-loading-spine':'shelf-loading-cover'}/></div>{view==='covers'&&<div className="shelf-loading-details"><Bar className="skeleton-caption"/><Bar className="skeleton-author"/></div>}</article>):<GeneralLoading label="서재를 열고 있어요…"/>}
+   {view==='spines'&&<span className="shelf-bookstop shelf-bookstop-end" aria-hidden="true"/>}
+  </ShelfBox>
+ </section>;
 }
 
 export function LibrarySkeleton({shell=false,view='covers'}:{shell?:boolean;view?:'covers'|'spines'}){

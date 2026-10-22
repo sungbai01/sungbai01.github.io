@@ -41,3 +41,6 @@
 .reading-skeleton.reading-skeleton-embedded .skeleton-paper-stack{width:var(--reader-book-width);height:var(--paper-height);max-width:none;max-height:none;flex-shrink:0}
 .reading-skeleton.reading-skeleton-embedded .skeleton-paper{padding:var(--reader-content-top) var(--reader-page-padding) var(--reader-content-bottom)}
 .reading-skeleton.reading-skeleton-embedded .skeleton-chapter,.reading-skeleton.reading-skeleton-embedded .skeleton-page-number{display:none}
+.shelf-loading .series-heading{min-height:34px}.shelf-loading .skeleton-shelf-title{margin:0}.shelf-loading-heading{height:16px}
+.shelf-loading .shelf-box>.general-loading{grid-column:1/-1;height:calc(var(--shelf-book-height) + var(--shelf-details-height));min-width:0;flex:1}
+.shelf-loading-book .book-stage::after{display:none}.shelf-loading-cover{width:144px;max-width:100%;height:calc(var(--shelf-book-height) - 17px);border-radius:3px 6px 6px 3px}.shelf-loading-spine{width:48px;height:100%}.shelf-loading-details{display:grid;gap:12px;padding:15px 0}.shelf-loading-details>.skeleton-fill{margin:0}
