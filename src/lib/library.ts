@@ -35,6 +35,8 @@ export interface Book {
   author: string;
   /** Manually supplied model label; never inferred from chat content. */
   aiModel?: string;
+  /** Only the chosen replacement name; never the imported identity. */
+  userName?: string;
   description: string;
   color: string;
   /** Optional image-derived shade; color remains the resolved display color. */
@@ -167,6 +169,7 @@ interface ImportContext {
   now: string;
   preserveIds: boolean;
   removeUserInputs: boolean;
+  onUserNames?: (names: string[]) => void;
 }
 
 function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, index: number): Book {
@@ -190,6 +193,10 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
     }
     return normalizeMessage(row, i, character, user, context.names);
   });
+  context.onUserNames?.([...new Set([
+    ...(typeof value.user_name === 'string' ? [value.user_name] : []),
+    ...normalized.filter(message => message.role === 'user' || message.role === 'unknown').map(message => message.name),
+  ].filter(name => name.trim() && !/^(나|사용자|user|human|unknown|\{\{user\}\})$/i.test(name)))]);
   const retained = normalized.map((message, index) => ({ message, index })).filter(({ message }) =>
     !context.removeUserInputs || ['assistant', 'char', 'character', 'bot', 'ai', 'model'].includes(message.role.toLowerCase()));
   const messages = retained.map(({ message }) => message);
@@ -214,6 +221,7 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
   if (cover) book.cover = cover;
   const customColor = safeCustomColor(value.customColor);
   if (customColor) book.customColor = customColor;
+  if (typeof value.userName === 'string') book.userName = value.userName;
   if (typeof value.aiModel === 'string') book.aiModel = value.aiModel;
   const backCover = safeAssetSource(value.backCover);
   if (backCover) book.backCover = backCover;
@@ -276,6 +284,7 @@ function parseJson(value: unknown, context: ImportContext): Book[] {
       visit(node.books, { ...ctx, preserveIds: true }, depth + 1);
       return;
     }
+    if(typeof node.user_name==='string')ctx={...ctx,user:node.user_name};
     // Full JSON database/character exports can contain multiple characters/chats.
     if (Array.isArray(node.characters)) {
       const names = new Map(ctx.names);
@@ -345,7 +354,7 @@ function parseText(text: string, context: ImportContext): Book[] {
 }
 
 /** Parse only: does not persist, fetch remote assets, or execute embedded HTML. */
-export async function importChatFile(file: File, options: { removeUserInputs?: boolean } = {}): Promise<Book[]> {
+export async function importChatFile(file: File, options: { removeUserInputs?: boolean; onUserNames?: (names: string[]) => void } = {}): Promise<Book[]> {
   if (!file || typeof file.text !== 'function') throw new LibraryError('가져올 파일을 선택해 주세요.');
   const extension = file.name.split('.').pop()?.toLowerCase() || '';
   if (!['json', 'txt'].includes(extension)) {
@@ -359,7 +368,7 @@ export async function importChatFile(file: File, options: { removeUserInputs?: b
   const context: ImportContext = {
     title: file.name.replace(/\.[^.]+$/, '') || '가져온 대화',
     character: '', user: '나', author: '', names: new Map(), now: new Date().toISOString(), preserveIds: false,
-    removeUserInputs: options.removeUserInputs === true,
+    removeUserInputs: options.removeUserInputs === true, onUserNames: options.onUserNames,
   };
   if (/^\s*(?:<!doctype html|<html|<table)\b/i.test(text)) throw new LibraryError('HTML 및 HTML embedded는 지원하지 않습니다. TXT 또는 JSON으로 내보내 주세요.');
   if (extension === 'json') {
@@ -481,6 +490,7 @@ function validateBook(book: Book): void {
     (book.bookmarkStyle !== undefined && book.bookmarkStyle !== 'normal' && book.bookmarkStyle !== 'character' && book.bookmarkStyle !== 'image') ||
     (book.bookmarkAssetId !== undefined && typeof book.bookmarkAssetId !== 'string') ||
     (book.shareCardAssetId !== undefined && typeof book.shareCardAssetId !== 'string') ||
+    (book.userName !== undefined && (typeof book.userName !== 'string' || book.userName.length > 80)) ||
     (book.aiModel !== undefined && typeof book.aiModel !== 'string') ||
     (book.uploadedAt!==undefined&&(typeof book.uploadedAt!=='string'||!Number.isFinite(Date.parse(book.uploadedAt)))) ||
     (book.assets !== undefined && (!Array.isArray(book.assets) || !book.assets.every(asset => record(asset) &&

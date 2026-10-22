@@ -5,6 +5,7 @@ import { CloudLibrary, stopCloudLibrary, type AccountStore, type CloudStatus } f
 import { clearAuthSession, getAuthSession, restoreAuthSession, subscribeAuthSession } from './lib/auth';
 import { groupBooks } from './lib/volumes';
 import { prepareBooks,measureBookPageCount } from './lib/prepareBooks';
+import {replaceBookUserName} from './lib/userIdentity';
 import {PAGE_LAYOUT_VERSION} from './lib/pagination';
 import AssetManager from './components/AssetManager';
 import Cover from './components/BookCover';
@@ -449,6 +450,7 @@ function AccountApp({owner}:{owner:string|null}) {
         ...(palette?{color:palette,customColor:palette}:{})
       }));
     }
+    if(request.mode==='file')incoming=incoming.map(book=>replaceBookUserName(book,request.sourceUserNames,request.userName));
     // Parse every staged file first. Preparation happens once, before any write.
     const prepared=await prepareBooks(incoming,{removeEmoji:request.removeEmoji,removeSquareBrackets:request.removeSquareBrackets,removeAngleBrackets:request.removeAngleBrackets,removeDollarLines:request.removeDollarLines,removeHashLines:request.removeHashLines});
     assertAccount();

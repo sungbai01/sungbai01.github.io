@@ -7,6 +7,7 @@ export function cloudBook(book:Book):Book{
   ...(message.chapter!==undefined?{chapter:text(message.chapter)}:{}),...(message.chapterTitle!==undefined?{chapterTitle:text(message.chapterTitle)}:{}),
   ...(message.chapterStart!==undefined?{chapterStart:message.chapterStart}:{}),...(message.pageBreakBefore!==undefined?{pageBreakBefore:message.pageBreakBefore}:{}),...(message.pageBreakAfter!==undefined?{pageBreakAfter:message.pageBreakAfter}:{})}));
  return {id:book.id,title:text(book.title),author:text(book.author),description:text(book.description),color:book.color,createdAt:book.createdAt,updatedAt:book.updatedAt,messages,
+  ...(book.userName!==undefined?{userName:text(book.userName)}:{}),
   ...(book.aiModel!==undefined?{aiModel:text(book.aiModel)}:{}),...(book.uploadedAt!==undefined?{uploadedAt:book.uploadedAt}:{}),...(book.customColor!==undefined?{customColor:book.customColor}:{}),
   ...(book.seriesId!==undefined?{seriesId:book.seriesId}:{}),...(book.seriesTitle!==undefined?{seriesTitle:text(book.seriesTitle)}:{}),
   ...(book.pageCount!==undefined?{pageCount:book.pageCount}:{}),...(book.pageLayoutVersion!==undefined?{pageLayoutVersion:book.pageLayoutVersion}:{}),

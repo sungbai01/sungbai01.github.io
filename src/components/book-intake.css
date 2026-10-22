@@ -20,3 +20,5 @@
 .intake-card-heading{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:6px 12px;margin-bottom:12px}
 .intake-card-heading h3{margin:0}
 .intake-card-heading small{font-size:10px;color:var(--sand-10)}
+
+.intake-user-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}.intake-user-fields textarea{resize:vertical;min-height:68px}@media(max-width:540px){.intake-user-fields{grid-template-columns:1fr}}

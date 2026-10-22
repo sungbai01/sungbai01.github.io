@@ -37,6 +37,7 @@ export function systemRanges(text: string, protectedRanges: ProseRange[] = []): 
   for (let index = 0; index < text.length; index++) {
     const protectedRange = protectedRanges[protectedIndex];
     if (protectedRange && index === protectedRange.start) { index = protectedRange.end - 1; protectedIndex++; continue; }
+    if (!depth && text.slice(index, index + 8).toLowerCase() === '{{user}}') { index += 7; continue; }
     if (text[index] === '{') { if (!depth) start = index; depth++; }
     else if (text[index] === '}') {
       if (depth) { depth--; if (!depth) result.push({ start, end: index + 1 }); }
