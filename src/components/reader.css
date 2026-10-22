@@ -276,7 +276,7 @@
 .reader-drawer-handle:is(:hover,:focus-visible)>span{opacity:.7}
 .reader-drawer-handle[aria-expanded='true']{visibility:hidden;pointer-events:none}
 .reader-drawer-backdrop{position:absolute;inset:0;z-index:39;border:0;background:#0002;touch-action:none}
-.reader-drawer-close{position:absolute;right:8px;top:calc(env(safe-area-inset-top,0px) + 10px)}
+.reader-drawer-close{position:absolute;z-index:41;right:8px;top:calc(env(safe-area-inset-top,0px) + 10px)}
 .reader-fullscreen .reader-panel{z-index:45;top:44px;max-height:calc(100% - 60px)}
 .reader-fullscreen .reader-panel-backdrop{z-index:44;inset:0}
 .reader-fullscreen .reader-error{position:absolute;bottom:8px;left:12px;right:12px;z-index:5}
@@ -471,3 +471,7 @@
 @keyframes reader-chrome-hide-top{from{transform:translateY(0);opacity:1}to{transform:translateY(-100%);opacity:0}}
 @keyframes reader-chrome-hide-bottom{from{transform:translateX(-50%) translateY(0);opacity:1}to{transform:translateX(-50%) translateY(100%);opacity:0}}
 @media(prefers-reduced-motion:reduce){.reader-fullscreen[data-window-entering] .reader-drawer,.reader-fullscreen[data-window-entering] .reader-footer-concealed{animation:none;visibility:hidden}}
+
+/* Off-page mobile bookmarks expose only their tab, never the full ribbon. */
+.reader-phone-bookmark[data-current="false"]{height:14px;clip-path:inset(-24px -2px 0 -2px)}
+.reader[data-device=phone] .reader-phone-bookmark[data-current="false"]>.reader-bookmark-slip{height:calc(var(--paper-height)*.24)}

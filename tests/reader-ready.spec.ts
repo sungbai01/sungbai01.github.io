@@ -40,6 +40,29 @@ for(const mobile of [false,true])test(`reader readiness and duplicate font event
   const before=await page.locator('.reader-progress').inputValue();
   await page.keyboard.press('ArrowRight');
   await expect(page.locator('.reader-progress')).not.toHaveValue(before);
+  if(mobile)await page.getByRole('button',{name:'독서 메뉴',exact:true}).click();
+  await page.evaluate(()=>{
+   (window as any).bookmarkSkeletons=0;
+   const stage=document.querySelector('.reader-stage')!;
+   new MutationObserver(records=>{for(const record of records)if(record.attributeName==='aria-busy'&&stage.getAttribute('aria-busy')==='true')(window as any).bookmarkSkeletons++;}).observe(stage,{attributes:true,attributeFilter:['aria-busy']});
+  });
+  const bookmarkInitializations=await page.evaluate(()=>(window as any).readerInitializations);
+  await page.getByRole('button',{name:'현재 위치에 책갈피',exact:true}).click();
+  await expect(page.getByRole('button',{name:'책갈피 제거',exact:true})).toBeEnabled();
+  await page.getByRole('button',{name:'책갈피 제거',exact:true}).click();
+  await expect(page.getByRole('button',{name:'현재 위치에 책갈피',exact:true})).toBeEnabled();
+  expect(await page.evaluate(()=>(window as any).bookmarkSkeletons)).toBe(0);
+  expect(await page.evaluate(()=>(window as any).readerInitializations)).toBe(bookmarkInitializations);
+  // A late toolbar/UI font must not invalidate the prose pagination.
+  await page.evaluate(async()=>{
+   const original=CanvasRenderingContext2D.prototype.measureText;
+   CanvasRenderingContext2D.prototype.measureText=function(text){const result=original.call(this,text);return this.font.includes('Noto Sans KR')?{width:result.width+10} as TextMetrics:result;};
+   document.fonts.dispatchEvent(new Event('loadingdone'));
+   await new Promise(resolve=>setTimeout(resolve,150));
+   CanvasRenderingContext2D.prototype.measureText=original;
+  });
+  expect(await page.evaluate(()=>(window as any).readerInitializations)).toBe(bookmarkInitializations);
+
   if(!mobile){
    const enter=await page.getByRole('button',{name:'전체창',exact:true}).evaluate(async button=>{
     const count=(window as any).readerInitializations;

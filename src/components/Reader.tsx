@@ -169,7 +169,21 @@ function EditableChunk({text,structure,opening,onInput,onAdd}:{text:string;struc
  }}>
  <button type="button" className={`reader-add-chapter${hover?' reader-add-chapter-visible':''}`} style={{top:hover?.top??0}} aria-label="이 줄 앞에 챕터 추가" title="챕터 추가" data-no-flip onPointerDown={event=>event.preventDefault()} onClick={()=>{if(hover){onAdd(hover.offset);setHover(null);}else{const selection=window.getSelection();const paragraph=ref.current;if(selection?.rangeCount&&paragraph?.contains(selection.anchorNode)){const range=document.createRange();range.selectNodeContents(paragraph);range.setEnd(selection.anchorNode!,selection.anchorOffset);const offset=range.toString().length;if(offset||!opening)onAdd(offset);}else if(!opening)onAdd(0);}}}>&gt;&gt;</button>
  </div>
- <p ref={ref} className={`reader-prose reader-live-passage${opening?' reader-chapter-opening':''}`} role="textbox" aria-label="페이지 본문 편집" contentEditable="plaintext-only" suppressContentEditableWarning data-no-flip onInput={event=>onInput(event.currentTarget.innerText)} onPaste={event=>{event.preventDefault();document.execCommand('insertText',false,event.clipboardData.getData('text/plain'));}}/>
+ <p ref={ref} className={`reader-prose reader-live-passage${opening?' reader-chapter-opening':''}`} role="textbox" aria-label="페이지 본문 편집" contentEditable="plaintext-only" suppressContentEditableWarning data-no-flip onInput={event=>onInput(event.currentTarget.innerText)} onPaste={event=>{
+  event.preventDefault();event.stopPropagation();
+  const selection=window.getSelection();if(!selection?.rangeCount)return;
+  const range=selection.getRangeAt(0),element=event.currentTarget;
+  if(!element.contains(range.startContainer)||!element.contains(range.endContainer))return;
+  // Escaped text is a single undoable insertion. insertText emits one input
+  // per newline and creates block wrappers that inflate empty lines.
+  const value=event.clipboardData.getData('text/plain').replace(/\r\n?/g,'\n');
+  const escaped=value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  if(document.execCommand('insertHTML',false,escaped))return;
+  const text=document.createTextNode(value);
+  range.deleteContents();range.insertNode(text);range.setStartAfter(text);range.collapse(true);
+  selection.removeAllRanges();selection.addRange(range);
+  element.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertFromPaste',data:value}));
+ }}/>
  </div>;
 }
 function EditablePassage({fragment,onEdit,draft}:{fragment:Fragment;onEdit:EditFragment;draft?:string}){
@@ -185,8 +199,12 @@ function EditablePassage({fragment,onEdit,draft}:{fragment:Fragment;onEdit:EditF
   return <div key={part.id} className="reader-edit-part">
    {part.insertion&&<div className="reader-added-chapter"><ChapterHeading message={fragment.message} title={chapterLabel(tools.numbers.get(part.id)??1,part.insertion.chapterTitle)} onChange={(_,patch)=>tools.change(part.id,patch)}/></div>}
    <EditableChunk text={value.slice(part.offset,end)} structure={structure} opening={!!part.insertion||fragment.chapter!==undefined&&tools.headings.has(fragment.message)&&index===0} onInput={text=>{
-    const next=valueRef.current.slice(0,part.offset)+text+valueRef.current.slice(end);
-    valueRef.current=next;setValue(next);onEdit(fragment,next);tools.shift(fragment,part.offset,end,text.length);
+    // Several input events can precede React's next render. Use the current
+    // boundaries, including chapter offsets shifted by the preceding event.
+    const start=part.insertion?.offset??0;
+    const currentEnd=additions[index]?.offset??valueRef.current.length;
+    const next=valueRef.current.slice(0,start)+text+valueRef.current.slice(currentEnd);
+    valueRef.current=next;setValue(next);onEdit(fragment,next);tools.shift(fragment,start,currentEnd,text.length);
    }} onAdd={offset=>{onEdit(fragment,valueRef.current);tools.add(fragment,part.offset+offset);}}/>
   </div>;
  })}</>;
@@ -533,13 +551,13 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
       // Ignore duplicate ready/loadingdone events and unrelated UI fonts.
       const context=document.createElement('canvas').getContext('2d');
       const sample='가나다라마바사아자차카타파하 한글 이야기 ABCDEFG abcdefg 0123456789';
-      const next=['18px "Gowun Batang"','600 10px "Noto Sans KR"'].map(font=>{if(!context)return font;context.font=font;return context.measureText(sample).width;}).join(':');
+      const next=['400 18px "Gowun Batang"','700 18px "Gowun Batang"'].map(font=>{if(!context)return font;context.font=font;return context.measureText(sample).width;}).join(':');
       setFontsReady(true);
       if(next!==signature){signature=next;setFontRevision(value=>value+1);}
     };
     // A cold or unavailable remote font must not block opening indefinitely.
     const timeout=window.setTimeout(()=>{if(alive)setFontsReady(true);},1500);
-    void Promise.allSettled([document.fonts.load('18px "Gowun Batang"','한글 이야기'),document.fonts.load('600 10px "Noto Sans KR"','한글 이야기')]).then(()=>document.fonts.ready).then(()=>{clearTimeout(timeout);refresh();},()=>{finishFontNetwork();clearTimeout(timeout);if(alive)setFontsReady(true);});
+    void Promise.allSettled([document.fonts.load('18px "Gowun Batang"','한글 이야기'),document.fonts.load('700 18px "Gowun Batang"','한글 이야기')]).then(()=>document.fonts.ready).then(()=>{clearTimeout(timeout);refresh();},()=>{finishFontNetwork();clearTimeout(timeout);if(alive)setFontsReady(true);});
     document.fonts.addEventListener('loadingdone', refresh);
     return () => { alive = false;finishFontNetwork();clearTimeout(timeout); document.fonts.removeEventListener('loadingdone', refresh); };
   }, []);
@@ -615,7 +633,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
         host!.append(element);
         return element;
       };
-      const nodes=nextPages.map(makeNode);
+      const nodes:HTMLElement[]=nextPages.map(makeNode);
       const baselinePages=[...nextPages];
       const nodeByPage=new Map(nextPages.map((page,index)=>[page,nodes[index]!]));
       const mounted=new Map<number,{root:Root;element:HTMLElement}>();
@@ -995,7 +1013,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
     const anchor=bookmarkAnchor(pagesRef.current,selectedLeaf??pageIndex,contentCount);
     if(anchor)void changeBookmark(anchor);
   };
-  const bookmarkActionsRef=useRef({activate:()=>{},remove:(_source:HTMLElement)=>{},allowed:()=>false});
+  const bookmarkActionsRef=useRef<{activate:()=>void;remove:(source:HTMLElement)=>void;allowed:()=>boolean}>({activate:()=>{},remove:()=>{},allowed:()=>false});
   bookmarkActionsRef.current.allowed=()=>!selectingQuote&&!editing&&!saving&&!bookmarkBusyRef.current&&!blockedRef.current&&!drawerRef.current&&!panel&&pagesReadyRef.current&&shelfBookmark?.bookId===bookRef.current.id&&flipRef.current?.getState()==='read';
   bookmarkActionsRef.current.activate=()=>{
     if(!bookmarkActionsRef.current.allowed()||!shelfBookmark)return;
@@ -1102,7 +1120,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
         {!loading&&device!=='phone'&&<div className="reader-cover-boards" aria-hidden="true" inert><span className="reader-cover-board-left"/><span className="reader-cover-board-right"/></div>}
         <div className="reader-book-mount" ref={mountRef} onPointerDownCapture={event=>{const page=(event.target as HTMLElement).closest<HTMLElement>('[data-reader-page-index]');if(page&&!page.dataset.flipCopy)setSelectedLeaf(Number(page.dataset.readerPageIndex));}}/>
         {!loading&&device!=='phone'&&peekBookmark&&shelfBookmark&&<div className={`reader-bookmark-peek reader-bookmark-peek-${markedPage<pageIndex?'before':'after'}`} aria-label="페이지 사이 책갈피"><BookmarkSlip {...bookmarkInteraction} style={ribbonStyle} icon={ribbonIcon} image={ribbonImage} title={shelfBookmark.title} color={book.color} side={markedPage<pageIndex?'before':'after'}/></div>}
-        {!loading&&device==='phone'&&markedPage>=0&&shelfBookmark&&<div className="reader-phone-bookmark" aria-label="책갈피"><BookmarkSlip {...bookmarkInteraction} style={ribbonStyle} icon={ribbonIcon} image={ribbonImage} title={shelfBookmark.title} color={book.color} side="after"/></div>}
+        {!loading&&device==='phone'&&markedPage>=0&&shelfBookmark&&<div className="reader-phone-bookmark" data-current={markedPage===pageIndex} aria-label="책갈피"><BookmarkSlip {...bookmarkInteraction} style={ribbonStyle} icon={ribbonIcon} image={ribbonImage} title={shelfBookmark.title} color={book.color} side="after"/></div>}
       {selectingQuote&&onQuoteSelected&&<ShareQuoteSelection host={mountRef} onDone={onQuoteSelected} onPrevious={()=>jump(Math.max(0,pageIndex-spread))} onNext={()=>jump(Math.min(pages.length-1,pageIndex+spread))}/>}
       {editing&&<div className="reader-edit-navigation" data-no-flip><button type="button" aria-label="편집 이전 페이지" disabled={saving||loading||pageIndex===0} onClick={()=>jump(Math.max(0,pageIndex-spread))}><span aria-hidden="true">&lt;</span></button><button type="button" aria-label={pageIndex+spread>=proseStart+contentCount?"빈 페이지 추가":"편집 다음 페이지"} title={pageIndex+spread>=proseStart+contentCount?"본문 끝에 빈 페이지 추가":undefined} data-add-page={pageIndex+spread>=proseStart+contentCount||undefined} disabled={saving||loading} onPointerDown={event=>event.preventDefault()} onClick={()=>pageIndex+spread>=proseStart+contentCount?insertPageRef.current(proseStart+contentCount-1):jump(Math.min(pages.length-1,pageIndex+spread))}><span aria-hidden="true">{pageIndex+spread>=proseStart+contentCount?"+":">"}</span></button></div>}
         {(loading||dataPending) && <ReadingSkeleton embedded pages={readerPageCount(dimensions.width||viewport.width,viewport)} fullwindow={fullscreen}/>}

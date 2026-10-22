@@ -60,6 +60,42 @@ function loadGoogleIdentity(): Promise<GoogleIdentity> {
 }
 
 const apiBase = (import.meta.env.VITE_AUTH_API_URL as string | undefined)?.trim().replace(/\/+$/, '');
+function renderGoogleButton(host: HTMLElement, signal: AbortSignal, render: () => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let animation = 0;
+    let settled = false;
+    const finish = (error?: unknown) => {
+      if (settled) return;
+      settled = true;
+      cancelAnimationFrame(animation);
+      host.removeEventListener('load', onLoad, true);
+      signal.removeEventListener('abort', onAbort);
+      if (error) reject(error);
+      else resolve();
+    };
+    const onAbort = () => finish(new Error('Google button cancelled'));
+    const onLoad = (event: Event) => {
+      const frame = event.target;
+      if (!(frame instanceof HTMLIFrameElement) || !host.contains(frame)
+        || !frame.src || frame.src === 'about:blank') return;
+      cancelAnimationFrame(animation);
+      const checkLayout = () => {
+        if (!host.contains(frame)) return;
+        const bounds = frame.getBoundingClientRect();
+        if (bounds.width > 0 && bounds.height > 0 && getComputedStyle(frame).display !== 'none') finish();
+        else animation = requestAnimationFrame(checkLayout);
+      };
+      animation = requestAnimationFrame(() => {
+        animation = requestAnimationFrame(checkLayout);
+      });
+    };
+    host.addEventListener('load', onLoad, true);
+    signal.addEventListener('abort', onAbort, { once: true });
+    if (signal.aborted) { onAbort(); return; }
+    try { render(); } catch (error) { finish(error); }
+  });
+}
+
 type Phase = 'idle' | 'loading' | 'ready' | 'verifying' | 'pending' | 'error';
 
 /** Standalone account section for the main drawer. No library access is gated. */
@@ -128,7 +164,7 @@ export function GoogleAccount({ className = '', disabled = false, compact=false,
   }, []);
 
   async function startLogin() {
-    if (disabledRef.current || phase === 'loading' || phase === 'verifying') return;
+    if (disabledRef.current) return;
     if (!apiBase) { setPhase('pending'); setMessage('로그인 연결을 준비 중이에요.'); return; }
     const current = ++attempt.current;
     request.current?.abort();
@@ -151,6 +187,8 @@ export function GoogleAccount({ className = '', disabled = false, compact=false,
       }
       if (!configResponse.ok) throw new Error('Configuration unavailable');
       const config: unknown = await configResponse.json();
+      if (current !== attempt.current) return;
+      if (controller.signal.aborted) throw new Error('Login timeout');
       if (!config || typeof config !== 'object'
         || !('clientId' in config) || typeof config.clientId !== 'string' || !config.clientId.trim()) {
         throw new Error('Invalid configuration');
@@ -161,6 +199,7 @@ export function GoogleAccount({ className = '', disabled = false, compact=false,
       // 64 random hex characters satisfy the backend's [A-Za-z0-9_-]{32,128} contract.
       const nonce = Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2, '0')).join('');
       let credentialUsed = false;
+      let buttonReady = false;
       identity.initialize({
         client_id: config.clientId,
         nonce,
@@ -168,7 +207,7 @@ export function GoogleAccount({ className = '', disabled = false, compact=false,
         button_auto_select: false,
         ux_mode: 'popup',
         callback: response => {
-          if (current !== attempt.current || credentialUsed) return;
+          if (current !== attempt.current || controller.signal.aborted || !buttonReady || credentialUsed) return;
           if (disabledRef.current) {
             setPhase('error');setMessage('저장을 마친 뒤 다시 로그인해 주세요.');return;
           }
@@ -179,13 +218,20 @@ export function GoogleAccount({ className = '', disabled = false, compact=false,
       if (!googleButton.current) return;
       // Measure the laid-out host, not a hidden element or the wider modal.
       const buttonWidth = Math.floor(googleButton.current.getBoundingClientRect().width);
-      identity.renderButton(googleButton.current, {
+      const renderHost = document.createElement('div');
+      googleButton.current.replaceChildren(renderHost);
+      await renderGoogleButton(renderHost, controller.signal, () => identity.renderButton(renderHost, {
         type: 'standard', theme: 'outline', size: 'large', text: 'signin_with', locale: 'ko',
         width: Math.max(1, buttonWidth),
-      });
+      }));
+      if (current !== attempt.current || controller.signal.aborted) return;
+      buttonReady = true;
       setPhase('ready');
     } catch {
       if (current !== attempt.current) return;
+      attempt.current += 1;
+      controller.abort();
+      googleButton.current?.replaceChildren();
       setPhase('error');
       setMessage('로그인을 준비하지 못했어요. 잠시 후 다시 시도해 주세요.');
     } finally {

@@ -177,26 +177,24 @@ export class BookmarkMotion {
   async change(save: () => Promise<boolean>, inserting: boolean, dragged?: HTMLElement) {
     if (this.busy || this.destroyed) return;
     this.busy = true;this.stopFlight();
-    const velocity=dragged?releaseVelocity(dragged):{x:0,y:0};
     const wasDetached = this.detached;
     this.capture(dragged ?? this.source());
     this.root()?.setAttribute('data-bookmark-motion', 'true');
     const removeOnPhone = !inserting && this.root()?.dataset.device === 'phone';
-    const leaving = (removeOnPhone || (!dragged && !wasDetached)) && this.floating
-      ? this.animate([{transform: this.floating.style.transform}, {transform: `translateY(-${parseFloat(this.floating.style.top) + this.floating.offsetHeight + 60}px) rotate(0deg)`}])
-      : Promise.resolve();
+    const dragRemoval = !!dragged && !inserting;
+    const leaving = dragRemoval && this.floating
+      ? this.animate([{opacity:1},{opacity:0}])
+      : (removeOnPhone || (!dragged && !wasDetached)) && this.floating
+        ? this.animate([{transform: this.floating.style.transform}, {transform: `translateY(-${parseFloat(this.floating.style.top) + this.floating.offsetHeight + 60}px) rotate(0deg)`}])
+        : Promise.resolve();
     const [saved] = await Promise.all([save(), leaving]);
     if (this.destroyed) return;
     if (!saved) {
       this.animation?.cancel();
       if (!wasDetached) this.clear();
-    } else if (removeOnPhone) {
-      // Phones discard the visual copy too, including drag-to-remove.
+    } else if (removeOnPhone || dragRemoval) {
+      // A drop fades at the release point. No detached copy survives removal.
       this.clear();
-    } else if (dragged) {
-      this.detached = true;
-      if (this.plane) this.plane.style.clipPath = 'none';
-      this.coast(velocity);
     } else if (inserting) {
       // Let the saved anchor reach the independently mounted page roots.
       await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
