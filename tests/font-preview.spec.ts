@@ -1,0 +1,4 @@
+import {test,expect} from '@playwright/test';
+test('reading font preview follows the selected pixel size',async({page})=>{
+ await page.setViewportSize({width:1440,height:1000});await page.goto('http://127.0.0.1:5175/');await page.evaluate(async()=>{localStorage.setItem('galpi.reader.fullwindow.v1','false');const {mountBookmarkEditing}=await import('/tests/bookmark-edit-harness.tsx');mountBookmarkEditing();});await expect(page.locator('.reader-stage')).toHaveAttribute('aria-busy','false');await page.getByRole('button',{name:'독서 화면 설정',exact:true}).click();const preview=page.locator('.reader-font-preview');const size=Number.parseFloat(await preview.evaluate(el=>getComputedStyle(el).fontSize));await page.getByRole('button',{name:'글자 크게',exact:true}).click();await expect(preview).toHaveCSS('font-size',`${size+1}px`);await page.getByRole('button',{name:'글자 작게',exact:true}).click();await expect(preview).toHaveCSS('font-size',`${size}px`);
+});

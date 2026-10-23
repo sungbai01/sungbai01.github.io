@@ -250,6 +250,10 @@
 .reader-bookmark-peek-after{left:50%}
 .reader-stage:has(.reader-bookmark-fold-layer) .reader-bookmark-peek{visibility:hidden}
 .reader-bookmark-fold-layer{position:absolute;pointer-events:none;overflow:visible;contain:layout}
+/* A hidden ribbon's tip rests behind the physical sheets and cover faces.
+   Its own clipping only removes the body; moving paper must occlude the tip. */
+.reader-flip-host{z-index:1}
+.reader-bookmark-peek{z-index:0}
 .reader-chapter-heading{position:absolute;top:0;left:var(--reader-page-padding,40px);right:var(--reader-page-padding,40px);height:25%;display:flex;align-items:center;justify-content:center;font:400 clamp(16px,2.4vw,26px)/1.4 'Gowun Batang',serif;letter-spacing:.12em;color:var(--reader-ink)}
 .reader-page-chapter-content{top:calc(25% + var(--reader-content-top,36px))}
 @media(prefers-reduced-motion:reduce){.reader-bookmark-peek{transition:none}}
