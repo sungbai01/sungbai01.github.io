@@ -1,6 +1,7 @@
 import type {TextDatabase} from './cloud';
+import {allowPublicRead} from './requestLimits';
 import {allowShareAction} from './shareLimits';
-import {SHARE_IDLE_MS,SHARE_STORAGE_BYTES} from './shareExpiry';
+import {SHARE_IDLE_MS} from './shareExpiry';
 type MediaObject={body:ReadableStream<Uint8Array>};
 export type ShareBucket={put:(key:string,value:ArrayBuffer,options:{httpMetadata:{contentType:string};customMetadata:{share:string}})=>Promise<unknown>;get:(key:string)=>Promise<MediaObject|null>;delete:(key:string)=>Promise<void>};
 type Reply=(body:unknown,status:number,origin:string)=>Response;
@@ -37,15 +38,24 @@ export async function uploadShareImage(request:Request,db:TextDatabase,bucket:Sh
  try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>maxImage){await reader.cancel();return reply({error:'공유 이미지는 2MB 이하여야 해요.'},413,origin);}chunks.push(value);}}finally{reader.releaseLock();}
  const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
  const mime=signature(bytes);if(!mime)return reply({error:'PNG · JPEG · WEBP 이미지만 공유할 수 있어요.'},415,origin);
- const reserved=await db.prepare(`UPDATE share_storage_budget SET reserved_bytes=reserved_bytes+?1 WHERE id=1 AND reserved_bytes+?1<=?3
- AND (SELECT COUNT(*) FROM share_media WHERE share_id=?2)<64
- AND (SELECT COALESCE(SUM(bytes),0) FROM share_media WHERE share_id=?2)+?1<=50000000`).bind(size,share.share_id,SHARE_STORAGE_BYTES).run();
- if(!reserved.meta.changes)return reply({error:'공유 이미지 저장 한도에 도달했어요.'},413,origin);
- if(!await reserve(db,'writes'))return reply({error:'이번 달 이미지 업로드 한도에 도달했어요.'},429,origin);
  const imageId=crypto.randomUUID(),key=`${share.share_id}/${imageId}`;
- await db.prepare('INSERT INTO share_objects(object_key,share_id,bytes,created_at) VALUES(?1,?2,?3,?4)').bind(key,share.share_id,size,Date.now()).run();
- await bucket.put(key,bytes.buffer,{httpMetadata:{contentType:mime},customMetadata:{share:share.share_id}});
- await db.prepare('INSERT INTO share_media(share_id,image_id,name,role,object_key,mime,bytes) SELECT ?1,?2,?3,?4,?5,?6,?7 WHERE EXISTS(SELECT 1 FROM book_shares WHERE share_id=?1 AND owner_id=?8) ON CONFLICT(share_id,name,role) DO UPDATE SET image_id=excluded.image_id,object_key=excluded.object_key,mime=excluded.mime,bytes=excluded.bytes').bind(share.share_id,imageId,name,role,key,mime,size,owner).run();
+ // The trigger reserves operations, global bytes and per-share in-flight bytes
+ // atomically. A failed reservation changes none of those counters.
+ try{await db.prepare('INSERT INTO share_upload_reservations(object_key,share_id,bytes,created_at) VALUES(?1,?2,?3,?4)').bind(key,share.share_id,size,Date.now()).run();}
+ catch(error){const reason=String(error);if(reason.includes('UPLOAD_OPERATION_LIMIT'))return reply({error:'이번 달 이미지 업로드 한도에 도달했어요.'},429,origin);if(reason.includes('UPLOAD_'))return reply({error:'공유 이미지 저장 한도에 도달했어요.'},413,origin);throw error;}
+ try{
+  await bucket.put(key,bytes.buffer,{httpMetadata:{contentType:mime},customMetadata:{share:share.share_id}});
+  await db.batch([
+   db.prepare('INSERT INTO share_objects(object_key,share_id,bytes,created_at) SELECT object_key,share_id,bytes,created_at FROM share_upload_reservations WHERE object_key=?1').bind(key),
+   db.prepare('INSERT INTO share_media(share_id,image_id,name,role,object_key,mime,bytes) SELECT ?1,?2,?3,?4,?5,?6,?7 WHERE EXISTS(SELECT 1 FROM book_shares WHERE share_id=?1 AND owner_id=?8 AND last_access_at>?9) AND EXISTS(SELECT 1 FROM share_objects WHERE object_key=?5) ON CONFLICT(share_id,name,role) DO UPDATE SET image_id=excluded.image_id,object_key=excluded.object_key,mime=excluded.mime,bytes=excluded.bytes').bind(share.share_id,imageId,name,role,key,mime,size,owner,Date.now()-SHARE_IDLE_MS),
+   db.prepare('DELETE FROM share_upload_reservations WHERE object_key=?1 AND EXISTS(SELECT 1 FROM share_objects WHERE object_key=?1)').bind(key),
+  ]);
+  const saved=await db.prepare('SELECT image_id FROM share_media WHERE object_key=?1').bind(key).first();
+  if(!saved)return reply({error:'공유가 만료되었어요. 다시 시도해 주세요.'},409,origin);
+ }catch{
+  // Keep the reservation until scheduled cleanup confirms R2 deletion.
+  return reply({error:'이미지를 저장하지 못했어요. 잠시 후 다시 시도해 주세요.'},503,origin);
+ }
  return reply({url:`${new URL(request.url).origin}/share-media/${share.share_id}/${imageId}`},200,origin);
 }
 export async function publicShareImage(request:Request,db:TextDatabase,bucket:ShareBucket|undefined){
@@ -54,7 +64,15 @@ export async function publicShareImage(request:Request,db:TextDatabase,bucket:Sh
  if(!match||request.method!=='GET'||!bucket)return new Response(null,{status:404,headers});
  const image=await db.prepare('SELECT object_key,mime FROM share_media WHERE share_id=?1 AND image_id=?2 AND EXISTS(SELECT 1 FROM book_shares WHERE share_id=?1 AND last_access_at>?3)').bind(match[1],match[2],Date.now()-SHARE_IDLE_MS).first<{object_key:string;mime:string}>();
  if(!image)return new Response(null,{status:404,headers});
- if(!await reserve(db,'reads'))return new Response(null,{status:429,headers});
+ // Validate current publication before any cache hit: expiry/deletion stays immediate.
+ const cache=(globalThis as unknown as {caches?:{default?:Cache}}).caches?.default;
+ const cacheKey=new Request(`https://galpi-share-cache.invalid/${image.object_key}`);
+ const cached=await cache?.match(cacheKey);
+ if(cached)return new Response(cached.body,{headers:{...headers,'Content-Type':image.mime}});
+ if(!await allowPublicRead(db)||!await reserve(db,'reads'))return new Response(null,{status:429,headers});
  const object=await bucket.get(image.object_key);
- return object?new Response(object.body,{headers:{...headers,'Content-Type':image.mime}}):new Response(null,{status:404,headers});
+ if(!object)return new Response(null,{status:404,headers});
+ const response=new Response(object.body,{headers:{...headers,'Content-Type':image.mime}});
+ if(cache){const copy=response.clone();copy.headers.set('Cache-Control','public,max-age=300');await cache.put(cacheKey,copy).catch(()=>{});}
+ return response;
 }

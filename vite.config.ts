@@ -1,4 +1,4 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-export default defineConfig({plugins:[react(),tailwindcss()],base:'/',build:{outDir:'dist'}});
+export default defineConfig({plugins:[react(),tailwindcss(),{name:'production-security-policy',apply:'build',transformIndexHtml(){return [{tag:'meta',attrs:{'http-equiv':'Content-Security-Policy',content:"default-src 'self'; script-src 'self' https://accounts.google.com https://ssl.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com; img-src 'self' data: blob: https: http:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://galpi-bookshelf-auth.sungbai01.workers.dev https://accounts.google.com https://oauth2.googleapis.com https://www.googleapis.com; frame-src https://accounts.google.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'"},injectTo:'head-prepend'}];}}],base:'/',build:{outDir:'dist'}});

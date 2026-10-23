@@ -2,6 +2,7 @@ import {cloudBook} from '../../shared/cloudBook';
 import type {Book} from '../../src/lib/library';
 import type {TextDatabase} from './cloud';
 import {allowShareAction} from './shareLimits';
+import {allowPublicRead} from './requestLimits';
 import {SHARE_IDLE_MS} from './shareExpiry';
 
 type Reply=(body:unknown,status:number,origin:string)=>Response;
@@ -42,10 +43,11 @@ export async function publicShare(request:Request,db:TextDatabase,origin:string,
  const id=new URL(request.url).pathname.slice('/shares/'.length);
  if(request.method!=='GET'||!tokenPattern.test(id))return reply({error:'공유한 책을 찾을 수 없어요.'},404,origin);
  const now=Date.now();
- // A single conditional UPDATE both checks expiry and records this open. An
- // already expired link can never be revived by racing the cleanup job.
- const row=await db.prepare('UPDATE book_shares SET last_access_at=?2 WHERE share_id=?1 AND last_access_at>?3 RETURNING body').bind(id,now,now-SHARE_IDLE_MS).first<{body:string}>();
+ if(!await allowPublicRead(db))return reply({error:'오늘의 공유 조회 한도에 도달했어요.'},429,origin);
+ const row=await db.prepare('SELECT body,last_access_at FROM book_shares WHERE share_id=?1 AND last_access_at>?2').bind(id,now-SHARE_IDLE_MS).first<{body:string;last_access_at:number}>();
  if(!row)return reply({error:'공유가 종료되었거나 존재하지 않는 책이에요.'},404,origin);
+ // Coalesce the access timestamp across locations and concurrent opens.
+ if(row.last_access_at<=now-60*60*1000)await db.prepare('UPDATE book_shares SET last_access_at=?2 WHERE share_id=?1 AND last_access_at>?3 AND last_access_at<=?4').bind(id,now,now-SHARE_IDLE_MS,now-60*60*1000).run();
  const book=JSON.parse(row.body) as Book;
  delete book.bookmarks;
  const {results}=await db.prepare("SELECT image_id,name,role FROM share_media WHERE share_id=?1 AND role!='card' ORDER BY image_id DESC").bind(id).all<{image_id:string;name:string;role:string}>();

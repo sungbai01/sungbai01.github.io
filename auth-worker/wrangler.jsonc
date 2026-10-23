@@ -7,7 +7,13 @@
 	"preview_urls": false,
 	"triggers": {"crons":["*/15 * * * *"]},
 	"r2_buckets": [{"binding":"SHARE_IMAGES","bucket_name":"galpi-bookshelf-share-images"}],
-	"observability": {
+	"ratelimits": [
+ {"name":"VISITOR_LIMIT","namespace_id":"7864382291","simple":{"limit":240,"period":60}},
+ {"name":"AUTH_LIMIT","namespace_id":"7864382292","simple":{"limit":12,"period":60}},
+ {"name":"SHARE_LIMIT","namespace_id":"7864382293","simple":{"limit":600,"period":60}},
+ {"name":"ACCOUNT_LIMIT","namespace_id":"7864382294","simple":{"limit":120,"period":60}}
+ ],
+ "observability": {
 		"enabled": false
 	},
 	"vars": {

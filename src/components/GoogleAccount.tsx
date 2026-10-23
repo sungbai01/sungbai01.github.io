@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, CircleAlert, LoaderCircle, LogOut, RotateCcw, Upload, UserRound, X } from 'lucide-react';
-import { clearAuthSession, getAuthSession, setAuthSession, subscribeAuthSession } from '../lib/auth';
+import { logoutAuthSession, getAuthSession, setAuthSession, subscribeAuthSession } from '../lib/auth';
 import type { CloudStatus } from '../lib/cloudLibrary';
 import './google-account.css';
 import AccountSummary from './AccountSummary';
@@ -274,16 +274,17 @@ export function GoogleAccount({ className = '', disabled = false, compact=false,
     }
   }
 
-  function logout() {
+  async function logout() {
     if (disabledRef.current || importBusy) return;
     attempt.current += 1;
     request.current?.abort();
-    clearAuthSession();
+    const revoked=logoutAuthSession();
     // Local logout always succeeds, including when GIS is unavailable.
     try { googleIdentity()?.disableAutoSelect(); } catch { /* Session is already cleared. */ }
     googleButton.current?.replaceChildren();
     setPhase('idle');
-    setMessage('로그아웃되었어요.');
+    setMessage('로그아웃 중이에요.');
+    try{await revoked;setMessage('로그아웃되었어요.');}catch(error){setMessage(error instanceof Error?error.message:'서버 로그아웃을 확인하지 못했어요.');}
   }
 
   async function importGuest() {

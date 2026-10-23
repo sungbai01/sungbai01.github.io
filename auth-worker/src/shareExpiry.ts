@@ -12,10 +12,24 @@ export async function cleanExpiredShares(db:TextDatabase,bucket:ShareBucket){
   WHERE last_access_at<=?1 ORDER BY last_access_at LIMIT 100`).bind(now-SHARE_IDLE_MS,SHARE_IDLE_MS),
   db.prepare('DELETE FROM book_shares WHERE share_id IN (SELECT share_id FROM book_shares WHERE last_access_at<=?1 ORDER BY last_access_at LIMIT 100)').bind(now-SHARE_IDLE_MS),
  ]);
+ // A failed/uncertain R2 put retains a recoverable reservation. Delete the
+ // object first; refund only a still-present ledger row, atomically.
+ const pending=await db.prepare('SELECT object_key,bytes FROM share_upload_reservations WHERE created_at<?1 ORDER BY created_at LIMIT 3').bind(now-60*60*1000).all<{object_key:string;bytes:number}>();
+ for(const item of pending.results){
+  await bucket.delete(item.object_key);
+  await db.batch([
+   db.prepare('UPDATE share_storage_budget SET reserved_bytes=MAX(0,reserved_bytes-?1) WHERE id=1 AND EXISTS(SELECT 1 FROM share_upload_reservations WHERE object_key=?2)').bind(item.bytes,item.object_key),
+   db.prepare('DELETE FROM share_upload_reservations WHERE object_key=?1').bind(item.object_key),
+  ]);
+ }
+ await db.batch([
+  db.prepare('DELETE FROM auth_sessions WHERE session_id IN (SELECT session_id FROM auth_sessions WHERE expires_at<?1 LIMIT 100)').bind(now-86400000),
+  db.prepare('DELETE FROM public_read_budget WHERE day<?1').bind(new Date(now-7*86400000).toISOString().slice(0,10)),
+ ]);
  const {results}=await db.prepare(`SELECT object_key,bytes FROM share_objects WHERE created_at<?1 AND
  (NOT EXISTS(SELECT 1 FROM book_shares WHERE book_shares.share_id=share_objects.share_id)
  OR NOT EXISTS(SELECT 1 FROM share_media WHERE share_media.object_key=share_objects.object_key))
- ORDER BY created_at LIMIT 20`).bind(now-60*60*1000).all<{object_key:string;bytes:number}>();
+ ORDER BY created_at LIMIT 5`).bind(now-60*60*1000).all<{object_key:string;bytes:number}>();
  for(const object of results){
   // Deletion must finish before space can be credited. Failed deletes leave the
   // ledger intact, and an atomic batch prevents overlapping cron refunds.

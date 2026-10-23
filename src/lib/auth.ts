@@ -31,6 +31,17 @@ export function clearAuthSession() {
   notify();
 }
 
+/** Local logout responds immediately; server revocation invalidates copied tickets. */
+export async function logoutAuthSession():Promise<void>{
+ const previous=getAuthSession();clearAuthSession();
+ if(!previous)return;
+ if(!apiBase)throw new Error('기기에서 로그아웃했지만 서버 로그아웃을 확인하지 못했어요.');
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),8000);
+ try{const response=await fetch(`${apiBase}/auth/logout`,{method:'POST',credentials:'omit',cache:'no-store',keepalive:true,headers:{Authorization:`Bearer ${previous.token}`},signal:controller.signal});if(!response.ok&&response.status!==401)throw new Error('Server logout failed');}
+ catch{throw new Error('기기에서 로그아웃했지만 서버 로그아웃을 확인하지 못했어요. 연결을 확인해 주세요.');}
+ finally{clearTimeout(timer);}
+}
+
 function scheduleExpiry() {
   clearTimeout(expiryTimer);
   if (!session) return;
