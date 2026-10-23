@@ -56,7 +56,7 @@ export async function makeTicketCard(book:Book,quote='',quotePages?:QuotePageRan
   passage.rows.forEach((line,i)=>ctx.fillText(line,70,310+i*passage.size*1.3));
   if(quotePages&&Number.isInteger(quotePages.start)&&quotePages.start>0&&quotePages.end>=quotePages.start){
    ctx.fillStyle='#eeede7';ctx.font='20px sans-serif';ctx.textAlign='right';
-   pageLabel=`${quotePages.start}${quotePages.end!==quotePages.start?'–'+quotePages.end:''}쪽`;pageLabelY=Math.min(610,310+(passage.rows.length-1)*passage.size*1.3+44);ctx.fillText(pageLabel,1030,pageLabelY);
+   pageLabel=quotePages.end===quotePages.start?`p. ${quotePages.start}`:`pp. ${quotePages.start}–${quotePages.end}`;pageLabelY=Math.min(610,310+(passage.rows.length-1)*passage.size*1.3+44);ctx.fillText(pageLabel,1030,pageLabelY);
    ctx.textAlign='left';
   }
  }
