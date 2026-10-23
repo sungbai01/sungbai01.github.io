@@ -1,3 +1,4 @@
+import ReaderBoundary from './components/ReaderBoundary';
 import Dropdown from './components/Dropdown';
 import {bookTitle,volumeTitle} from './lib/bookTitle';
 import {removeUserInputs} from './lib/removeUserInputs';
@@ -199,7 +200,7 @@ function styleBook(book:Book,draft:Book,reset:boolean):Book{
 export default function App(){
   const [share,setShare]=useState(sharedBookId);
   useEffect(()=>{const change=()=>setShare(sharedBookId());addEventListener('hashchange',change);return()=>removeEventListener('hashchange',change);},[]);
-  return share?<Suspense fallback={<BookOpening variant="library" onBack={()=>{location.hash='/';}} onRetry={()=>location.reload()}/>}><SharedBook key={share} id={share}/></Suspense>:<AccountShell/>;
+  return share?<ReaderBoundary><Suspense fallback={<BookOpening variant="library" onBack={()=>{location.hash='/';}} onRetry={()=>location.reload()}/>}><SharedBook key={share} id={share}/></Suspense></ReaderBoundary>:<AccountShell/>;
 }
 function AccountShell() {
   const [account,setAccount]=useState(()=>({owner:getAuthSession()?.user.id??null,version:0}));
@@ -579,7 +580,7 @@ function AccountApp({owner}:{owner:string|null}) {
 
     return <>
       <div>
-        <Suspense fallback={<BookOpening variant="library" onBack={closeBook} onRetry={()=>location.reload()}/>}><Reader key={`${route}:${openAttempt}`} book={selected??pendingBook} dataPending={!dataReady} onReady={onReaderReady} onOpenError={setOpenError} onClose={closeBook} onShare={()=>{if(selected)shareOne(selected);}} selectingQuote={quoteBook===selected?.id} onQuoteSelected={finishShareQuote} onSaveBook={canEdit?updateBook:undefined} shelfBookmark={selectedBookmark} bookmarkStyle={selectedBookmark?.style??selected?.bookmarkStyle??(selected?shelfBooks(books,bookShelf(selected)).find(book=>book.bookmarkStyle)?.bookmarkStyle:undefined)} bookmarkImage={selected?bookmarkImage(selected):undefined} characterIcon={selected?(portrait(selected)??shelfBooks(books,bookShelf(selected)).map(portrait).find(Boolean)):undefined} onBookmarkChange={async(anchor,style)=>{if(selected)await changeBookmark(selected,anchor,style);}} onBookmarkStyleChange={async style=>{if(selected)await changeBookmarkStyle(selected,style);}} initialBookmark={readerStart&&readerStart.bookId===selected?.id?readerStart.anchor:undefined} onNextVolume={nextVolume?onNextVolume:undefined} nextVolumeTitle={nextVolume?.title}/></Suspense>
+        <ReaderBoundary key={`${route}:${openAttempt}`}><Suspense fallback={<BookOpening variant="library" onBack={closeBook} onRetry={()=>location.reload()}/>}><Reader key={`${route}:${openAttempt}`} book={selected??pendingBook} dataPending={!dataReady} onReady={onReaderReady} onOpenError={setOpenError} onClose={closeBook} onShare={()=>{if(selected)shareOne(selected);}} selectingQuote={quoteBook===selected?.id} onQuoteSelected={finishShareQuote} onSaveBook={canEdit?updateBook:undefined} shelfBookmark={selectedBookmark} bookmarkStyle={selectedBookmark?.style??selected?.bookmarkStyle??(selected?shelfBooks(books,bookShelf(selected)).find(book=>book.bookmarkStyle)?.bookmarkStyle:undefined)} bookmarkImage={selected?bookmarkImage(selected):undefined} characterIcon={selected?(portrait(selected)??shelfBooks(books,bookShelf(selected)).map(portrait).find(Boolean)):undefined} onBookmarkChange={async(anchor,style)=>{if(selected)await changeBookmark(selected,anchor,style);}} onBookmarkStyleChange={async style=>{if(selected)await changeBookmarkStyle(selected,style);}} initialBookmark={readerStart&&readerStart.bookId===selected?.id?readerStart.anchor:undefined} onNextVolume={nextVolume?onNextVolume:undefined} nextVolumeTitle={nextVolume?.title}/></Suspense></ReaderBoundary>
       </div>
       {openingError&&<BookOpening error={openingError} onBack={()=>{setRoute(null);location.hash='/';}} onRetry={()=>{setReaderReady(null);setOpenError('');if(accountReady)setOpenAttempt(value=>value+1);else location.reload();}}/>}
       {assetManager}
