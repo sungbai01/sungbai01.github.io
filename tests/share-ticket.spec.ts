@@ -12,7 +12,17 @@ for(const width of [390,1440])test(`share ticket opens before book fetch (${widt
  await expect(page.locator('.share-interactive-ticket')).toContainText('티켓 테스트');
  await expect(page.getByRole('button',{name:'공유할 대사 선택',exact:true})).toBeDisabled();
  expect(await page.locator('.share-ticket-workspace').evaluate(el=>getComputedStyle(el).animationName)).toBe('share-dialog-enter');
- await page.evaluate(()=>document.querySelector('.share-ticket-workspace')!.getAnimations().forEach(animation=>animation.finish()));
+ const motion=await page.evaluate(()=>{
+  const el=document.querySelector<HTMLElement>('.share-ticket-workspace')!,dialog=document.querySelector<HTMLElement>('.share-ticket-dialog')!;
+  const animation=el.getAnimations()[0];animation.pause();
+  const samples=[0,180,350,460].map(time=>{animation.currentTime=time;const box=el.getBoundingClientRect(),matrix=new DOMMatrixReadOnly(getComputedStyle(el).transform);dialog.scrollTo(500,500);return {top:box.top,tilt:matrix.b,scrollX:dialog.scrollLeft,scrollY:dialog.scrollTop,gutter:dialog.offsetWidth-dialog.clientWidth};});
+  animation.finish();return {samples,height:innerHeight,filter:getComputedStyle(document.querySelector('.share-interactive-ticket')!).filter};
+ });
+ expect(motion.samples[0].top).toBeGreaterThan(motion.height);
+ expect(Math.abs(motion.samples[1].tilt)).toBeGreaterThan(.0001);
+ expect(Math.abs(motion.samples[3].tilt)).toBeLessThan(.0001);
+ for(const sample of motion.samples)expect([sample.scrollX,sample.scrollY,sample.gutter]).toEqual([0,0,0]);
+ expect(motion.filter).toBe('none');
  await expect(page.locator('.share-ticket-placeholder')).toHaveCSS('mask-mode','luminance');
  const before=await page.locator('.share-interactive-ticket').boundingBox();
  const fits=await page.locator('.share-ticket-dialog').evaluate(el=>el.scrollWidth<=el.clientWidth);

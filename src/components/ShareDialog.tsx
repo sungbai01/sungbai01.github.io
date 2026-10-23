@@ -47,7 +47,7 @@ export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAs
  const locked=busy||closing||bookPending||!!bookError;
  return <dialog ref={dialog} className="share-ticket-dialog" data-closing={closing||undefined} aria-labelledby={title} onCancel={event=>{event.preventDefault();if(expanded)closeShare();else requestClose();}}>
   <h2 id={title} className="sr-only">책 공유</h2>
-  <div className="share-ticket-workspace">
+  <div className="share-ticket-frame"><div className="share-ticket-workspace">
    <article className="share-interactive-ticket" aria-label="저장될 공유 카드">
     <h3 className="sr-only">{book.title}</h3>
     {preview?<img className="share-ticket-render" src={preview} alt={`${book.title} 공유 카드 미리보기`}/>:<div className="share-ticket-placeholder" style={{backgroundColor:book.color}} aria-busy="true"><div><small>GALPI / A STORY TO KEEP</small><strong>{book.title}</strong><span className="skeleton-fill"/></div><aside><small>갈피 / SHARED BOOK</small><strong>{String(book.volumeNumber??1).padStart(2,'0')}</strong><small>{book.author||'저자 모델 미상'}</small></aside></div>}
@@ -65,6 +65,7 @@ export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAs
      </div>}
     </div>
    </nav>
+  </div>
   </div>
   <Toast key={toast.id} message={toast.message} tone={toast.tone} duration={toast.duration} onDismiss={dismiss}>{manualCopy&&<textarea aria-label="직접 복사할 공유 내용" readOnly value={manualCopy} onFocus={event=>event.currentTarget.select()}/>}</Toast>
  </dialog>;
