@@ -1,5 +1,4 @@
 import type {ShareCardLayout} from '../../shared/shareCard';
-import {bookAuthor} from '../lib/bookAuthor';
 import {useEffect,useId,useMemo,useRef,useState} from 'react';
 import {Download,Copy,Images,LoaderCircle,X,Share2,Link,Code2,ArrowUp,ArrowDown,GripVertical,RefreshCw} from 'lucide-react';
 import type {Book} from '../lib/library';
@@ -7,7 +6,7 @@ import {getAuthSession} from '../lib/auth';
 import {cardHtml,downloadBlob,makeShareCard,shareRequest,shareUrl,shareBackgroundBlob,saveShareCardLayout,prepareShareUpdate,syncShareImages,withSharedAssets,type ShareInfo} from '../lib/sharing';
 import Toast from './Toast';
 import ShareCardEditor from './ShareCardEditor';
-import ShareCardBackground from './ShareCardBackground';
+import ShareTicketFace from './ShareTicketFace';
 import {useToast} from '../lib/useToast';
 import {type QuotePageRange,type TicketTextLayout} from '../lib/shareTicket';
 import './share-dialog.css';
@@ -119,9 +118,7 @@ export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAs
   <div className="share-ticket-frame"><div className="share-ticket-workspace">
    <div className="share-image-drag-hint" role="slider" aria-label="배경 이미지 상하 위치" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(imagePosition*100)} aria-orientation="vertical" aria-disabled={!movable||locked} tabIndex={movable&&!locked?0:-1} title="배경 이미지를 잡고 위아래로 드래그하세요" onPointerDown={dragStart} onPointerMove={dragMove} onPointerUp={dragEnd} onPointerCancel={dragEnd} onLostPointerCapture={()=>{imageDrag.current=null;setImageDragging(false);}} onKeyDown={event=>{if(!movable||locked)return;const value=event.key==='ArrowUp'?imagePosition-.05:event.key==='ArrowDown'?imagePosition+.05:event.key==='Home'?0:event.key==='End'?1:undefined;if(value!==undefined){event.preventDefault();setRenderPending(true);positionChange(Math.max(0,Math.min(1,value)));}}}><ArrowUp size={16}/><span/><GripVertical size={18}/><span/><ArrowDown size={16}/></div>
    <article className="share-interactive-ticket" aria-label="저장될 공유 카드" data-image-movable={movable||undefined} data-image-dragging={imageDragging||undefined} onPointerDown={dragStart} onPointerMove={dragMove} onPointerUp={dragEnd} onPointerCancel={dragEnd} onLostPointerCapture={()=>{imageDrag.current=null;setImageDragging(false);}}>
-    {preview&&<ShareCardBackground color={book.color} artwork={layout.artwork} position={imagePosition}/>}
-    <h3 className="sr-only">{cardBook.title}</h3>
-    {preview?<img className="share-ticket-render" src={preview} alt={`${cardBook.title} 공유 카드 미리보기`}/>:<div className="share-ticket-placeholder" style={{backgroundColor:book.color}} aria-busy="true"><div><small>GALPI / A STORY TO KEEP</small></div><aside><small>갈피 / 간직할 이야기</small><strong>{String(book.volumeNumber??1).padStart(2,'0')}</strong><small style={{whiteSpace:'pre-line',textAlign:'center'}}>{bookAuthor(book,'\n✦\n')}</small></aside></div>}
+    <ShareTicketFace book={cardBook} preview={preview} layout={layout} position={imagePosition}/>
     <ShareCardEditor title={cardBook.title} quote={quote} locked={locked} layout={layout} onSelectQuote={onSelectQuote} onQuoteChange={onQuoteChange?value=>{setRenderPending(true);setQuote(value);onQuoteChange(value);}:undefined} onTitleChange={value=>{setRenderPending(true);setCustomTitle(value);onCardTitleChange?.(value);}}/>
 
    </article>

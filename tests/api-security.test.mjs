@@ -196,3 +196,17 @@ test('legacy image comparison reads once, never uploads, and finalizes only comp
  assert.equal((await check([{name:'missing',role:'asset',hash:'0'.repeat(64)}],true)).status,409);assert.equal(sql.prepare('SELECT COUNT(*) n FROM share_media').get().n,1);
  assert.equal((await check([],true)).status,200);assert.equal(sql.prepare('SELECT COUNT(*) n FROM share_media').get().n,0);assert.equal(sql.prepare('SELECT COUNT(*) n FROM share_objects').get().n,1);
 });
+
+test('public book opens count atomically, owner previews and image requests do not count',async()=>{
+ const {db,sql}=fixture();const request=new Request('https://audit/shares/'+share);
+ await Promise.all(Array.from({length:8},()=>api.publicShare(request,db,origin,reply)));
+ assert.equal(sql.prepare('SELECT view_count n FROM book_shares').get().n,8);
+ await api.manageShare(new Request('https://audit/share'),db,owner,'audit',origin,reply);
+ const list=await (await api.shareManagement(new Request('https://audit/library/shares'),db,owner,origin,reply)).json();assert.equal(list.shares[0].views,8);
+ assert.equal((await api.publicShare(new Request('https://audit/shares/'+share,{method:'POST'}),db,origin,reply)).status,404);assert.equal(sql.prepare('SELECT view_count n FROM book_shares').get().n,8);
+ sql.prepare('UPDATE book_shares SET last_access_at=?').run(now-8*86400000);await api.cleanExpiredShares(db,bucket);assert.equal(sql.prepare('SELECT view_count n FROM share_history WHERE share_id=?').get(share).n,8);
+});
+
+test('generated card upload is rejected by the server',async()=>{
+ const {db}=fixture();const response=await api.uploadShareImage(new Request('https://audit/upload',{method:'POST',headers:{'X-Image-Role':'card','X-Image-Name':'ticket'},body:png(40)}),db,bucket,owner,'audit',origin,reply);assert.equal(response.status,400);
+});

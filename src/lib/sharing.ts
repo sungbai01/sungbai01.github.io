@@ -59,12 +59,11 @@ async function existingShareMedia(book:Book,images:{name:string;role:string;hash
  const session=getAuthSession();if(!session||!apiBase)throw new Error('다시 로그인해 주세요.');
  const response=await fetch(`${apiBase}/library/books/${encodeURIComponent(book.id)}/share/images`,{method:'PUT',credentials:'omit',headers:{Authorization:`Bearer ${session.token}`,'Content-Type':'application/json'},body:JSON.stringify({images,complete})});const result=await response.json();if(!response.ok)throw new Error(result.error||'공유 이미지를 확인하지 못했어요.');if(getAuthSession()?.user.id!==session.user.id)throw new Error('계정이 변경되었어요.');return result.images as {name:string;role:string;hash:string;url:string|null}[];
 }
-async function uploadShareMedia(book:Book,blob:Blob,name:string,role:'asset'|'icon'|'card'){
+async function uploadShareMedia(book:Book,blob:Blob,name:string,role:'asset'|'icon'){
  const session=getAuthSession();if(!session||!apiBase)throw new Error('다시 로그인해 주세요.');
  const response=await fetch(`${apiBase}/library/books/${encodeURIComponent(book.id)}/share/images`,{method:'POST',credentials:'omit',cache:'no-store',headers:{Authorization:`Bearer ${session.token}`,'Content-Type':blob.type,'X-Image-Name':encodeURIComponent(name),'X-Image-Role':role},body:blob});
  const result=await response.json() as {url?:string;error?:string};if(!response.ok||!result.url)throw new Error(result.error||'공유 이미지를 업로드하지 못했어요.');if(getAuthSession()?.user.id!==session.user.id)throw new Error('계정이 변경되었어요.');return result.url;
 }
-export async function uploadShareCard(book:Book,blob:Blob){const hash=await hashBlob(blob),existing=await existingShareMedia(book,[{name:'share-card',role:'card',hash}]);return existing[0]?.url??uploadShareMedia(book,blob,'share-card','card');}
 export async function shareBackgroundBlob(book:Book,mime='image/webp'){
  const src=book.assets?.find(asset=>asset.id===book.shareCardAssetId)?.src??book.characterIcon??book.assets?.find(asset=>asset.type==='icon')?.src;return src?shareImageBlob(src,mime):null;
 }

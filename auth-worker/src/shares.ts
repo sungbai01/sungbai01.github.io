@@ -40,10 +40,9 @@ export async function publicShare(request:Request,db:TextDatabase,origin:string,
  if(request.method!=='GET'||!tokenPattern.test(id))return reply({error:'공유한 책을 찾을 수 없어요.'},404,origin);
  const now=Date.now();
  if(!await allowPublicRead(db))return reply({error:'오늘의 공유 조회 한도에 도달했어요.'},429,origin);
- const row=await db.prepare('SELECT body,last_access_at FROM book_shares WHERE share_id=?1 AND last_access_at>?2').bind(id,now-SHARE_IDLE_MS).first<{body:string;last_access_at:number}>();
+ // Count successful public book opens, including refreshes; images/owner previews do not count.
+ const row=await db.prepare('UPDATE book_shares SET view_count=MIN(view_count+1,9007199254740991),last_access_at=CASE WHEN last_access_at<=?3 THEN ?4 ELSE last_access_at END WHERE share_id=?1 AND last_access_at>?2 RETURNING body').bind(id,now-SHARE_IDLE_MS,now-60*60*1000,now).first<{body:string}>();
  if(!row)return reply({error:'공유가 종료되었거나 존재하지 않는 책이에요.'},404,origin);
- // Coalesce the access timestamp across locations and concurrent opens.
- if(row.last_access_at<=now-60*60*1000)await db.prepare('UPDATE book_shares SET last_access_at=?2 WHERE share_id=?1 AND last_access_at>?3 AND last_access_at<=?4').bind(id,now,now-SHARE_IDLE_MS,now-60*60*1000).run();
  const book=JSON.parse(row.body) as Book;
  delete book.bookmarks;
  const {results}=await db.prepare("SELECT image_id,name,role FROM share_media WHERE share_id=?1 AND role!='card' ORDER BY image_id DESC").bind(id).all<{image_id:string;name:string;role:string}>();
@@ -88,7 +87,7 @@ export async function manageShare(request:Request,db:TextDatabase,owner:string,b
  const shareId=btoa(id).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
  const now=Date.now();
  await db.batch([
-  db.prepare('INSERT OR IGNORE INTO share_history(share_id,owner_id,book_id,title,created_at,expired_at) SELECT share_id,owner_id,book_id,title,created_at,last_access_at+?4 FROM book_shares WHERE owner_id=?1 AND book_id=?2 AND last_access_at<=?3').bind(owner,bookId,now-SHARE_IDLE_MS,SHARE_IDLE_MS),
+  db.prepare('INSERT OR IGNORE INTO share_history(share_id,owner_id,book_id,title,created_at,expired_at,view_count) SELECT share_id,owner_id,book_id,title,created_at,last_access_at+?4,view_count FROM book_shares WHERE owner_id=?1 AND book_id=?2 AND last_access_at<=?3').bind(owner,bookId,now-SHARE_IDLE_MS,SHARE_IDLE_MS),
   db.prepare('DELETE FROM book_shares WHERE owner_id=?1 AND book_id=?2 AND last_access_at<=?3').bind(owner,bookId,now-SHARE_IDLE_MS),
  ]);
  // Quotas checked inside the write, including concurrent create requests.

@@ -23,7 +23,7 @@ function signature(bytes:Uint8Array){
  return null;
 }
 const imageUrl=(request:Request,share:string,image:string)=>`${new URL(request.url).origin}/share-media/${share}/${image}`;
-function validImageIdentity(name:unknown,role:unknown,hash:unknown){return typeof name==='string'&&!!name.trim()&&name.length<=500&&!/[\u0000-\u001f]/.test(name)&&['asset','icon','card'].includes(role as string)&&typeof hash==='string'&&/^[a-f0-9]{64}$/.test(hash);}
+function validImageIdentity(name:unknown,role:unknown,hash:unknown){return typeof name==='string'&&!!name.trim()&&name.length<=500&&!/[\u0000-\u001f]/.test(name)&&['asset','icon'].includes(role as string)&&typeof hash==='string'&&/^[a-f0-9]{64}$/.test(hash);}
 async function reuseImage(request:Request,db:TextDatabase,owner:string,share:string,name:string,role:string,hash:string):Promise<string|null>{
  const old=await db.prepare(`SELECT m.image_id,m.object_key FROM share_media m JOIN share_object_info i ON i.object_key=m.object_key WHERE m.share_id=?1 AND m.name=?2 AND m.role=?3 AND i.owner_id=?4 AND i.content_hash=?5 AND i.deleting=0`).bind(share,name,role,owner,hash).first<{image_id:string;object_key:string}>();
  if(old)return imageUrl(request,share,old.image_id);
@@ -69,7 +69,7 @@ export async function uploadShareImage(request:Request,db:TextDatabase,bucket:Sh
  if(!share)return reply({error:'공유 링크를 먼저 만들어 주세요.'},404,origin);
  const role=request.headers.get('X-Image-Role')??'';
  let name='';try{name=decodeURIComponent(request.headers.get('X-Image-Name')??'');}catch{return reply({error:'이미지 이름이 올바르지 않아요.'},400,origin);}
- if(!['asset','icon','card'].includes(role)||!name.trim()||name.length>500||/[\u0000-\u001f]/.test(name))return reply({error:'이미지 형식이 올바르지 않아요.'},400,origin);
+ if(!['asset','icon'].includes(role)||!name.trim()||name.length>500||/[\u0000-\u001f]/.test(name))return reply({error:'이미지 형식이 올바르지 않아요.'},400,origin);
 
  const declaredSize=Number(request.headers.get('Content-Length'));
  if(Number.isFinite(declaredSize)&&declaredSize>maxImage)return reply({error:'공유 이미지는 한 장당 2MB 이하여야 해요.'},413,origin);

@@ -7,8 +7,8 @@ export const SHARE_STORAGE_BYTES=1_000_000_000;
 export async function cleanExpiredShares(db:TextDatabase,bucket:ShareBucket){
  const now=Date.now();
  await db.batch([
-  db.prepare(`INSERT OR IGNORE INTO share_history(share_id,owner_id,book_id,title,created_at,expired_at)
-  SELECT share_id,owner_id,book_id,title,created_at,last_access_at+?2 FROM book_shares
+  db.prepare(`INSERT OR IGNORE INTO share_history(share_id,owner_id,book_id,title,created_at,expired_at,view_count)
+  SELECT share_id,owner_id,book_id,title,created_at,last_access_at+?2,view_count FROM book_shares
   WHERE last_access_at<=?1 ORDER BY last_access_at LIMIT 100`).bind(now-SHARE_IDLE_MS,SHARE_IDLE_MS),
   db.prepare('DELETE FROM book_shares WHERE share_id IN (SELECT share_id FROM book_shares WHERE last_access_at<=?1 ORDER BY last_access_at LIMIT 100)').bind(now-SHARE_IDLE_MS),
  ]);

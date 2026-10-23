@@ -353,3 +353,5 @@ html,body{overflow-x:clip}
 
 /* Titles wrap at word boundaries; a single oversized word may wrap as fallback. */
 .book-spine .spine-title-zone .spine-title,.book-cover .cover-title-zone h3,.book-title,.series-heading h3,.resume-copy>strong{word-break:keep-all;overflow-wrap:break-word}
+
+.series-resume{display:inline-flex;align-items:center;justify-content:center;gap:5px;flex:none;height:26px;min-width:36px;padding:4px 6px;border:1px solid var(--sand-5);border-radius:var(--radius-control);background:var(--sand-3);color:var(--sand-11)}.series-resume:hover{background:var(--sand-4)}.series-resume:focus-visible{outline:2px solid var(--brand-primary);outline-offset:2px}
