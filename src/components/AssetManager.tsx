@@ -23,6 +23,8 @@ export interface AssetManagerProps {
 export default function AssetManager({ assets,imageRules=[],displayRules=[],bookmarkAssetId,shareCardAssetId, onSave, onClose }: AssetManagerProps) {
   const dialog = useRef<HTMLDialogElement>(null);
   const input = useRef<HTMLInputElement>(null);
+  const resetButton=useRef<HTMLButtonElement>(null);
+  const [confirmReset,setConfirmReset]=useState(false);
   useEffect(()=>{const element=input.current;if(!element)return;const cancel=(event:Event)=>event.stopPropagation();element.addEventListener('cancel',cancel);return()=>element.removeEventListener('cancel',cancel);},[]);
   const locked = useRef(false);
   const titleId = useId();
@@ -115,7 +117,7 @@ export default function AssetManager({ assets,imageRules=[],displayRules=[],book
       const rect = event.currentTarget.getBoundingClientRect();
       if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) close();
     } }}>
-    <header className="shelf-assets-heading"><div className="shelf-assets-title"><span className="shelf-assets-title-icon"><Images size={21}/></span><div><h2 id={titleId}>에셋 이미지 관리</h2><p>{draft.length.toLocaleString()}개 이미지 <span>· 로컬 보관</span></p></div></div><div className="shelf-assets-heading-actions"><button type="button" className="shelf-assets-icon" aria-label="기본값으로 되돌리기" disabled={busy} title="기본값으로 되돌리기 — 이 책장의 이미지와 초상 비우기" onClick={()=>{setDraft([]);setRules([]);setDisplayDraft([]);setBookmarkImageId(undefined);setCardImageId(undefined);setError('');setNotice('');}}><RotateCcw size={17}/></button><button type="button" className="shelf-assets-icon shelf-assets-close" aria-label="닫기" disabled={busy} onClick={close}><X size={20}/></button></div></header>
+    <header className="shelf-assets-heading"><div className="shelf-assets-title"><span className="shelf-assets-title-icon"><Images size={21}/></span><div><h2 id={titleId}>에셋 이미지 관리</h2><p>{draft.length.toLocaleString()}개 이미지 <span>· 로컬 보관</span></p></div></div><div className="shelf-assets-heading-actions"><button type="button" ref={resetButton} className="shelf-assets-icon" aria-label="기본값으로 되돌리기" disabled={busy} title="기본값으로 되돌리기 — 이 책장의 이미지와 초상 비우기" onClick={()=>setConfirmReset(true)}><RotateCcw size={17}/></button><button type="button" className="shelf-assets-icon shelf-assets-close" aria-label="닫기" disabled={busy} onClick={close}><X size={20}/></button></div></header>
     <div className="shelf-assets-toolbar"><div className="shelf-assets-filters" role="group" aria-label="에셋 용도 필터">{([{id:'all',label:'전체',icon:Images},{id:'cover',label:'표지',icon:BookImage},{id:'bookmark',label:'책갈피',icon:Bookmark},{id:'card',label:'공유 카드',icon:Ticket}] as const).map(({id,label,icon:Icon})=><button key={id} type="button" aria-pressed={filter===id} disabled={busy} onClick={()=>setFilter(id)}><Icon size={14}/><span>{label}</span></button>)}</div><button type="button" className="shelf-assets-add" aria-label="에셋 업로드" disabled={busy} title="PNG · JPEG · WEBP · GIF · AVIF · JSON · CHARX · RISUM · ZIP" onClick={() => input.current?.click()}><ImagePlus size={17}/><span>업로드</span></button></div>
     <input ref={input} type="file" className="shelf-assets-input" multiple accept=".png,.jpg,.jpeg,.webp,.gif,.avif,.json,.charx,.risum,.zip,image/png,image/jpeg,image/webp,image/gif,image/avif,application/json,application/zip,application/charx"
       aria-label="이미지 또는 캐릭터 카드 파일" disabled={busy} onChange={event => { const files = Array.from(event.target.files ?? []); event.target.value = ''; void addFiles(files); }}/>
@@ -133,6 +135,14 @@ export default function AssetManager({ assets,imageRules=[],displayRules=[],book
       </>:<div className="shelf-assets-inspector-empty"><Images size={30}/><span>이미지를 선택하세요</span></div>}</aside>
     </div>
     <footer className="shelf-assets-actions"><span title="PNG · JPEG · WEBP · GIF · AVIF · JSON · CHARX · RISUM · ZIP">PNG · JPEG · CHARX · RISUM <span>외</span></span><button type="button" disabled={busy} onClick={close}>취소</button><button type="button" className="shelf-assets-save" disabled={busy} onClick={() => void save()}>{busy && <LoaderCircle size={16} className="animate-spin"/>} 저장</button></footer>
+    {confirmReset&&<AssetResetConfirmation onClose={()=>{setConfirmReset(false);resetButton.current?.focus({preventScroll:true});}} onConfirm={()=>{setDraft([]);setRules([]);setDisplayDraft([]);setBookmarkImageId(undefined);setCardImageId(undefined);setSelectedId(undefined);setFilter('all');setError('');setNotice('');dismiss();}}/>}
     {toast.message&&<Toast key={toast.id} message={toast.message} tone={toast.tone} duration={toast.duration} onDismiss={dismiss}/>}
   </dialog>;
+}
+
+function AssetResetConfirmation({onConfirm,onClose}:{onConfirm:()=>void;onClose:()=>void}){
+ const dialog=useRef<HTMLDialogElement>(null),timer=useRef<ReturnType<typeof setTimeout>>(undefined);const [closing,setClosing]=useState(false);
+ useEffect(()=>{const element=dialog.current!;element.showModal();return()=>{clearTimeout(timer.current);element.close();};},[]);
+ const finish=(confirmed=false)=>{if(closing)return;const done=()=>{dialog.current?.close();if(confirmed)onConfirm();onClose();};if(matchMedia('(prefers-reduced-motion: reduce)').matches){done();return;}setClosing(true);timer.current=setTimeout(done,150);};
+ return <dialog ref={dialog} className="shelf-assets-reset-confirm" aria-label="에셋 초기화 확인" data-closing={closing||undefined} inert={closing||undefined} onCancel={event=>{event.preventDefault();event.stopPropagation();finish();}} onClick={event=>{event.stopPropagation();if(event.target===event.currentTarget){const rect=event.currentTarget.getBoundingClientRect();if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)finish();}}}><h3>에셋을 초기화할까요?</h3><p>이 책장의 모든 이미지와 표지·책갈피·공유 카드 설정을 비워요. 저장해야 적용됩니다.</p><div><button type="button" autoFocus onClick={()=>finish()}>취소</button><button type="button" className="shelf-assets-confirm-reset" onClick={()=>finish(true)}>초기화</button></div></dialog>;
 }
