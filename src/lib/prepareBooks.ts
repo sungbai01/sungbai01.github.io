@@ -50,7 +50,7 @@ export async function prepareBooks(books:Book[]):Promise<Book[]>{
     for (const source of books) {
       // Already prepared volumes keep their grouping if a caller submits them
       // again. Backup restores must bypass this API to preserve all content.
-      const book = {...source, displayPrompt: normalizeDisplayPrompt(source.displayPrompt)};
+      const book = {...source,seriesId:source.seriesId??source.id,seriesTitle:source.seriesTitle??source.title,volumeNumber:source.volumeNumber??1,volumeCount:source.volumeCount??1,displayPrompt: normalizeDisplayPrompt(source.displayPrompt)};
       const displayBook={...book,imageReferences:await resolveDisplayImageReferences(book)};
       if (source.volumePolicy === 'chapters-100-v1' || source.volumePolicy === CURRENT_VOLUME_POLICY) { result.push({...book,pageCount:paginate(displayBook,measure,{pageHeight:IMPORT_PAGE_LAYOUT.height,contentTop:insets.top}).length,pageLayoutVersion:PAGE_LAYOUT_VERSION}); continue; }
       const volumes=splitBookByPages(book,paginate(displayBook,measure,{pageHeight:IMPORT_PAGE_LAYOUT.height,contentTop:insets.top}));
