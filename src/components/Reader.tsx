@@ -151,19 +151,21 @@ function RisuText({text,query}:{text:string;query:string}){
 }
 type EditFragment=(fragment:Fragment,text:string)=>void;
 const EditNoticeContext=createContext<(message:string)=>void>(()=>{});
-function EditableChunk({text,opening,onInput}:{text:string;opening:boolean;onInput:(text:string)=>void}){
+const EditOverflowContext=createContext<(fragment:Fragment,text:string,element:HTMLParagraphElement)=>string|undefined>(()=>undefined);
+function EditableChunk({text,opening,onInput,onOverflow,editKey}:{text:string;opening:boolean;onInput:(text:string)=>void;onOverflow:(value:string,element:HTMLParagraphElement)=>string|undefined;editKey:string}){
  const ref=useRef<HTMLParagraphElement>(null),accepted=useRef(text),initial=useRef(text),baselineOverflow=useRef(0);
  const notify=useContext(EditNoticeContext);
- useLayoutEffect(()=>{if(ref.current){ref.current.textContent=text;const content=ref.current.closest<HTMLElement>('.reader-page-content');baselineOverflow.current=content?Math.max(0,content.scrollHeight-content.clientHeight):0;}},[]);
+ useLayoutEffect(()=>{if(ref.current){if(ref.current.innerText!==text)ref.current.textContent=text;accepted.current=text;const content=ref.current.closest<HTMLElement>('.reader-page-content');baselineOverflow.current=content?Math.max(0,content.scrollHeight-content.clientHeight):0;}},[text]);
  const warn=()=>notify('긴 글과 줄바꿈은 고급 수정에서 편집해 주세요.');
  function changed(element:HTMLParagraphElement){
   const value=element.innerText,content=element.closest<HTMLElement>('.reader-page-content');
-  if(value.length>initial.current.length+80||value.split('\n').length>initial.current.split('\n').length||(content&&content.scrollHeight-content.clientHeight>baselineOverflow.current+2)){
+  if(value.length>initial.current.length+80||value.split('\n').length>initial.current.split('\n').length){
    element.textContent=accepted.current;warn();return;
   }
+  if(content&&content.scrollHeight-content.clientHeight>baselineOverflow.current+2){const prefix=onOverflow(value,element);if(prefix!==undefined){accepted.current=prefix;onInput(prefix);return;}element.textContent=accepted.current;warn();return;}
   accepted.current=value;onInput(value);
  }
- return <div className="reader-edit-chunk"><p ref={ref} className={`reader-prose reader-live-passage${opening?' reader-chapter-opening':''}`} role="textbox" aria-label="페이지 본문 편집" contentEditable="plaintext-only" suppressContentEditableWarning data-no-flip onBeforeInput={event=>{const native=event.nativeEvent as InputEvent;if(native.inputType==='insertParagraph'||native.inputType==='insertLineBreak'){event.preventDefault();warn();}}} onKeyDown={event=>{if(event.key==='Enter'&&!event.nativeEvent.isComposing){event.preventDefault();warn();}}} onInput={event=>{if(!(event.nativeEvent as InputEvent).isComposing)changed(event.currentTarget);}} onCompositionEnd={event=>changed(event.currentTarget)} onDrop={event=>{event.preventDefault();warn();}} onPaste={event=>{
+ return <div className="reader-edit-chunk"><p ref={ref} className={`reader-prose reader-live-passage${opening?' reader-chapter-opening':''}`} role="textbox" data-edit-key={editKey} aria-label="페이지 본문 편집" contentEditable="plaintext-only" suppressContentEditableWarning data-no-flip onBeforeInput={event=>{const native=event.nativeEvent as InputEvent;if(native.inputType==='insertParagraph'||native.inputType==='insertLineBreak'){event.preventDefault();warn();}}} onKeyDown={event=>{if(event.key==='Enter'&&!event.nativeEvent.isComposing){event.preventDefault();warn();}}} onInput={event=>{if(!(event.nativeEvent as InputEvent).isComposing)changed(event.currentTarget);}} onCompositionEnd={event=>changed(event.currentTarget)} onDrop={event=>{event.preventDefault();warn();}} onPaste={event=>{
   event.preventDefault();event.stopPropagation();
   const value=event.clipboardData.getData('text/plain');
   if(value.length>160||/[\r\n]/.test(value)){warn();return;}
@@ -176,7 +178,9 @@ function EditableChunk({text,opening,onInput}:{text:string;opening:boolean;onInp
 }
 function EditablePassage({fragment,onEdit,draft}:{fragment:Fragment;onEdit:EditFragment;draft?:string}){
  const [value,setValue]=useState(()=>draft??(fragment.chapter!==undefined?fragment.text.trimStart():fragment.text));
- return <EditableChunk text={value} opening={fragment.chapter!==undefined} onInput={next=>{setValue(next);onEdit(fragment,next);}}/>;
+ const overflow=useContext(EditOverflowContext);
+ useLayoutEffect(()=>{if(draft!==undefined)setValue(draft);},[draft]);
+ return <EditableChunk editKey={fragmentKey(fragment)} onOverflow={(text,element)=>overflow(fragment,text,element)} text={value} opening={fragment.chapter!==undefined} onInput={next=>{setValue(next);onEdit(fragment,next);}}/>;
 }
 
 type AssetPreview={container:HTMLElement;closing?:boolean;asset:BookAsset;owner:string;pinned:boolean;left:number;top:number;width:number;height:number;size:number};
@@ -865,6 +869,31 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
   useEffect(()=>{if(!editing&&!nextConfirm&&!leaveConfirm){setViewport(previous=>{const next=readReaderViewport();return previous.width===next.width&&previous.height===next.height&&previous.touch===next.touch&&previous.horizontalSegments===next.horizontalSegments&&previous.screenWidth===next.screenWidth&&previous.screenHeight===next.screenHeight?previous:next;});const stage=stageRef.current;if(stage){const box=stage.getBoundingClientRect();setDimensions(previous=>{const next={width:Math.floor(box.width),height:Math.floor(box.height)};return previous.width===next.width&&previous.height===next.height?previous:next;});}}},[editing,nextConfirm,leaveConfirm]);
   useEffect(()=>{setAssetPreview(null);hoverSuppressedRef.current.clear();},[pageIndex,editing,drawerOpen,panel,loading]);
   const onEdit:EditFragment=(fragment,text)=>{draftsRef.current.set(`${fragment.message}:${fragment.char}`,text);};
+  const flowEdit=(fragment:Fragment,text:string,element:HTMLParagraphElement):string|undefined=>{
+    const fragments=pagesRef.current.flatMap(page=>page.fragments),index=fragments.findIndex(entry=>fragmentKey(entry)===fragmentKey(fragment)),next=fragments[index+1];
+    // Keep hidden source blocks, assets, roles and chapter boundaries intact.
+    if(!next||next.hidden||next.asset||next.chapter!==undefined||next.message!==fragment.message||next.char!==fragment.end)return;
+    const content=element.closest<HTMLElement>('.reader-page-content');if(!content)return;
+    const selection=getSelection();let caret=text.length;
+    if(selection?.rangeCount&&element.contains(selection.focusNode)){const range=document.createRange();range.selectNodeContents(element);range.setEnd(selection.focusNode!,selection.focusOffset);caret=range.toString().length;}
+    let low=0,high=text.length;
+    while(low<high){let mid=Math.ceil((low+high)/2);element.textContent=text.slice(0,mid);if(content.scrollHeight<=content.clientHeight+2)low=mid;else high=mid-1;}
+    if(low>0&&/[\uD800-\uDBFF]/.test(text.charAt(low-1)))low--;
+    if(!low||low>=text.length){element.textContent=text;return;}
+    const prefix=text.slice(0,low),suffix=text.slice(low),nextKey=fragmentKey(next);
+    element.textContent=prefix;draftsRef.current.set(nextKey,suffix+(draftsRef.current.get(nextKey)??next.text));
+    requestAnimationFrame(()=>{
+      const target=caret>low?next:fragment;
+      if(caret>low){const page=pagesRef.current.findIndex(page=>page.fragments.includes(next));if(page>=0&&(page<pageIndex||page>=pageIndex+spread))jump(page);}
+      flushSync(()=>{mountedPagesRef.current.forEach(({root},index)=>root.render(renderLeafRef.current(pagesRef.current[index],index,spread===1)));});
+      const field=readerRef.current?.querySelector<HTMLElement>(`[data-edit-key="${fragmentKey(target)}"]`);if(!field)return;
+      field.focus({preventScroll:true});const offset=caret>low?caret-low:Math.min(caret,low);const walker=document.createTreeWalker(field,NodeFilter.SHOW_TEXT);let remaining=offset,node=walker.nextNode();
+      while(node&&remaining>node.textContent!.length){remaining-=node.textContent!.length;node=walker.nextNode();}
+      const range=document.createRange();if(node)range.setStart(node,Math.min(remaining,node.textContent!.length));else{range.selectNodeContents(field);range.collapse(false);}range.collapse(true);const selection=getSelection();selection?.removeAllRanges();selection?.addRange(range);
+    });
+    return prefix;
+  };
+
   useEffect(()=>{
     setSelectedBookmarkStyle(displayBookmarkStyle(shelfBookmark ? shelfBookmark.style ?? 'normal' : bookmarkStyle ?? book.bookmarkStyle ?? 'normal'));
   },[bookmarkStyle,book.bookmarkStyle,shelfBookmark?.style,!!shelfBookmark]);
@@ -912,7 +941,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
   const ribbonIcon=shelfBookmark?.icon??characterIcon??book.characterIcon;
   const ribbonImage=shelfBookmark?.image??bookmarkImage??ribbonIcon;
   const ribbonStyle=displayBookmarkStyle(shelfBookmark ? shelfBookmark.style ?? 'normal' : selectedBookmarkStyle);
-  renderLeafRef.current=(page,index,mobile)=><EditNoticeContext.Provider value={message=>notifyEdit(message)}><PageLeaf page={page} book={editingSourceRef.current??bookRef.current} query={queryRef.current} index={index} mobile={mobile} editing={editing} onEdit={onEdit} drafts={draftsRef.current} onPreview={previewAsset} onNext={nextVolumeRef.current?()=>requestNextRef.current():undefined} onClose={()=>requestCloseRef.current()} bookmark={device!=='phone'&&shelfBookmark?.bookId===bookRef.current.id&&bookmarkPage(pagesRef.current,shelfBookmark)===index?{...bookmarkInteraction,style:ribbonStyle,icon:ribbonIcon,image:ribbonImage,title:shelfBookmark.title,color:bookRef.current.color,side:index<(selectedLeaf??pageIndex)?'before':'after'}:undefined}/></EditNoticeContext.Provider>;
+  renderLeafRef.current=(page,index,mobile)=><EditOverflowContext.Provider value={flowEdit}><EditNoticeContext.Provider value={message=>notifyEdit(message)}><PageLeaf page={page} book={editingSourceRef.current??bookRef.current} query={queryRef.current} index={index} mobile={mobile} editing={editing} onEdit={onEdit} drafts={draftsRef.current} onPreview={previewAsset} onNext={nextVolumeRef.current?()=>requestNextRef.current():undefined} onClose={()=>requestCloseRef.current()} bookmark={device!=='phone'&&shelfBookmark?.bookId===bookRef.current.id&&bookmarkPage(pagesRef.current,shelfBookmark)===index?{...bookmarkInteraction,style:ribbonStyle,icon:ribbonIcon,image:ribbonImage,title:shelfBookmark.title,color:bookRef.current.color,side:index<(selectedLeaf??pageIndex)?'before':'after'}:undefined}/></EditNoticeContext.Provider></EditOverflowContext.Provider>;
   useEffect(()=>{if(!onSaveBook&&editing){draftsRef.current.clear();editingSourceRef.current=null;setEditing(false);setLeafRevision(value=>value+1);}},[onSaveBook,editing]);
   function cancelEditing(){editingSourceRef.current=null;draftsRef.current.clear();setEditing(false);setEditError('');setLeafRevision(value=>value+1);}
   async function saveEditing(){

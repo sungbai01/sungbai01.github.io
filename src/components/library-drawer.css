@@ -29,3 +29,5 @@
 @media(prefers-reduced-motion:reduce){.drawer-chevron{transition:none}}
 
 .drawer-footer a svg{width:8px;height:8px}.drawer-footer .google-account{margin:0;padding:0;border:0}.account-summary{display:flex;align-items:center;justify-content:space-between;gap:12px}.account-summary>div{display:flex;flex-direction:column;gap:4px}.account-summary strong{font-size:12px;font-weight:500}.account-summary span{font-size:10px;color:var(--sand-10)}.account-summary>.icon-btn{flex:none;color:var(--sand-10)}
+
+.drawer-navigation .nav-item small.share-count-badge{flex:none;display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:var(--brand-red-soft);border:1px solid var(--brand-red-border);color:var(--brand-red-ink);font-weight:600;line-height:1}

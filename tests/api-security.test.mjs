@@ -5,7 +5,7 @@ import {readFileSync,readdirSync} from 'node:fs';
 import {createRequire} from 'node:module';
 const require=createRequire(new URL('../auth-worker/package.json',import.meta.url));
 const {build}=require('esbuild');
-const bundle=await build({stdin:{contents:`export {default as worker} from './auth-worker/src/index.ts';export {uploadShareImage,publicShareImage} from './auth-worker/src/shareMedia.ts';export {cleanExpiredShares} from './auth-worker/src/shareExpiry.ts';export {publicShare,manageShare} from './auth-worker/src/shares.ts';export {libraryApi} from './auth-worker/src/cloud.ts';export {verifySession,issueSession,revokeSession} from './auth-worker/src/sessions.ts';`,resolveDir:process.cwd(),loader:'ts'},bundle:true,platform:'node',format:'esm',write:false,logLevel:'silent'});
+const bundle=await build({stdin:{contents:`export {default as worker} from './auth-worker/src/index.ts';export {uploadShareImage,publicShareImage} from './auth-worker/src/shareMedia.ts';export {cleanExpiredShares} from './auth-worker/src/shareExpiry.ts';export {publicShare,manageShare} from './auth-worker/src/shares.ts';export {libraryApi} from './auth-worker/src/cloud.ts';export {shareManagement} from './auth-worker/src/shareManagement.ts';export {verifySession,issueSession,revokeSession} from './auth-worker/src/sessions.ts';`,resolveDir:process.cwd(),loader:'ts'},bundle:true,platform:'node',format:'esm',write:false,logLevel:'silent'});
 const api=await import('data:text/javascript;base64,'+Buffer.from(bundle.outputFiles[0].contents).toString('base64'));
 const {SignJWT}=await import('../auth-worker/node_modules/jose/dist/webapi/index.js');
 const origin='https://sungbai01.github.io',owner='u_'+'a'.repeat(43),share='S'.repeat(43),now=Date.now();
@@ -115,4 +115,12 @@ test('D1 accepts soakma prompt and rejects unsupported prompt ids',async()=>{
  const request=value=>new Request('https://audit/library/books/audit',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({book:value,baseRevision:0})});
  assert.equal((await api.libraryApi(request({...book,displayPrompt:{...book.displayPrompt,id:'unknown'}}),db,owner,origin,reply)).status,400);
  assert.equal((await api.libraryApi(request(book),db,owner,origin,reply)).status,200);
+});
+
+
+test('active share count excludes expired shares and other owners',async()=>{
+ const {db,sql}=fixture();
+ const add=(id,who,last)=>sql.prepare('INSERT INTO book_shares(share_id,owner_id,book_id,body,bytes,created_at,updated_at,last_access_at,title) VALUES(?,?,?,?,?,?,?,?,?)').run(id,who,id,'{}',2,now,now,last,'test');
+ add('B'.repeat(43),owner,now-8*86400000);add('C'.repeat(43),'other',now);add('D'.repeat(43),owner,now);
+ const response=await api.shareManagement(new Request('https://audit/library/shares?count=1'),db,owner,origin,reply);assert.equal(response.status,200);assert.deepEqual(await response.json(),{activeCount:2});
 });

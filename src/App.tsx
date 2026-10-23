@@ -1,3 +1,4 @@
+import ShareCountBadge from './components/ShareCountBadge';
 import PromptPicker from './components/PromptPicker';
 import {bookAuthor} from './lib/bookAuthor';
 import type {QuotePageRange} from './lib/shareTicket';
@@ -619,7 +620,7 @@ function AccountApp({owner}:{owner:string|null}) {
             <button disabled={busy||loading} onClick={()=>void exportLibrary()}><ArrowDownToLine size={15}/>백업</button>
             <button disabled={busy||!canEdit} onClick={()=>restore.current?.click()}><Upload size={15}/>복원</button>
           </div>}
-          {owner&&<><button className="nav-item" onClick={()=>{setDrawerOpen(false);setManagingShares(true);}}><Link size={18}/><span>공유 URL 관리</span></button><button className="nav-item" disabled={busy||loading} onClick={()=>void reloadLibrary()}><RotateCcw size={18}/><span>목록 새로고침</span></button><button className="nav-item" disabled={busy||loading} onClick={()=>void importGuest().catch(cause=>setError(cause instanceof Error?cause.message:'책을 가져오지 못했어요.'))}><Upload size={18}/><span>이 기기 책 가져오기</span></button></>}
+          {owner&&<><button className="nav-item" onClick={()=>{setDrawerOpen(false);setManagingShares(true);}}><Link size={18}/><span>공유 URL 관리</span><ShareCountBadge open={drawerOpen}/></button><button className="nav-item" disabled={busy||loading} onClick={()=>void reloadLibrary()}><RotateCcw size={18}/><span>목록 새로고침</span></button><button className="nav-item" disabled={busy||loading} onClick={()=>void importGuest().catch(cause=>setError(cause instanceof Error?cause.message:'책을 가져오지 못했어요.'))}><Upload size={18}/><span>이 기기 책 가져오기</span></button></>}
         </nav>
         <section className="drawer-appearance" aria-label="화면 설정"><h2 className="drawer-label">화면</h2><ThemePicker value={theme} onChange={changeTheme}/></section>
 

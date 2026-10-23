@@ -4,6 +4,12 @@ import type {Book} from './library';
 import {resolveDisplayImageReferences} from './displayRules';
 import {extractAssetSegments} from './assets';
 const apiBase=(import.meta.env.VITE_AUTH_API_URL as string|undefined)?.trim().replace(/\/+$/,'');
+export const SHARES_CHANGED='galpi:shares-changed';
+export async function getActiveShareCount(signal?:AbortSignal):Promise<number>{
+ const session=getAuthSession();if(!session||!apiBase)throw new Error('로그인이 필요해요.');
+ const response=await fetch(`${apiBase}/library/shares?count=1`,{credentials:'omit',cache:'no-store',signal,headers:{Authorization:`Bearer ${session.token}`}});
+ const result=await response.json();if(!response.ok||getAuthSession()?.user.id!==session.user.id||!Number.isSafeInteger(result.activeCount)||result.activeCount<0)throw new Error('공유 개수를 불러오지 못했어요.');return result.activeCount;
+}
 export type ShareInfo={id:string;updatedAt:number;cardUrl?:string|null};
 export function shareUrl(id:string){return `${location.origin}${location.pathname}#/share/${id}`;}
 export async function shareRequest(bookId:string,method='GET',signal?:AbortSignal,book?:Book):Promise<ShareInfo|null>{
@@ -14,6 +20,7 @@ export async function shareRequest(bookId:string,method='GET',signal?:AbortSigna
  const result=await response.json() as {share?:ShareInfo|null;error?:string};
  if(!response.ok)throw new Error(result.error||'공유를 완료하지 못했어요.');
  if(getAuthSession()?.user.id!==session.user.id)throw new Error('계정이 변경되었어요.');
+ if(method!=='GET')window.dispatchEvent(new Event(SHARES_CHANGED));
  return result.share??null;
 }
 export async function loadSharedBook(id:string,signal:AbortSignal):Promise<Book>{

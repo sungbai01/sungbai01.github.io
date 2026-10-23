@@ -4,6 +4,10 @@ type Reply=(body:unknown,status:number,origin:string)=>Response;
 export async function shareManagement(request:Request,db:TextDatabase,owner:string,origin:string,reply:Reply){
  const path=new URL(request.url).pathname;
  if(path==='/library/shares'&&request.method==='GET'){
+  if(new URL(request.url).searchParams.get('count')==='1'){
+   const row=await db.prepare('SELECT COUNT(*) AS activeCount FROM book_shares WHERE owner_id=?1 AND last_access_at>?2').bind(owner,Date.now()-SHARE_IDLE_MS).first<{activeCount:number}>();
+   return reply({activeCount:row?.activeCount??0},200,origin);
+  }
   const cursor=Number(new URL(request.url).searchParams.get('cursor')??0);if(!Number.isSafeInteger(cursor)||cursor<0||cursor>100000)return reply({error:'목록 주소가 올바르지 않아요.'},400,origin);
   const {results}=await db.prepare(`SELECT share_id AS id,book_id AS bookId,title,created_at AS createdAt,last_access_at+?2 AS expiresAt,
  CASE WHEN last_access_at+?2<=?3 THEN 'expired' ELSE 'active' END AS status

@@ -482,3 +482,5 @@
 .reader-edit-toolbar{position:absolute;bottom:68px;left:50%;transform:translateX(-50%);z-index:16;max-width:calc(100vw - 20px);background:var(--reader-panel-bg);border:1px solid var(--reader-line);border-radius:var(--radius-control)}
 .reader .reader-edit-toolbar .reader-inline-actions{position:static;transform:none;border:0;background:transparent;white-space:nowrap}
 .reader-edit-toolbar .display-prompt-controls{justify-content:center}
+
+.reader-back-mark,.reader-colophon-details h2,.reader-chapter-heading{word-break:keep-all;overflow-wrap:break-word}

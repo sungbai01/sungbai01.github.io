@@ -1,7 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
 import {Copy,Link,LoaderCircle,RotateCcw,Trash2,X} from 'lucide-react';
 import {getAuthSession} from '../lib/auth';
-import {shareUrl} from '../lib/sharing';
+import {shareUrl,SHARES_CHANGED} from '../lib/sharing';
 import './share-manager.css';
 type Entry={id:string;bookId:string;title:string;createdAt:number;expiresAt:number;status:'active'|'expired'};
 const apiBase=(import.meta.env.VITE_AUTH_API_URL as string|undefined)?.trim().replace(/\/+$/,'');
@@ -16,7 +16,7 @@ export default function ShareManager({onClose}:{onClose:()=>void}){
  useEffect(()=>{alive.current=true;const element=dialog.current!;element.showModal();const timer=setInterval(()=>setNow(Date.now()),30000);return()=>{alive.current=false;clearInterval(timer);element.close();};},[]);
  useEffect(()=>{const controller=new AbortController();setLoading(true);setError('');void request('', 'GET',controller.signal).then(result=>{if(!controller.signal.aborted){setEntries(result.shares);setCursor(result.nextCursor);}}).catch(cause=>{if(!controller.signal.aborted)setError(cause instanceof Error?cause.message:'불러오지 못했어요.');}).finally(()=>{if(!controller.signal.aborted)setLoading(false);});return()=>controller.abort();},[attempt]);
  async function more(){if(cursor===null||loading)return;setLoading(true);try{const result=await request(`?cursor=${cursor}`);if(alive.current){setEntries(previous=>[...previous,...result.shares]);setCursor(result.nextCursor);}}catch(cause){if(alive.current)setError(cause instanceof Error?cause.message:'불러오지 못했어요.');}finally{if(alive.current)setLoading(false);}}
- async function remove(id:string){if(removing)return;setRemoving(id);setError('');try{await request(`/${id}`,'DELETE');if(alive.current){setEntries(previous=>previous.filter(entry=>entry.id!==id));setConfirm('');setNotice('공유를 삭제했어요. 이미지는 정리 작업에서 삭제돼요.');}}catch(cause){if(alive.current)setError(cause instanceof Error?cause.message:'삭제하지 못했어요.');}finally{if(alive.current)setRemoving('');}}
+ async function remove(id:string){if(removing)return;setRemoving(id);setError('');try{await request(`/${id}`,'DELETE');window.dispatchEvent(new Event(SHARES_CHANGED));if(alive.current){setEntries(previous=>previous.filter(entry=>entry.id!==id));setConfirm('');setNotice('공유를 삭제했어요. 이미지는 정리 작업에서 삭제돼요.');}}catch(cause){if(alive.current)setError(cause instanceof Error?cause.message:'삭제하지 못했어요.');}finally{if(alive.current)setRemoving('');}}
  async function copy(id:string){try{await navigator.clipboard.writeText(shareUrl(id));if(alive.current)setNotice('링크를 복사했어요.');}catch{if(alive.current)setError('링크를 직접 복사해 주세요.');}}
  return <dialog ref={dialog} className="modal share-manager" aria-label="공유 URL 관리" onCancel={event=>{event.preventDefault();if(event.target===event.currentTarget&&!removing)onClose();}}>
   <header className="modal-header"><h2>공유 URL 관리</h2><div className="share-manager-actions"><button className="icon-btn" title="새로고침" aria-label="공유 목록 새로고침" disabled={loading||!!removing} onClick={()=>setAttempt(value=>value+1)}><RotateCcw size={17}/></button><button className="icon-btn" aria-label="닫기" disabled={!!removing} onClick={onClose}><X size={20}/></button></div></header>

@@ -350,3 +350,6 @@ html,body{overflow-x:clip}
 /* Shared brand roles; use semantic tokens instead of local UI colors. */
 :root{--brand-primary:var(--jade-9);--brand-primary-soft:var(--jade-3);--brand-primary-ink:var(--jade-11);--brand-background:var(--sand-2);--brand-surface:var(--sand-1);--brand-text:var(--sand-12);--brand-muted:var(--sand-10);--brand-border:var(--sand-5);--brand-accent:var(--bronze-9);--brand-red-soft:#fbe7e7;--brand-red-border:#edc0c2;--brand-red-ink:#a3444b}
 .dark{--brand-red-soft:#40272b;--brand-red-border:#684047;--brand-red-ink:#f1b1b6}
+
+/* Titles wrap at word boundaries; a single oversized word may wrap as fallback. */
+.book-spine .spine-title-zone .spine-title,.book-cover .cover-title-zone h3,.book-title,.series-heading h3,.resume-copy>strong{word-break:keep-all;overflow-wrap:break-word}

@@ -116,3 +116,11 @@ test('bookmark save failure uses a toast instead of page error',async({page})=>{
  await expect(page.locator('.reader .toast')).toContainText('책갈피를 저장하지 못했어요.');
  await expect(page.locator('.reader-error')).toHaveCount(0);
 });
+
+
+test('simple edit overflow moves into the next field and saves every character once',async({page})=>{
+ await page.setViewportSize({width:1440,height:1000});await page.route('https://fonts.googleapis.com/**',r=>r.abort());await page.route('https://fonts.gstatic.com/**',r=>r.abort());await page.goto('http://127.0.0.1:5175/');await page.evaluate(async book=>{const {saveBook}=await import('/src/lib/library.ts');await saveBook(book);localStorage.setItem('galpi.reader.fullwindow.v1','false');},book);await page.reload();await page.getByRole('button',{name:'수정 검증 읽기',exact:true}).click();await expect(page.locator('.reader-stage')).toHaveAttribute('aria-busy','false');await page.getByRole('button',{name:'본문 편집',exact:true}).click();
+ const field=page.getByRole('textbox',{name:'페이지 본문 편집'}).first();const original=await field.innerText();const extra=' 덧붙임'.repeat(15);const next=await field.evaluate(el=>{const fields=Array.from(document.querySelectorAll('[data-edit-key]'));return (fields[fields.indexOf(el)+1] as HTMLElement).innerText;});
+ await field.fill(original+extra);await expect.poll(()=>field.innerText()).not.toBe(original+extra);const prefix=await field.innerText();expect(prefix.length).toBeGreaterThan(0);const remainder=(original+extra).slice(prefix.length);const nextField=page.getByRole('textbox',{name:'페이지 본문 편집'}).nth(1);await expect(nextField).toHaveText(remainder+next);await expect(nextField).toBeFocused();
+await page.getByRole('button',{name:'저장',exact:true}).click();await expect(page.getByRole('button',{name:'저장',exact:true})).toHaveCount(0);const saved=await page.evaluate(async()=>{const {loadBooks}=await import('/src/lib/library.ts');return (await loadBooks()).find(book=>book.id==='mutation-spec')!.messages[0].content;});expect(saved).toBe(original+extra+book.messages[0].content.slice(original.length));
+});
