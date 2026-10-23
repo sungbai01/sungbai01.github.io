@@ -1,3 +1,4 @@
+import AssetPickerDialog from './AssetPickerDialog';
 import type {ShareCardLayout} from '../../shared/shareCard';
 import {useEffect,useId,useMemo,useRef,useState} from 'react';
 import {Images,LoaderCircle,X,Share2,Link,ArrowUp,ArrowDown,GripVertical,Image as ImageIcon} from 'lucide-react';
@@ -11,7 +12,7 @@ import {useToast} from '../lib/useToast';
 import {type QuotePageRange,type TicketTextLayout} from '../lib/shareTicket';
 import {readShareDraft,shareDraftKey,writeShareDraft} from '../lib/shareDraft';
 import './share-dialog.css';
-export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAssets,quote:providedQuote='',quotePages:providedPages,onRestoreSettings,onSelectQuote,onQuoteChange,cardTitle,onCardTitleChange,shelfTitle,imagePosition:initialImagePosition=0,onImagePositionChange}:{onRestoreSettings?:(layout:ShareCardLayout)=>void;imagePosition?:number;onImagePositionChange?:(position:number)=>void;shelfTitle?:string;quote?:string;quotePages?:QuotePageRange;cardTitle?:string;onCardTitleChange?:(title:string)=>void;onSelectQuote?:()=>void;onQuoteChange?:(text:string)=>void;book:Book;loadBook?:(book:Book)=>Promise<Book>;onClose:()=>void;onManageAssets?:()=>void}){
+export default function ShareDialog({book:sourceBook,loadBook,onClose,quote:providedQuote='',quotePages:providedPages,onRestoreSettings,onSelectQuote,onQuoteChange,cardTitle,onCardTitleChange,shelfTitle,imagePosition:initialImagePosition=0,onImagePositionChange}:{onRestoreSettings?:(layout:ShareCardLayout)=>void;imagePosition?:number;onImagePositionChange?:(position:number)=>void;shelfTitle?:string;quote?:string;quotePages?:QuotePageRange;cardTitle?:string;onCardTitleChange?:(title:string)=>void;onSelectQuote?:()=>void;onQuoteChange?:(text:string)=>void;book:Book;loadBook?:(book:Book)=>Promise<Book>;onClose:()=>void}){
  const [draftCache]=useState(()=>{const key=shareDraftKey(sourceBook.id);return {key,value:cardTitle===undefined&&!providedQuote?readShareDraft(key):undefined};});
  const [book,setBook]=useState(sourceBook),[bookPending,setBookPending]=useState(!!loadBook),[bookError,setBookError]=useState('');
  useEffect(()=>{let active=true;setBook(sourceBook);setBookPending(!!loadBook);setBookError('');if(loadBook)void loadBook(sourceBook).then(value=>{if(active)setBook(value);}).catch(()=>{if(active)setBookError('책을 불러오지 못했어요. 닫고 다시 열어 주세요.');}).finally(()=>{if(active)setBookPending(false);});return()=>{active=false;};},[sourceBook,loadBook]);
@@ -28,7 +29,7 @@ export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAs
  const cardBook=useMemo(()=>({...visualBook,title:customTitle??shelfTitle??book.seriesTitle??book.title}),[visualBook,customTitle,shelfTitle,book.seriesTitle,book.title]);
  const previousAsset=useRef(book.shareCardAssetId);useEffect(()=>{if(previousAsset.current!==book.shareCardAssetId&&previousAsset.current!==undefined)setBackgroundName(undefined);previousAsset.current=book.shareCardAssetId;},[book.shareCardAssetId]);
  const dialog=useRef<HTMLDialogElement>(null),title=useId();
- const [closing,setClosing]=useState(false);
+ const [closing,setClosing]=useState(false),[choosingImage,setChoosingImage]=useState(false);
  const closeTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
  const closeCallback=useRef(onClose);closeCallback.current=onClose;
  useEffect(()=>()=>clearTimeout(closeTimer.current),[]);
@@ -113,7 +114,7 @@ export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAs
    </article>
    <nav className="share-ticket-tools" aria-label="공유 도구">
     <button className="share-ticket-close" aria-label="닫기" title="닫기" disabled={busy||closing} onClick={requestClose}><X size={20}/></button>
-    {onManageAssets&&<button disabled={locked} onClick={onManageAssets} title="공유 카드 이미지 선택" aria-label="공유 카드 이미지 선택"><Images size={20}/></button>}
+    <button disabled={locked} onClick={()=>setChoosingImage(true)} title="공유 카드 이미지 선택" aria-label="공유 카드 이미지 선택"><Images size={20}/></button>
     <div className="share-ticket-share" ref={shareTools}>
      <button aria-label="공유" title="공유" aria-expanded={expanded} aria-controls={`${title}-share-actions`} disabled={!card||renderPending||locked||checking||expanded} onClick={()=>setExpanded(true)}>{busy||checking?<LoaderCircle className="animate-spin" size={20}/>:<Share2 size={20}/>}</button>
      {expanded&&<div className="share-ticket-actions" data-closing={shareClosing||undefined} inert={shareClosing||undefined} id={`${title}-share-actions`} role="group" aria-label="공유 형식">
@@ -124,6 +125,7 @@ export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAs
    </nav>
   </div>
   </div>
+  {choosingImage&&<AssetPickerDialog title="공유 카드 이미지 선택" assets={visualBook.assets??[]} selectedIds={cardBook.shareCardAssetId?[cardBook.shareCardAssetId]:[]} onSelect={asset=>{setRenderPending(true);setBackgroundName(asset.name);setImagePosition(0);onImagePositionChange?.(0);}} onClose={()=>setChoosingImage(false)}/>}
   <Toast key={toast.id} message={toast.message} tone={toast.tone} duration={toast.duration} onDismiss={dismiss}>{manualCopy&&<textarea aria-label="직접 복사할 공유 내용" readOnly value={manualCopy} onFocus={event=>event.currentTarget.select()}/>}</Toast>
  </dialog>;
 }

@@ -9,3 +9,7 @@
 .asset-picker-list .asset-picker-item{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--sand-5)}
 .asset-picker-list .asset-picker-thumbnail{width:68px;flex:none}.asset-picker-details{flex:1;min-width:0}.asset-picker-actions{flex:none}.asset-picker-empty{grid-column:1/-1;font-size:12px;color:var(--sand-10);text-align:center;padding:24px 0}
 .asset-picker :focus-visible{outline:2px solid var(--jade-8);outline-offset:2px}
+
+.asset-picker-dialog[open]{animation:asset-picker-in .15s ease-out}.asset-picker-dialog[data-closing]{animation:asset-picker-out .14s ease-in forwards;pointer-events:none}
+@keyframes asset-picker-in{from{opacity:0;translate:0 6px}to{opacity:1;translate:0 0}}@keyframes asset-picker-out{from{opacity:1;translate:0 0}to{opacity:0;translate:0 6px}}
+@media(prefers-reduced-motion:reduce){.asset-picker-dialog[open],.asset-picker-dialog[data-closing]{animation:none}}

@@ -8,7 +8,7 @@ export function mountTicket(signedIn=false,initialQuote='',withArtwork=false){
  const canvas=document.createElement('canvas');canvas.width=withArtwork?400:10;canvas.height=withArtwork?1200:10;canvas.getContext('2d')!.fillRect(0,0,10,10);
  const book={id:'ticket-test',title:'티켓 테스트',seriesTitle:'테스트 책장',author:'테스트',description:'',color:'#1d3b31',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),messages:[],...(signedIn||withArtwork?{shareCardAssetId:withArtwork?'scene':undefined,assets:[{id:'scene',name:'scene',type:'asset' as const,src:canvas.toDataURL('image/png')}]}:{})};
  const loadBook=()=>new Promise<any>(resolve=>{(window as any).finishBook=()=>{const value={...book,messages:[{role:'assistant',name:'화자',content:signedIn?'테스트 본문 <img="scene">':'테스트 본문'}]};(window as any).ticketBook=value;resolve(value);};});
- function Harness(){const [quote,setQuote]=useState(initialQuote);return <ShareDialog book={book} loadBook={loadBook} quote={quote} onQuoteChange={setQuote} onClose={()=>root.unmount()} onSelectQuote={()=>{(window as any).selectedFromBook=true;}} onManageAssets={()=>{}}/>;}
+ function Harness(){const [quote,setQuote]=useState(initialQuote);return <ShareDialog book={book} loadBook={loadBook} quote={quote} onQuoteChange={setQuote} onClose={()=>root.unmount()} onSelectQuote={()=>{(window as any).selectedFromBook=true;}}/>;}
  root.render(<Harness/>);
 }
 
