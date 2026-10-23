@@ -216,24 +216,6 @@ test('character-only mode rejects empty/user/system/unattributed narration impor
   await expect(imported(page, 'fake.html', '<script id="risuChatData">{"message":[]}</script><iframe srcdoc="hello"></iframe>', true)).rejects.toThrow('Character/Message');
 });
 
-test('backup restore defaults to preserving exact users, roles, IDs, series and progress', async ({ page }) => {
-  const result = await page.evaluate(async () => {
-    // @ts-ignore browser module
-    const lib = await import('/src/lib/library.ts');
-    const source = { id: 'backup-book', title: '보존', author: '나', description: 'original description', color: '#123456', createdAt: '2025-01-01T00:00:00.000Z', updatedAt: '2025-02-02T00:00:00.000Z', lastPage: 7,
-      seriesId: 'series', seriesTitle: 'Series', volumeNumber: 1, volumeCount: 2, volumePolicy: 'chapters-100-v1',
-      messages: [{ role: 'user', name: '  Custom  ', content: 'PRIVATE <b>literal backup</b>\r\n', chapter: '1' }, { role: 'assistant', name: 'Char', content: 'Character narrative' }, { role: 'system', name: 'sys', content: 'rules' }] };
-    const backup = new File([lib.exportBackup([source])], 'backup.json');
-    const restored = await lib.importChatFile(backup);
-    await lib.saveBook(restored[0]);
-    return { source, restored: restored[0], stored: (await lib.loadBooks())[0], filtered: (await lib.importChatFile(backup, { removeUserInputs: true }))[0] };
-  });
-  expect(result.restored).toEqual(result.source);
-  expect(result.stored).toEqual(result.source);
-  expect(result.filtered.messages.map(message => message.role)).toEqual(['assistant']);
-  expect(JSON.stringify(result.filtered)).not.toContain('PRIVATE');
-});
-
 test('deleteBooks removes only requested books and progress, validates upfront and is idempotent', async ({ page }) => {
   const result = await page.evaluate(async () => {
     // @ts-ignore browser module

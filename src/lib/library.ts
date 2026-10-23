@@ -182,7 +182,7 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
   const character = string(value.character_name, value.character, context.character, '캐릭터');
   const user = string(value.user_name, context.user, '나');
   const normalized = rows.map((row, i) => {
-    // Our own books already contain canonical messages. Backup restore must not
+    // Our own books already contain canonical messages. Canonical imports must not
     // normalize roles, trim speaker names, or change source line endings.
     if (context.preserveIds && record(row) && typeof row.role === 'string' &&
         typeof row.name === 'string' && typeof row.content === 'string') {
@@ -284,11 +284,7 @@ function parseJson(value: unknown, context: ImportContext): Book[] {
       visit(node.data, ctx, depth + 1);
       return;
     }
-    if (node.type === 'risu-bookshelf' || node.format === 'galpi-backup') {
-      if (node.version !== 1) throw new LibraryError('지원하지 않는 책장 백업 버전입니다.');
-      visit(node.books, { ...ctx, preserveIds: true }, depth + 1);
-      return;
-    }
+    if(node.type==='risu-bookshelf'||node.format==='galpi-backup')throw new LibraryError('지원하지 않는 JSON 대화 구조입니다.');
     if(typeof node.user_name==='string')ctx={...ctx,user:node.user_name};
     // Full JSON database/character exports can contain multiple characters/chats.
     if (Array.isArray(node.characters)) {
@@ -390,7 +386,7 @@ export async function importChatFile(file: File, options: { removeUserInputs?: b
 function storageError(error: unknown): LibraryError {
   const name = record(error) && typeof error.name === 'string' ? error.name : error instanceof Error ? error.name : '';
   return new LibraryError(name === 'QuotaExceededError'
-    ? '저장 공간이 부족합니다. 책을 백업한 뒤 공간을 확보해 주세요.'
+    ? '저장 공간이 부족합니다. 사용하지 않는 책이나 에셋을 정리해 주세요.'
     : '브라우저 책장 저장소에 접근하지 못했습니다. 저장 권한과 비공개 모드 설정을 확인해 주세요.');
 }
 
@@ -515,9 +511,9 @@ function validateBook(book: Book): void {
   }
 }
 
-/** The same safety rules apply to imports, persisted records and backup blobs. */
+/** The same safety rules apply to imports, persisted records and imported records. */
 function sanitizedBook(book: Book): Book {
-  // Runtime records/old backups can still have extra legacy fields even though
+  // Runtime records/old imports can still have extra legacy fields even though
   // the Book contract no longer exposes them. Never write/export lastPage.
   const { lastPage: _lastPage, customColor: _customColor, cover: _cover, backCover: _backCover, characterIcon: _characterIcon, assets: _assets, bookmarks: _bookmarks, imageRules:_imageRules, ...rest } = book as Book & { lastPage?: unknown };
   const cover = safeCover(book.cover);
@@ -553,7 +549,7 @@ async function readBooks(database:string): Promise<Book[]> {
   return books.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
 }
 
-/** Upsert by id. Timestamps are caller-owned, allowing lossless backup restore. */
+/** Upsert by id. Timestamps are caller-owned, allowing preserving imported timestamps. */
 export async function saveBook(book: Book): Promise<void> {
   validateBook(book);
   const stored = sanitizedBook(book);
@@ -704,12 +700,6 @@ export async function deleteBook(id: string): Promise<void> {
     const request = transaction.objectStore(STORE).delete(id);
     return request;
   });
-}
-
-/** Feed the resulting .json File back into importChatFile to restore books. */
-export function exportBackup(books: Book[]): Blob {
-  books.forEach(validateBook);
-  return new Blob([JSON.stringify({ format: 'galpi-backup', version: 1, exportedAt: new Date().toISOString(), books: books.map(sanitizedBook) }, null, 2)], { type: 'application/json;charset=utf-8' });
 }
 
 export function exportBookMarkdown(book: Book): Blob {

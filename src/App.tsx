@@ -9,7 +9,7 @@ import {bookAuthor} from './lib/bookAuthor';
 import type {QuotePageRange} from './lib/shareTicket';
 import Toast from './components/Toast';
 import { lazy, Suspense, useCallback, useMemo, useEffect, useLayoutEffect, useRef, useState, useId, type CSSProperties, type ReactNode } from 'react';
-import { ArrowDownToLine, ArrowRight, BookOpen, Bookmark, Check, ChevronDown, Ellipsis, Library, LoaderCircle, Menu, Pencil, Images, Link, Plus, RotateCcw, Search, Trash2, Upload, X } from 'lucide-react';
+import { ArrowRight, BookOpen, Bookmark, Check, Ellipsis, Library, LoaderCircle, Menu, Pencil, Images, Link, Plus, RotateCcw, Search, Trash2, Upload, X } from 'lucide-react';
 import { getLibraryGeneration, importChatFile, BOOK_COLORS, type Book } from './lib/library';
 import { CloudLibrary, stopCloudLibrary, type AccountStore, type CloudStatus } from './lib/cloudLibrary';
 import { clearAuthSession, getAuthSession, restoreAuthSession, subscribeAuthSession } from './lib/auth';
@@ -122,11 +122,6 @@ function sharedBookId(){const match=/^#\/share\/([^/]+)$/.exec(location.hash);re
 const colors = BOOK_COLORS;
 const retiredDemoIds = new Set(['sample-forest-letter','sample-terracotta-evening','sample-indigo-platform','sample-ochre-bookshop']);
 function currentBookId() { try { const match = location.hash.match(/^#\/book\/([^/]+)$/); return match ? decodeURIComponent(match[1]) : null; } catch { return null; } }
-function download(name: string, data: unknown) {
-  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], {type:'application/json'}));
-  const a = document.createElement('a'); a.href=url; a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
-}
-
 async function storeBooks(incoming:Book[],existing:Book[],store:AccountStore,assertAccount:()=>void,normalize=true){
   for(let index=0;index<incoming.length;index++){const book=incoming[index]!;if(book.pageCount!==undefined&&book.pageLayoutVersion===PAGE_LAYOUT_VERSION)continue;incoming[index]={...book,pageCount:await measureBookPageCount(book),pageLayoutVersion:PAGE_LAYOUT_VERSION};assertAccount();await new Promise<void>(resolve=>setTimeout(resolve,0));assertAccount();}
   assertAccount();if(incoming.length)await store.repackSeries(incoming[0]!.id,incoming,[]);
@@ -251,7 +246,7 @@ function AccountApp({owner}:{owner:string|null}) {
   const [readerReady,setReaderReady]=useState<string|null>(null);
   const onReaderReady=useCallback(()=>setReaderReady(route),[route]);
   useEffect(()=>{setReaderReady(null);},[route]);
-  const [drawerOpen,setDrawerOpen]=useState(false);const [intakeMode,setIntakeMode]=useState<'file'|'text'>('file');const [importing,setImporting]=useState(false);const [busy,setBusy]=useState(false);const [theme,setTheme]=useState<Theme>(readTheme);const [backupOpen,setBackupOpen]=useState(false);const [edit,setEdit]=useState<Book|null>(null);const [remove,setRemove]=useState<Book|null>(null);const [menu,setMenu]=useState<string|null>(null);const [view,setView]=useState<'covers'|'spines'>(()=>{try{return localStorage.getItem('galpi.library.view.v1')==='spines'?'spines':'covers';}catch{return 'covers';}});
+  const [drawerOpen,setDrawerOpen]=useState(false);const [intakeMode,setIntakeMode]=useState<'file'|'text'>('file');const [importing,setImporting]=useState(false);const [busy,setBusy]=useState(false);const [theme,setTheme]=useState<Theme>(readTheme);const [edit,setEdit]=useState<Book|null>(null);const [remove,setRemove]=useState<Book|null>(null);const [menu,setMenu]=useState<string|null>(null);const [view,setView]=useState<'covers'|'spines'>(()=>{try{return localStorage.getItem('galpi.library.view.v1')==='spines'?'spines':'covers';}catch{return 'covers';}});
   useEffect(()=>{try{localStorage.setItem('galpi.library.view.v1',view);}catch{/* Keep the selected view in memory when storage is unavailable. */}},[view]);
   const [clearConfirm,setClearConfirm]=useState<{title:string;ids:string[]}|null>(null);const [deleting,setDeleting]=useState(false);const [clearError,setClearError]=useState('');
   const [sharing,setSharing]=useState<Book|null>(null);
@@ -266,7 +261,7 @@ function AccountApp({owner}:{owner:string|null}) {
   const [managingShares,setManagingShares]=useState(false);
   const [creating,setCreating]=useState<ShelfTarget|null>(null);const [renaming,setRenaming]=useState<ShelfTarget|null>(null);const [assetShelf,setAssetShelf]=useState<ShelfTarget|null>(null);
   const deletingRef=useRef(false);const editingShelf=useRef(false);const preparingAssets=useRef(false);
-  const restore=useRef<HTMLInputElement>(null);const latestBooks=useRef(books); latestBooks.current=books;
+  const latestBooks=useRef(books); latestBooks.current=books;
   const splittingBooks=useRef(new Set<string>());
   useEffect(()=>{const sync=(event:Event)=>{const value=(event as CustomEvent<Theme>).detail;setTheme(value==='paper'||value==='warm'||value==='dark'?value:readTheme());};window.addEventListener(THEME_EVENT,sync);window.addEventListener('storage',sync);return()=>{window.removeEventListener(THEME_EVENT,sync);window.removeEventListener('storage',sync);};},[]);
   useEffect(()=>{document.documentElement.dataset.libraryTheme=theme;document.documentElement.classList.toggle('dark',theme==='dark');return()=>{delete document.documentElement.dataset.libraryTheme;document.documentElement.classList.remove('dark');};},[theme]);
@@ -501,16 +496,6 @@ function AccountApp({owner}:{owner:string|null}) {
       setToast('에셋과 규칙을 저장했어요.');
     }finally{preparingAssets.current=false;setBusy(false);}
   }
-  async function backupBooks(){
-    const assertAccount=accountGuard();
-    if(!clearConfirm)return;
-
-    const targetIds=new Set(clearConfirm.ids);
-    const persisted=(await loadTargetBooks([...targetIds])).filter(book=>targetIds.has(book.id));
-    assertAccount();
-    download(clearConfirm.title+'-'+new Date().toISOString().slice(0,10)+'.json',{format:'galpi-backup',version:1,volumePolicy:'chapters-200-v1',books:persisted});
-    setToast('백업 완료');
-  }
   async function clearBooks(){
     const assertAccount=accountGuard();
     if(!canEdit||!clearConfirm||deletingRef.current||preparingAssets.current||busy||loading)return;
@@ -527,30 +512,6 @@ function AccountApp({owner}:{owner:string|null}) {
       setToast('책장을 삭제했어요.');
     }catch{setClearError('삭제하지 못했어요. 다시 시도해 주세요.');}
     finally{deletingRef.current=false;setDeleting(false);setBusy(false);}
-  }
-  async function restoreBackup(file?:File){
-    if(!canEdit||!file||busy||preparingAssets.current)return;
-    const assertAccount=accountGuard();setBusy(true);setError('');
-    try{
-      const data=JSON.parse(await file.text());assertAccount();
-      if(data.format!=='galpi-backup'||!Array.isArray(data.books))throw new Error('갈피에서 내보낸 책장 백업 파일을 선택해 주세요.');
-      const normalized=await importChatFile(new File([JSON.stringify(data.books)],'backup.json',{type:'application/json'}));assertAccount();
-      const merged=await library.edit(async store=>storeBooks(normalized,await store.loadBooks(),store,assertAccount,!owner),{publish:!!owner});assertAccount();
-      if(!owner){latestBooks.current=merged;setBooks(merged);}setToast(`${normalized.length}권을 복원했어요.`);
-    }catch(e){setError(e instanceof Error?e.message:'백업을 복원하지 못했어요.');}
-    finally{setBusy(false);if(restore.current)restore.current.value='';}
-  }
-  async function exportLibrary(){
-    const assertAccount=accountGuard();
-    if(busy)return;setBusy(true);
-    try{const metadata=await loadBooks();const persisted=await loadTargetBooks(metadata.map(book=>book.id));assertAccount();download('갈피-책장-'+new Date().toISOString().slice(0,10)+'.json',{format:'galpi-backup',version:1,volumePolicy:'chapters-200-v1',books:persisted});setToast('백업 완료');}
-    catch{setToast('백업하지 못했어요.');}
-    finally{setBusy(false);}
-  }
-  async function exportOne(book:Book){
-    if(busy)return;const assertAccount=accountGuard();setBusy(true);
-    try{const full=owner?await library.ensureBook(book.id):book;assertAccount();download(`${full.title}.json`,[full]);}
-    catch(cause){setError(cause instanceof Error?cause.message:'책을 내보내지 못했어요.');}finally{setBusy(false);}
   }
   function shareOne(book:Book){if(busy)return;setShareCardTitles(previous=>{const next={...previous};delete next[book.id];return next;});setShareQuotes(previous=>({...previous,[book.id]:''}));setShareQuotePages(previous=>({...previous,[book.id]:undefined}));setShareImagePositions(previous=>({...previous,[book.id]:0}));setSharing(book);}
   const loadShareBook=useCallback((book:Book)=>owner?library.ensureBook(book.id):Promise.resolve(book),[owner,library]);
@@ -599,11 +560,6 @@ function AccountApp({owner}:{owner:string|null}) {
         <nav className="drawer-navigation" aria-label="서재 메뉴">
           <h2 className="drawer-label">서재</h2>
           <button className="nav-item active" aria-current="page" onClick={()=>{setDrawerOpen(false);setQuery('');}}><Library size={18}/><span>내 서재</span><small title="책장 수">{groupBooks(books).length}</small></button>
-          <button className="nav-item" aria-expanded={backupOpen} aria-controls="drawer-backup" onClick={()=>setBackupOpen(value=>!value)}><ArrowDownToLine size={18}/><span>백업·복원</span><ChevronDown className="drawer-chevron" size={15}/></button>
-          {backupOpen&&<div id="drawer-backup" className="drawer-backup">
-            <button disabled={busy||loading} onClick={()=>void exportLibrary()}><ArrowDownToLine size={15}/>백업</button>
-            <button disabled={busy||!canEdit} onClick={()=>restore.current?.click()}><Upload size={15}/>복원</button>
-          </div>}
           {owner&&<><button className="nav-item" onClick={()=>{setDrawerOpen(false);setManagingShares(true);}}><Link size={18}/><span>공유 URL 관리</span><ShareCountBadge open={drawerOpen}/></button><button className="nav-item" disabled={busy||loading} onClick={()=>void importGuest().catch(cause=>setError(cause instanceof Error?cause.message:'책을 가져오지 못했어요.'))}><Upload size={18}/><span>이 기기 책 가져오기</span></button></>}
         </nav>
         <section className="drawer-appearance" aria-label="화면 설정"><h2 className="drawer-label">화면</h2><ThemePicker value={theme} onChange={changeTheme}/></section>
@@ -635,7 +591,6 @@ function AccountApp({owner}:{owner:string|null}) {
 
       </main>
     </div>
-    <input className="sr-only" ref={restore} type="file" accept=".json" onChange={e=>void restoreBackup(e.target.files?.[0])}/>
     {canEdit&&(importing||creating)&&<BookIntake initialMode={intakeMode} title={creating&&!creating.ungrouped?creating.title:''} author={creating?(shelfBooks(books,creating)[0]?.author||shelfBooks(books,creating)[0]?.aiModel||''):''} onConfirm={intakeBooks} onClose={()=>{setImporting(false);setCreating(null);}}/>}
     {canEdit&&renaming&&shelfBooks(books,renaming)[0]&&<EditBook scope="shelf" book={{...shelfBooks(books,renaming)[0]!,title:renaming.title}} onSave={(draft,reset)=>decorateShelf(renaming,draft,reset)} onClose={()=>setRenaming(null)}/>}
     {assetManager}
@@ -645,14 +600,13 @@ function AccountApp({owner}:{owner:string|null}) {
         <span className="delete-shelf-icon" aria-hidden="true"><Trash2 size={26} strokeWidth={1.5}/></span>
         <p className="delete-shelf-count">‘{clearConfirm.title}’ 책장의<br/>총 <strong>{clearConfirm.ids.length.toLocaleString()}권</strong>을 삭제할까요?</p>
         <p className="modal-description">이 책장에 담긴 책의 대화와 책갈피가 사라져요.<br/><strong>삭제 후에는 되돌릴 수 없어요.</strong></p>
-        <button className="secondary-btn clear-backup" disabled={busy} onClick={async()=>{setBusy(true);try{await backupBooks();}catch{setClearError('백업하지 못했어요. 다시 시도해 주세요.');}finally{setBusy(false);}}}><ArrowDownToLine size={16}/> 먼저 백업하기 <span>선택</span></button>
         {clearError&&<p className="error-message" role="alert">{clearError}</p>}
         <div className="modal-actions"><button className="secondary-btn" autoFocus disabled={busy} onClick={()=>setClearConfirm(null)}>취소</button><HoldDelete disabled={busy} onConfirm={()=>void clearBooks()}/></div>
       </div>
     </Modal>}
     {managingShares&&<ShareManager onClose={()=>setManagingShares(false)}/>}
     {sharing&&<ShareDialog onRestoreSettings={layout=>{setShareQuotes(previous=>({...previous,[sharing.id]:layout.quote}));setShareQuotePages(previous=>({...previous,[sharing.id]:layout.quotePages}));setShareCardTitles(previous=>({...previous,[sharing.id]:layout.title}));setShareImagePositions(previous=>({...previous,[sharing.id]:layout.imagePosition}));}} imagePosition={shareImagePositions[sharing.id]??0} onImagePositionChange={position=>setShareImagePositions(previous=>({...previous,[sharing.id]:position}))} shelfTitle={bookShelf(sharing).title} book={sharing} loadBook={loadShareBook} quote={shareQuotes[sharing.id]??''} quotePages={shareQuotePages[sharing.id]} cardTitle={shareCardTitles[sharing.id]} onCardTitleChange={title=>setShareCardTitles(previous=>({...previous,[sharing.id]:title}))} onSelectQuote={()=>selectShareQuote(sharing)} onQuoteChange={text=>{setShareQuotes(previous=>({...previous,[sharing.id]:text}));if(!text)setShareQuotePages(previous=>({...previous,[sharing.id]:undefined}));}} onClose={()=>setSharing(null)}/>}
-    {canEdit&&remove&&<Modal title="책 삭제" onClose={()=>setRemove(null)}><p className="modal-description">‘{remove.title}’을 삭제할까요?</p><div className="modal-actions"><button className="secondary-btn" title="삭제 전 이 책을 백업" onClick={()=>void exportOne(remove)}><ArrowDownToLine size={16}/> 백업</button><button className="danger-btn" title="대화와 책갈피를 삭제합니다" disabled={busy} onClick={async()=>{if(!canEdit||deletingRef.current||editingShelf.current||preparingAssets.current||splittingBooks.current.size)return;const assertAccount=accountGuard();deletingRef.current=true;setBusy(true);try{await library.edit(store=>store.deleteBook(remove.id));assertAccount();const next=latestBooks.current.filter(b=>b.id!==remove.id);latestBooks.current=next;setBooks(next);setRemove(null);setToast('삭제 완료');}catch{setToast('삭제 실패');}finally{deletingRef.current=false;setBusy(false);}}}>삭제</button></div></Modal>}
+    {canEdit&&remove&&<Modal title="책 삭제" onClose={()=>setRemove(null)}><p className="modal-description">‘{remove.title}’을 삭제할까요?</p><div className="modal-actions"><button className="danger-btn" title="대화와 책갈피를 삭제합니다" disabled={busy} onClick={async()=>{if(!canEdit||deletingRef.current||editingShelf.current||preparingAssets.current||splittingBooks.current.size)return;const assertAccount=accountGuard();deletingRef.current=true;setBusy(true);try{await library.edit(store=>store.deleteBook(remove.id));assertAccount();const next=latestBooks.current.filter(b=>b.id!==remove.id);latestBooks.current=next;setBooks(next);setRemove(null);setToast('삭제 완료');}catch{setToast('삭제 실패');}finally{deletingRef.current=false;setBusy(false);}}}>삭제</button></div></Modal>}
     {toast&&<Toast message={toast} onDismiss={()=>setToast('')}/> }
   </div>;
 }

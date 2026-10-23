@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Book } from '../src/lib/library.ts';
-import { exportBackup, importChatFile, replaceBookWithVolumes, repackSeries } from '../src/lib/library.ts';
+import { importChatFile, replaceBookWithVolumes, repackSeries } from '../src/lib/library.ts';
 import { MAX_VOLUME_PAGES, chapterStarts, groupBooks, mergeLegacyVolumes, splitBookByPages, splitBookForStorage } from '../src/lib/volumes.ts';
 
 function fixture(count: number, extra: Partial<Book> = {}) {
@@ -179,11 +179,11 @@ test('stale or incomplete measured pages reject without mutation', () => {
   }
 });
 
-test('chapter metadata round-trips own books, backup, and normalized imports', async () => {
+test('chapter metadata round-trips own books and normalized imports', async () => {
   const { book, pages } = fixture(101);
   book.messages[0].chapter = '  chapter 1  ';
   const volumes = splitBookByPages(book, pages);
-  for (const json of [JSON.stringify(volumes), await exportBackup(volumes).text()]) {
+  for (const json of [JSON.stringify(volumes)]) {
     assert.deepEqual(await importChatFile(new File([json], 'books.json')), volumes);
   }
   const imported = await importChatFile(new File([JSON.stringify({ messages: [

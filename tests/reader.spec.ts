@@ -25,7 +25,7 @@ test('large logs split without text loss; shelves group volumes and consolidate 
  expect(volumes.length).toBeGreaterThan(1);
  expect(volumes.flatMap((v:any)=>v.messages).map((m:any)=>m.content).join('')).toBe(book.messages.map(m=>m.content).join(''));
  expect(await page.getByRole('button',{name:'RisuAI 로그 가져오기',exact:true}).count()).toBe(1);
- expect(await page.getByRole('button',{name:'저장 및 백업',exact:true}).count()).toBe(1);
+ expect(await page.getByRole('button',{name:'저장 및 백업',exact:true}).count()).toBe(0);
  await page.goto('/#/book/'+volumes[0].id);await page.reload();
  await expect(page.locator('.reader-stage')).toHaveAttribute('aria-busy','false',{timeout:120000});
  expect(await page.locator('.reader-page[data-page-kind=paper]:not([data-flip-copy])').count()).toBeLessThanOrEqual(100);

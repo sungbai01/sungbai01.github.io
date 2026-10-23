@@ -1,5 +1,4 @@
 import {test,expect,type Page} from '@playwright/test';
-import {readFile} from 'node:fs/promises';
 test.beforeEach(async({page})=>{await page.route('https://fonts.googleapis.com/**',r=>r.abort());await page.route('https://fonts.gstatic.com/**',r=>r.abort());});
 async function seed(page:any){await page.goto('/');await page.evaluate(async()=>{const {saveBook}=await import('/src/lib/library.ts');await saveBook({id:'editable',title:'편집할 책',author:'테스트',description:'',color:'#1d3b31',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),messages:Array.from({length:8},(_,i)=>({role:'assistant',name:'화자 '+i,content:i+' '+('이야기가 이어진다.\n').repeat(30)})),lastPage:0});});await page.reload();}
 test('reader edit saves selected message and survives reload; cancel preserves source',async({page})=>{
@@ -75,17 +74,6 @@ test('singleton shelf delete targets only ungrouped books even when search hides
  await dialog.getByRole('button',{name:'책장 삭제',exact:true}).click();await expect(dialog).toHaveCount(0);
  const expected={...before,books:before.books.filter((b:any)=>!!b.seriesId),progress:before.progress.filter(p=>!p.id.startsWith('single-')),stars:before.stars.filter((id:string)=>!id.startsWith('single-'))};
  expect(await snapshot(page)).toEqual(expected);await page.reload();await expect(page.locator('.loading-screen')).toHaveCount(0);expect(await snapshot(page)).toEqual(expected);
-});
-
-test('shelf backup contains all target volumes only and does not delete anything',async({page})=>{
- await seedShelves(page);const before=await snapshot(page);
- await page.getByRole('textbox',{name:'이야기 검색',exact:true}).fill('삭제할 시리즈 · 1권');
- await page.getByRole('button',{name:'삭제할 시리즈 책장 삭제',exact:true}).click();
- const dialog=page.getByRole('dialog',{name:'책장 삭제',exact:true});const downloading=page.waitForEvent('download');
- await dialog.getByRole('button',{name:'먼저 백업하기',exact:false}).click();const download=await downloading;
- const path=await download.path();expect(path).toBeTruthy();const backup=JSON.parse(await readFile(path!,'utf8'));
- expect(backup.format).toBe('galpi-backup');expect(backup.books).toEqual(before.books.filter((b:any)=>b.seriesId==='target'));
- await expect(dialog.getByRole('button',{name:'취소',exact:true})).toBeEnabled();await dialog.getByRole('button',{name:'취소',exact:true}).click();expect(await snapshot(page)).toEqual(before);
 });
 
 test('old short automatic volumes are rejoined once and chapter-policy volumes survive reload',async({page})=>{
