@@ -1,3 +1,4 @@
+import AssetPicker from './components/AssetPicker';
 import ReaderBoundary from './components/ReaderBoundary';
 import Dropdown from './components/Dropdown';
 import {bookTitle,volumeTitle} from './lib/bookTitle';
@@ -189,7 +190,7 @@ function EditBook({book,onSave,onClose,scope='book'}:{book:Book;onSave:(book:Boo
       
     </div></div>
     {error&&<p className="error-message" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-btn" disabled={busy} onClick={onClose}>취소</button><button className="primary-btn" disabled={busy||!draft.title.trim()}>{busy?<LoaderCircle size={16} className="animate-spin"/>:<Check size={16}/>} 저장하기</button></div>
-  </form>{choosingCover&&<Modal title="표지 에셋 선택" onClose={()=>setChoosingCover(false)}><div className="cover-asset-options">{!draft.assets?.length&&<p>등록된 에셋이 없어요.</p>}{draft.assets?.map(asset=><button key={asset.id} type="button" aria-label={`${asset.name} 표지로 선택`} aria-pressed={draft.characterIcon===asset.src} onClick={()=>{setDraft(previous=>({...previous,characterIcon:asset.src,assets:previous.assets?.map(entry=>({...entry,type:entry.id===asset.id?'icon':'asset'}))}));setChoosingCover(false);}}><img src={asset.src} alt="" loading="lazy"/><span>{asset.name}</span></button>)}</div></Modal>}</Modal>;
+  </form>{choosingCover&&<Modal title="표지 에셋 선택" onClose={()=>setChoosingCover(false)}><AssetPicker assets={draft.assets??[]} label="표지 에셋 목록" selectionLabel="표지로 선택" selectedIds={(draft.assets??[]).filter(asset=>draft.characterIcon===asset.src).map(asset=>asset.id)} disabled={busy} onSelect={asset=>{setDraft(previous=>({...previous,characterIcon:asset.src,assets:previous.assets?.map(entry=>({...entry,type:entry.id===asset.id?'icon':'asset'}))}));setChoosingCover(false);}}/></Modal>}</Modal>;
 }
 function styleBook(book:Book,draft:Book,reset:boolean):Book{
   return {...book,author:draft.author.trim(),aiModel:undefined,displayPrompt:normalizeDisplayPrompt(draft.displayPrompt),color:draft.color,customColor:draft.customColor,characterIcon:draft.characterIcon,assets:book.assets?.map(asset=>({...asset,type:draft.assets?.find(entry=>entry.id===asset.id)?.type??asset.type})),

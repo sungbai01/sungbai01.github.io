@@ -13,11 +13,6 @@
 .shelf-assets-add{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;min-height:48px;padding:12px;border:1px dashed var(--sand-7);border-radius:var(--radius-control);background:var(--sand-3);color:var(--jade-11);font-size:14px}
 .shelf-assets-input{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
 .shelf-assets-hint{margin:8px 0 18px;color:var(--sand-11);font-size:11px;line-height:1.6}
-.shelf-assets-list{display:grid;gap:12px;max-height:420px;overflow:auto;padding:3px}
-.shelf-assets-row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--sand-5)}
-.shelf-assets-preview{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:68px;height:68px;overflow:hidden;border-radius:var(--radius-control);background:var(--sand-3)}
-.shelf-assets-preview img{display:block;width:100%;height:100%;object-fit:contain}
-.shelf-assets-preview span{font-size:10px;color:var(--sand-11);text-align:center}
 .shelf-assets-name{display:grid;gap:5px;flex:1;min-width:0}
 .shelf-assets-name>span{font-size:11px;color:var(--sand-11)}
 .shelf-assets-name input{width:100%;min-width:0;height:35px;padding:6px 9px;border:1px solid var(--sand-6);border-radius:var(--radius-control);background:var(--sand-1);color:var(--sand-12);font-size:13px}

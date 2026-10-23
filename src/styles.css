@@ -347,8 +347,3 @@ html,body{overflow-x:clip}
 .book-cover .cover-portrait{position:relative}
 .book-cover .cover-asset-select{position:absolute;inset:0;display:grid;place-items:center;padding:0;background:#15201c55;color:white;opacity:0;transition:opacity .16s;border-radius:var(--radius-detail)}
 .book-cover .cover-portrait:is(:hover,:focus-within) .cover-asset-select{opacity:1}
-.cover-asset-options{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:12px}
-.cover-asset-options button{display:grid;gap:6px;padding:6px;border:1px solid var(--sand-5);border-radius:var(--radius-control);font-size:12px;text-align:left}
-.cover-asset-options button:hover,.cover-asset-options button[aria-pressed=true]{background:var(--jade-3);border-color:var(--jade-7)}
-.cover-asset-options img{width:100%;aspect-ratio:1;object-fit:cover;object-position:top}
-.cover-asset-options span{overflow-wrap:anywhere}
