@@ -29,7 +29,7 @@ for(const width of [390,1440])test(`share ticket opens before book fetch (${widt
  expect(fits).toBe(true);
  await page.evaluate(()=>(window as any).finishBook());
  await expect(page.getByRole('button',{name:'공유할 대사 선택',exact:true})).toBeEnabled();
- await expect(page.locator('.share-ticket-quote-target')).toContainText('대사 선택');
+ await expect(page.locator('.share-ticket-quote-placeholder')).toContainText('대사 선택');
  await expect(page.locator('.share-ticket-quote-target')).toHaveCSS('border-color','rgba(0, 0, 0, 0)');
  await page.locator('.share-ticket-quote-target').hover();
  await expect(page.locator('.share-ticket-quote-target')).not.toHaveCSS('border-color','rgba(0, 0, 0, 0)');
@@ -45,7 +45,7 @@ for(const width of [390,1440])test(`share ticket opens before book fetch (${widt
  for(const name of ['대사 제거','로그인','공유 만들기','공유 링크 복사','공유 내용 갱신','공유 종료','URL로 공유','카드로 공유'])await expect(page.getByRole('button',{name,exact:true})).toHaveCount(0);
  await expect(page.getByRole('checkbox')).toHaveCount(0);
  expect(await page.locator('.share-interactive-ticket').evaluate(el=>Math.abs(el.clientWidth/el.clientHeight-2)<.03)).toBe(true);
- expect(await page.locator('.share-interactive-ticket button').count()).toBe(1);
+ expect(await page.locator('.share-interactive-ticket button').count()).toBe(2);
  const preview=await page.locator('.share-ticket-render').evaluate(async(el:HTMLImageElement)=>Array.from(new Uint8Array(await (await fetch(el.src)).arrayBuffer())));
  const downloading=page.waitForEvent('download');
  await page.getByRole('button',{name:'카드 이미지 저장',exact:true}).click();
@@ -152,4 +152,32 @@ test('card render has a bounded font wait and ignores unrelated font readiness',
   finally{document.fonts.load=original;}
  });
  expect(result.elapsed).toBeLessThan(1600);expect(result.size).toBeGreaterThan(0);
+});
+
+test('quote menus support writing editing deleting and card title editing',async({page})=>{
+ await page.setViewportSize({width:1440,height:1000});await page.route('https://fonts.googleapis.com/**',r=>r.abort());await page.route('https://fonts.gstatic.com/**',r=>r.abort());
+ await page.goto('http://127.0.0.1:5175/');await page.evaluate(async()=>{const {mountTicket}=await import('/tests/share-ticket-harness.tsx');mountTicket();});
+ await expect(page.getByRole('dialog',{name:'책 공유'})).toBeVisible();await page.evaluate(()=>(window as any).finishBook());
+ await page.getByRole('button',{name:'공유할 대사 선택',exact:true}).click();
+ await expect(page.getByRole('button',{name:'본문에서 선택',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'처음부터 작성',exact:true}).click();
+ await page.getByRole('textbox',{name:'공유 대사',exact:true}).fill('직접 쓴 대사');await page.getByRole('button',{name:'편집 적용',exact:true}).click();
+ await page.getByRole('button',{name:'공유할 대사 선택',exact:true}).click();
+ for(const name of ['다시 선택','수정','삭제'])await expect(page.getByRole('button',{name,exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'수정',exact:true}).click();await expect(page.getByRole('textbox',{name:'공유 대사',exact:true})).toHaveValue('직접 쓴 대사');
+ await page.getByRole('textbox',{name:'공유 대사',exact:true}).fill('수정된 대사');await page.getByRole('button',{name:'편집 적용',exact:true}).click();
+ await page.getByRole('button',{name:'공유할 대사 선택',exact:true}).click();await page.getByRole('button',{name:'삭제',exact:true}).click();await expect(page.locator('.share-ticket-quote-placeholder')).toBeVisible();
+ await page.getByRole('button',{name:'공유 카드 제목 수정',exact:true}).click();await page.getByRole('textbox',{name:'공유 카드 제목',exact:true}).fill('새 공유 제목');await page.getByRole('button',{name:'편집 적용',exact:true}).click();
+ await expect(page.locator('.share-interactive-ticket h3')).toHaveText('새 공유 제목');
+ await page.getByRole('button',{name:'공유',exact:true}).click();
+ const delays=await page.locator('.share-ticket-actions>button').evaluateAll(nodes=>nodes.map(node=>getComputedStyle(node).animationDelay));expect(delays).toEqual(['0s','0.065s']);
+});
+test('quote selection records source pages and export places label below quotation',async({page})=>{
+ await page.goto('http://127.0.0.1:5175/');await page.evaluate(async()=>{const {mountRangeSelection}=await import('/tests/share-ticket-harness.tsx');mountRangeSelection();});
+ await expect(page.getByRole('button',{name:'대사 없이 공유',exact:true})).toBeVisible();
+ await page.evaluate(()=>{const paragraphs=document.querySelectorAll('.reader-prose'),range=document.createRange();range.setStart(paragraphs[0].firstChild!,0);range.setEnd(paragraphs[1].firstChild!,paragraphs[1].textContent!.length);getSelection()!.removeAllRanges();getSelection()!.addRange(range);});
+ await page.getByRole('button',{name:'선택한 대사 첨부',exact:true}).click();
+ expect(await page.evaluate(()=>(window as any).selectedRange)).toEqual({text:'앞쪽 대사\n뒷쪽 대사',pages:{start:17,end:18}});
+ const calls=await page.evaluate(async()=>{const {makeTicketCard}=await import('/src/lib/shareTicket.ts');const original=CanvasRenderingContext2D.prototype.fillText,drawn:{text:string;x:number;y:number}[]=[];CanvasRenderingContext2D.prototype.fillText=function(text,x,y,...rest){drawn.push({text,x,y});return original.call(this,text,x,y,...rest);};try{await makeTicketCard({id:'pages',title:'제목',author:'',description:'',color:'#1d3b31',createdAt:'',updatedAt:'',messages:[]},'앞쪽 대사\n뒷쪽 대사',{start:17,end:18});return drawn;}finally{CanvasRenderingContext2D.prototype.fillText=original;}});
+ const mark=calls.find(call=>call.text==='“')!,label=calls.find(call=>call.text==='17–18쪽')!;expect([mark.x,mark.y]).toEqual([60,278]);expect(label.x).toBe(1030);expect(label.y).toBeGreaterThan(calls.find(call=>call.text==='뒷쪽 대사')!.y);
 });

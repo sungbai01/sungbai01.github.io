@@ -1,3 +1,4 @@
+import type {QuotePageRange} from '../lib/shareTicket';
 import Toast from './Toast';
 import { createContext, useContext, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode, PointerEvent as ReactPointerEvent } from 'react';
@@ -41,7 +42,7 @@ export interface ReaderProps {
   onSaveBook?: (book:Book)=>Promise<void>;
   onShare?: () => void;
   selectingQuote?: boolean;
-  onQuoteSelected?: (text?:string) => void;
+  onQuoteSelected?: (text?:string,pages?:QuotePageRange) => void;
   shelfBookmark?: { bookId: string; message: number; char: number; label?: string; progress?:number; style?: BookmarkStyle; icon?: string; image?: string; title: string };
   onBookmarkChange?: (anchor: (Anchor & { label?: string; progress?:number }) | null, style?: BookmarkStyle) => Promise<void>;
   onBookmarkStyleChange?: (style: BookmarkStyle) => Promise<void>;

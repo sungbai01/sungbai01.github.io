@@ -1,14 +1,18 @@
-import {useEffect,useId,useRef,useState} from 'react';
+import {useEffect,useId,useMemo,useRef,useState} from 'react';
 import {Download,Images,LoaderCircle,X,Share2,Link,Code2} from 'lucide-react';
 import type {Book} from '../lib/library';
 import {getAuthSession} from '../lib/auth';
 import {cardHtml,downloadBlob,makeShareCard,shareRequest,shareUrl,uploadShareCard,uploadBookShareAssets,usedShareAssets,type ShareInfo} from '../lib/sharing';
 import Toast from './Toast';
+import ShareCardEditor from './ShareCardEditor';
 import {useToast} from '../lib/useToast';
+import {type QuotePageRange} from '../lib/shareTicket';
 import './share-dialog.css';
-export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAssets,quote='',onSelectQuote}:{quote?:string;onSelectQuote?:()=>void;book:Book;loadBook?:(book:Book)=>Promise<Book>;onClose:()=>void;onManageAssets?:()=>void}){
+export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAssets,quote='',quotePages,onSelectQuote,onQuoteChange,cardTitle,onCardTitleChange}:{quote?:string;quotePages?:QuotePageRange;cardTitle?:string;onCardTitleChange?:(title:string)=>void;onSelectQuote?:()=>void;onQuoteChange?:(text:string)=>void;book:Book;loadBook?:(book:Book)=>Promise<Book>;onClose:()=>void;onManageAssets?:()=>void}){
  const [book,setBook]=useState(sourceBook),[bookPending,setBookPending]=useState(!!loadBook),[bookError,setBookError]=useState('');
  useEffect(()=>{let active=true;setBook(sourceBook);setBookPending(!!loadBook);setBookError('');if(loadBook)void loadBook(sourceBook).then(value=>{if(active)setBook(value);}).catch(()=>{if(active)setBookError('책을 불러오지 못했어요. 닫고 다시 열어 주세요.');}).finally(()=>{if(active)setBookPending(false);});return()=>{active=false;};},[sourceBook,loadBook]);
+ const [customTitle,setCustomTitle]=useState<string|undefined>(cardTitle);
+ const cardBook=useMemo(()=>customTitle?{...book,title:customTitle}:book,[book,customTitle]);
  const dialog=useRef<HTMLDialogElement>(null),title=useId();
  const [closing,setClosing]=useState(false);
  const closeTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
@@ -26,9 +30,9 @@ export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAs
  const requestBusy=useRef(false),published=useRef<ShareInfo|null>(null),assetsUploaded=useRef(false),hostedCard=useRef('');
  const [card,setCard]=useState<Blob>(),[preview,setPreview]=useState('');const alive=useRef(true);
  useEffect(()=>{alive.current=true;const element=dialog.current!;element.showModal();return()=>{alive.current=false;element.close();};},[]);
- useEffect(()=>{setCard(undefined);setPreview('');hostedCard.current='';assetsUploaded.current=false;published.current=null;},[book,quote]);
+ useEffect(()=>{setCard(undefined);setPreview('');hostedCard.current='';assetsUploaded.current=false;published.current=null;},[cardBook,quote,quotePages]);
  useEffect(()=>{if(!card)return;const url=URL.createObjectURL(card);setPreview(url);return()=>URL.revokeObjectURL(url);},[card]);
- useEffect(()=>{if(bookPending||bookError)return;setCard(undefined);setPreview('');hostedCard.current='';let active=true;void makeShareCard(book,quote).then(value=>{if(active)setCard(value);}).catch(cause=>{if(active)notify(cause instanceof Error?cause.message:'카드를 만들지 못했어요.','error');});return()=>{active=false;};},[book,quote,bookPending,bookError]);
+ useEffect(()=>{if(bookPending||bookError)return;setCard(undefined);setPreview('');hostedCard.current='';let active=true;void makeShareCard(cardBook,quote,quotePages).then(value=>{if(active)setCard(value);}).catch(cause=>{if(active)notify(cause instanceof Error?cause.message:'카드를 만들지 못했어요.','error');});return()=>{active=false;};},[cardBook,quote,quotePages,bookPending,bookError]);
  async function copy(value:string){try{await navigator.clipboard.writeText(value);if(alive.current){setManualCopy('');notify('복사했어요.','success');}}catch{if(alive.current){setManualCopy(value);notify('복사 권한이 없어요. 직접 복사해 주세요.','error',0);}}}
  async function shareCard(format:'url'|'html'){
   if(!card||requestBusy.current||bookPending||bookError)return;
@@ -40,7 +44,7 @@ export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAs
    if(!share){share=await shareRequest(book.id,'GET')??await shareRequest(book.id,'POST',undefined,book);if(!share)throw new Error('공유 링크를 만들지 못했어요.');published.current=share;}
    if(!assetsUploaded.current){await uploadBookShareAssets(book,(done,total)=>{if(alive.current)notify(`이미지 ${done}/${total} 업로드 중…`,'progress',0);},true);assetsUploaded.current=true;}
    if(format==='html'&&!hostedCard.current)hostedCard.current=await uploadShareCard(book,card);
-   if(alive.current)await copy(format==='url'?shareUrl(share.id):cardHtml(book,shareUrl(share.id),hostedCard.current));
+   if(alive.current)await copy(format==='url'?shareUrl(share.id):cardHtml(cardBook,shareUrl(share.id),hostedCard.current));
   }catch(cause){if(alive.current)notify(cause instanceof Error?cause.message:'카드를 공유하지 못했어요.','error');}
   finally{requestBusy.current=false;if(alive.current)setBusy(false);}
  }
@@ -49,9 +53,10 @@ export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAs
   <h2 id={title} className="sr-only">책 공유</h2>
   <div className="share-ticket-frame"><div className="share-ticket-workspace">
    <article className="share-interactive-ticket" aria-label="저장될 공유 카드">
-    <h3 className="sr-only">{book.title}</h3>
-    {preview?<img className="share-ticket-render" src={preview} alt={`${book.title} 공유 카드 미리보기`}/>:<div className="share-ticket-placeholder" style={{backgroundColor:book.color}} aria-busy="true"><div><small>GALPI / A STORY TO KEEP</small><strong>{book.title}</strong><span className="skeleton-fill"/></div><aside><small>갈피 / SHARED BOOK</small><strong>{String(book.volumeNumber??1).padStart(2,'0')}</strong><small>{book.author||'저자 모델 미상'}</small></aside></div>}
-    {onSelectQuote&&<button className="share-ticket-quote-target" data-empty={!quote.trim()} aria-label="공유할 대사 선택" title="본문에서 드래그해 대사 선택 · 선택 없이도 공유 가능" disabled={locked} onClick={onSelectQuote}>{!quote.trim()&&<span><span className="share-ticket-quote-mark" aria-hidden="true">“</span>대사 선택</span>}</button>}
+    <h3 className="sr-only">{cardBook.title}</h3>
+    {preview?<img className="share-ticket-render" src={preview} alt={`${cardBook.title} 공유 카드 미리보기`}/>:<div className="share-ticket-placeholder" style={{backgroundColor:book.color}} aria-busy="true"><div><small>GALPI / A STORY TO KEEP</small><strong>{cardBook.title}</strong><span className="skeleton-fill"/></div><aside><small>갈피 / SHARED BOOK</small><strong>{String(book.volumeNumber??1).padStart(2,'0')}</strong><small>{book.author||'저자 모델 미상'}</small></aside></div>}
+    <ShareCardEditor title={cardBook.title} quote={quote} locked={locked} onSelectQuote={onSelectQuote} onQuoteChange={onQuoteChange} onTitleChange={value=>{setCustomTitle(value);onCardTitleChange?.(value);}}/>
+
    </article>
    <nav className="share-ticket-tools" aria-label="공유 도구">
     <button className="share-ticket-close" aria-label="닫기" title="닫기" disabled={busy||closing} onClick={requestClose}><X size={20}/></button>

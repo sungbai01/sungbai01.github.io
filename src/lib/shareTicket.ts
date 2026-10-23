@@ -1,11 +1,13 @@
 import type {Book} from './library';
 
 export const SHARE_QUOTE_LIMIT=240;
+export type QuotePageRange={start:number;end:number};
+export const TICKET_QUOTE_MARK={x:60,y:278,size:70};
 
 // References: Behance /242278809 (perforation and separate stub),
 // Dribbble /26570471 (typographic hierarchy and whitespace).
 // Book details replace travel/cinema fields; the user's artwork remains the backdrop.
-export async function makeTicketCard(book:Book,quote=''):Promise<Blob>{
+export async function makeTicketCard(book:Book,quote='',quotePages?:QuotePageRange):Promise<Blob>{
  const source=book.assets?.find(asset=>asset.id===book.shareCardAssetId)?.src
    ??book.characterIcon??book.assets?.find(asset=>asset.type==='icon')?.src;
  // Card text and artwork prepare concurrently. Unrelated UI fonts must not
@@ -45,9 +47,14 @@ export async function makeTicketCard(book:Book,quote=''):Promise<Blob>{
  title.rows.forEach((line,i)=>ctx.fillText(line,64,133+i*title.size*1.4));
  const excerpt=quote.trim().slice(0,SHARE_QUOTE_LIMIT);
  if(excerpt){
-  ctx.fillStyle='#fffdf5';ctx.font='70px Georgia,serif';ctx.fillText('“',60,278);
-  const passage=fit(excerpt,960,8,32,26);
+  ctx.fillStyle='#fffdf5';ctx.font=`${TICKET_QUOTE_MARK.size}px Georgia,serif`;ctx.fillText('“',TICKET_QUOTE_MARK.x,TICKET_QUOTE_MARK.y);
+  const passage=fit(excerpt,960,quotePages?7:8,32,26);
   passage.rows.forEach((line,i)=>ctx.fillText(line,70,310+i*passage.size*1.3));
+  if(quotePages&&Number.isInteger(quotePages.start)&&quotePages.start>0&&quotePages.end>=quotePages.start){
+   ctx.fillStyle='#eeede7';ctx.font='20px sans-serif';ctx.textAlign='right';
+   ctx.fillText(`${quotePages.start}${quotePages.end!==quotePages.start?'–'+quotePages.end:''}쪽`,1030,Math.min(610,310+(passage.rows.length-1)*passage.size*1.3+44));
+   ctx.textAlign='left';
+  }
  }
  ctx.strokeStyle='#ffffff55';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(64,638);ctx.lineTo(1056,638);ctx.stroke();
  ctx.fillStyle='#eeede7';ctx.font='20px sans-serif';ctx.fillText(excerpt?'이 이야기의 한 장면':'당신에게 건네는 이야기',64,680);
