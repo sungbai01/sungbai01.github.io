@@ -349,6 +349,8 @@ function AccountApp({owner}:{owner:string|null}) {
     if(book.title!==baseline.title){patch.title=bookTitle(book);if((book.volumeCount??1)<=1)patch.seriesTitle=patch.title;}
     if(book.messages!==baseline.messages)patch.messages=book.messages;
     if(book.bookmarks!==baseline.bookmarks)patch.bookmarks=book.bookmarks;
+    if(book.bookmarkAssetId!==baseline.bookmarkAssetId)patch.bookmarkAssetId=book.bookmarkAssetId;
+    if(book.bookmarkStyle!==baseline.bookmarkStyle)patch.bookmarkStyle=book.bookmarkStyle;
     if(JSON.stringify(normalizeDisplayPrompt(book.displayPrompt))!==JSON.stringify(normalizeDisplayPrompt(baseline.displayPrompt)))patch.displayPrompt=normalizeDisplayPrompt(book.displayPrompt);
 
     if(book.updatedAt!==baseline.updatedAt)patch.updatedAt=book.updatedAt;

@@ -506,3 +506,11 @@
 .reader.reader-fullscreen:is([data-device=phone],[data-device=fold]) .reader-main{padding:0}
 
 .reader .reader-corner-bookmark{position:absolute;left:max(8px,env(safe-area-inset-left));top:max(8px,env(safe-area-inset-top));z-index:30;display:grid;place-items:center;width:34px;height:34px;pointer-events:none;color:var(--reader-accent);background:color-mix(in srgb,var(--reader-paper) 88%,transparent);border-radius:var(--radius-control);box-shadow:none}
+
+.reader-bookmark-edit-hint{position:absolute;inset:0;z-index:5;display:grid;place-items:center;background:#15201c55;color:#fff;opacity:0;transition:opacity .15s;pointer-events:none}
+.reader-bookmark-slip[data-editable]:is(:hover,:focus-visible) .reader-bookmark-edit-hint{opacity:1}
+.reader-bookmark-slip[data-editable]{cursor:pointer}
+
+.reader .reader-corner-bookmark[data-editable]{pointer-events:auto;cursor:pointer}.reader-corner-bookmark[data-editable]:is(:hover,:focus-visible) .reader-bookmark-edit-hint{opacity:1}
+
+.reader.reader-is-editing .reader-corner-bookmark{top:var(--bookmark-edit-offset,110px)}

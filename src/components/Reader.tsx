@@ -1,3 +1,4 @@
+import BookmarkEditor from './BookmarkEditor';
 import {bookTitle} from '../lib/bookTitle';
 import {bookAuthor} from '../lib/bookAuthor';
 import {normalizeDisplayPrompt} from '../../shared/displayPrompt';
@@ -220,8 +221,8 @@ function PageContent({page,query,editing,onEdit,drafts,onPreview}:{page:PaperPag
  </section>)}</>;
 }
 
-type BookmarkSlipProps={style:BookmarkStyle;icon?:string;image?:string;title:string;color:string;side?:'before'|'after';disabled?:boolean;onActivate?:()=>void;onRemove?:(source:HTMLElement)=>void;canInteract?:()=>boolean};
-function BookmarkSlip({style,icon,image,title,color,side='after',disabled,onActivate,onRemove,canInteract}:BookmarkSlipProps){
+type BookmarkSlipProps={style:BookmarkStyle;icon?:string;image?:string;title:string;color:string;side?:'before'|'after';disabled?:boolean;onActivate?:()=>void;onRemove?:(source:HTMLElement)=>void;onEdit?:()=>void;canInteract?:()=>boolean};
+function BookmarkSlip({style,icon,image,title,color,side='after',disabled,onActivate,onRemove,onEdit,canInteract}:BookmarkSlipProps){
  const elementRef=useRef<HTMLSpanElement>(null);
  const actions=useRef({disabled,onActivate,onRemove,canInteract});actions.current={disabled,onActivate,onRemove,canInteract};
  const drag=useRef<{id:number;x:number;y:number;distance:number;bounds:DOMRect;angle:number;pivotX:number;pivotY:number}|null>(null);
@@ -251,15 +252,16 @@ function BookmarkSlip({style,icon,image,title,color,side='after',disabled,onActi
   event.currentTarget.style.setProperty('--bookmark-drag-angle',`${active.angle}deg`);
   event.currentTarget.style.setProperty('--bookmark-drag-x',`${dx}px`);event.currentTarget.style.setProperty('--bookmark-drag-y',`${dy}px`);
  };
- return <span ref={elementRef} data-no-flip data-bookmark-side={side} className={`reader-bookmark-slip reader-bookmark-${style}`} role="button" tabIndex={disabled?-1:0} aria-disabled={disabled||undefined} aria-label="책갈피로 이동" title={onRemove?'책갈피로 이동 · 끌어서 제거':'책갈피로 이동'} style={{'--bookmark-color':color} as CSSProperties}
- onPointerDown={event=>{event.stopPropagation();if(!actions.current.onRemove||!allowed()||!event.isPrimary||event.button!==0||drag.current)return;event.preventDefault();event.currentTarget.focus({preventScroll:true});suppressClick.current=false;const bounds=event.currentTarget.getBoundingClientRect();const pivotX=event.clientX-bounds.left<bounds.width/2?.25:.75,pivotY=event.clientY-bounds.top<bounds.height/2?.25:.75;event.currentTarget.style.transformOrigin=`${pivotX*100}% ${pivotY*100}%`;sampleBookmarkThrow(event.currentTarget,event.clientX,event.clientY,true);drag.current={id:event.pointerId,x:event.clientX,y:event.clientY,distance:0,bounds,angle:0,pivotX,pivotY};try{event.currentTarget.setPointerCapture(event.pointerId);}catch{cancel();}}}
+ return <span ref={elementRef} data-no-flip data-bookmark-side={side} className={`reader-bookmark-slip reader-bookmark-${style}`} role="button" tabIndex={disabled?-1:0} aria-disabled={disabled||undefined} aria-label={onEdit?"책갈피 편집":"책갈피로 이동"} data-editable={!!onEdit||undefined} title={onEdit?"책갈피 편집":onRemove?'책갈피로 이동 · 끌어서 제거':'책갈피로 이동'} style={{'--bookmark-color':color} as CSSProperties}
+ onPointerDown={event=>{event.stopPropagation();if(onEdit)return;if(!actions.current.onRemove||!allowed()||!event.isPrimary||event.button!==0||drag.current)return;event.preventDefault();event.currentTarget.focus({preventScroll:true});suppressClick.current=false;const bounds=event.currentTarget.getBoundingClientRect();const pivotX=event.clientX-bounds.left<bounds.width/2?.25:.75,pivotY=event.clientY-bounds.top<bounds.height/2?.25:.75;event.currentTarget.style.transformOrigin=`${pivotX*100}% ${pivotY*100}%`;sampleBookmarkThrow(event.currentTarget,event.clientX,event.clientY,true);drag.current={id:event.pointerId,x:event.clientX,y:event.clientY,distance:0,bounds,angle:0,pivotX,pivotY};try{event.currentTarget.setPointerCapture(event.pointerId);}catch{cancel();}}}
  onPointerMove={move}
  onPointerUp={event=>{event.stopPropagation();const active=drag.current;if(!active||active.id!==event.pointerId)return;move(event);if(drag.current!==active)return;const eligible=allowed();const distance=active.distance;suppressClick.current=true;if(!eligible){reset();return;}const safe=event.clientX>=active.bounds.left-40&&event.clientX<=active.bounds.right+40&&event.clientY>=active.bounds.top-40&&event.clientY<=active.bounds.bottom+40;if(distance>=36&&!safe){drag.current=null;try{if(event.currentTarget.hasPointerCapture(active.id))event.currentTarget.releasePointerCapture(active.id);}catch{}actions.current.onRemove?.(event.currentTarget);reset();}else{reset();if(distance<=5)actions.current.onActivate?.();}}}
  onPointerCancel={event=>{event.stopPropagation();if(drag.current?.id===event.pointerId)cancel();}}
  onLostPointerCapture={event=>{if(drag.current?.id===event.pointerId)cancel();}}
- onClick={event=>{event.stopPropagation();event.preventDefault();if(suppressClick.current){suppressClick.current=false;return;}if(allowed())actions.current.onActivate?.();}}
- onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.stopPropagation();event.preventDefault();if(!event.repeat&&allowed())actions.current.onActivate?.();}}}
+ onClick={event=>{event.stopPropagation();event.preventDefault();if(suppressClick.current){suppressClick.current=false;return;}if(onEdit)onEdit();else if(allowed())actions.current.onActivate?.();}}
+ onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.stopPropagation();event.preventDefault();if(!event.repeat){if(onEdit)onEdit();else if(allowed())actions.current.onActivate?.();}}}}
  onDragStart={event=>event.preventDefault()}>
+ {onEdit&&<span className="reader-bookmark-edit-hint" aria-hidden="true"><Pencil size={22}/></span>}
  {(style==='image'||style==='character')&&(image||icon)&&<AssetImage className="reader-bookmark-image-fill" src={(image||icon)!} alt=""/>}<span className="reader-bookmark-punch"/><span className="reader-bookmark-string"/>{(style==='image'||style==='character')&&<BookmarkTitle className="reader-bookmark-title" title={cleanText(title).replace(/\s*·\s*\d+권\s*$/,'')}/>}
  </span>;
 }
@@ -292,6 +294,8 @@ function NextVolumeDialog({title,onConfirm,onClose}:{title?:string;onConfirm:()=
 
 export function Reader({ book, dataPending=false, onClose, onReady, onOpenError, initialBookmark, onNextVolume, nextVolumeTitle, onSaveBook, onShare, selectingQuote=false, onQuoteSelected, shelfBookmark, onBookmarkChange, onBookmarkStyleChange, bookmarkStyle, characterIcon, bookmarkImage }: ReaderProps) {
   const [editing,setEditing]=useState(false);
+  const [bookmarkEditing,setBookmarkEditing]=useState(false),[editBookmarkAssetId,setEditBookmarkAssetId]=useState(book.bookmarkAssetId);
+  useLayoutEffect(()=>{if(!editing)return;const root=readerRef.current,menu=root?.querySelector<HTMLElement>('.reader-drawer');if(!root||!menu)return;const update=()=>root.style.setProperty('--bookmark-edit-offset',`${Math.ceil(menu.getBoundingClientRect().bottom-root.getBoundingClientRect().top)+8}px`);update();const observer=new ResizeObserver(update);observer.observe(menu);return()=>observer.disconnect();},[editing]);
   const [editTitle,setEditTitle]=useState(()=>bookTitle(book));
   const [editPrompt,setEditPrompt]=useState(()=>normalizeDisplayPrompt(book.displayPrompt));
   const [advancedEditing,setAdvancedEditing]=useState(false);
@@ -724,7 +728,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
       if (!page) return;
       root.render(renderLeafRef.current(page,index,spread===1));
     });
-  }, [deferredQuery,pages,editing,leafRevision,shelfBookmark,bookmarkImage,characterIcon,bookmarkBusy,saving,book.bookmarks,book.color,selectedLeaf,pageIndex,selectingQuote]);
+  }, [deferredQuery,pages,editing,leafRevision,shelfBookmark,bookmarkImage,characterIcon,bookmarkBusy,saving,book.bookmarks,book.color,selectedLeaf,pageIndex,selectingQuote,selectedBookmarkStyle,editBookmarkAssetId]);
 
   const jump = (page: number) => {
     if(saving||nextConfirm||leaveConfirm||!pagesReadyRef.current||!pagesRef.current.length)return;
@@ -953,13 +957,13 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
     flip.flip(target,FlipCorner.TOP);
   };
   bookmarkActionsRef.current.remove=source=>{if(bookmarkActionsRef.current.allowed()&&onBookmarkChange)void changeBookmark(null,source);};
-  const bookmarkInteraction={disabled:selectingQuote||editing||saving||bookmarkBusy,canInteract:()=>bookmarkActionsRef.current.allowed(),onActivate:()=>bookmarkActionsRef.current.activate(),onRemove:onBookmarkChange?(source:HTMLElement)=>bookmarkActionsRef.current.remove(source):undefined};
+  const bookmarkInteraction={disabled:selectingQuote||saving||bookmarkBusy,onEdit:editing?()=>setBookmarkEditing(true):undefined,canInteract:()=>bookmarkActionsRef.current.allowed(),onActivate:()=>bookmarkActionsRef.current.activate(),onRemove:onBookmarkChange?(source:HTMLElement)=>bookmarkActionsRef.current.remove(source):undefined};
   const ribbonIcon=shelfBookmark?.icon??characterIcon??book.characterIcon;
-  const ribbonImage=shelfBookmark?.image??bookmarkImage??ribbonIcon;
-  const ribbonStyle=displayBookmarkStyle(shelfBookmark ? shelfBookmark.style ?? 'normal' : selectedBookmarkStyle);
+  const ribbonImage=editing?(book.assets?.find(asset=>asset.id===editBookmarkAssetId)?.src??bookmarkImage??ribbonIcon):shelfBookmark?.image??bookmarkImage??ribbonIcon;
+  const ribbonStyle=editing?selectedBookmarkStyle:displayBookmarkStyle(shelfBookmark ? shelfBookmark.style ?? 'normal' : selectedBookmarkStyle);
   renderLeafRef.current=(page,index,mobile)=><EditOverflowContext.Provider value={flowEdit}><EditNoticeContext.Provider value={message=>notifyEdit(message)}><PageLeaf page={page} book={editingSourceRef.current??bookRef.current} query={queryRef.current} index={index} mobile={mobile} editing={editing} onEdit={onEdit} drafts={draftsRef.current} onPreview={previewAsset} onNext={nextVolumeRef.current?()=>requestNextRef.current():undefined} onClose={()=>requestCloseRef.current()} bookmark={showPhysicalBookmark&&shelfBookmark?.bookId===bookRef.current.id&&bookmarkPage(pagesRef.current,shelfBookmark)===index?{...bookmarkInteraction,style:ribbonStyle,icon:ribbonIcon,image:ribbonImage,title:shelfBookmark.title,color:bookRef.current.color,side:index<(selectedLeaf??pageIndex)?'before':'after'}:undefined}/></EditNoticeContext.Provider></EditOverflowContext.Provider>;
   useEffect(()=>{if(!onSaveBook&&editing){draftsRef.current.clear();editingSourceRef.current=null;setEditing(false);setLeafRevision(value=>value+1);}},[onSaveBook,editing]);
-  function cancelEditing(){editingSourceRef.current=null;draftsRef.current.clear();setEditing(false);setEditError('');setLeafRevision(value=>value+1);}
+  function cancelEditing(){setBookmarkEditing(false);setSelectedBookmarkStyle(displayBookmarkStyle(shelfBookmark?.style??bookmarkStyle??book.bookmarkStyle??'normal'));editingSourceRef.current=null;draftsRef.current.clear();setEditing(false);setEditError('');setLeafRevision(value=>value+1);}
   async function saveEditing(){
     if(!onSaveBook||saving)return;const source=editingSourceRef.current??bookRef.current;
     const title=bookTitle({...source,title:editTitle.trim()});if(!title){notifyEdit('책 제목을 입력해 주세요.');return;}
@@ -967,7 +971,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
     const existingMark=shelfBookmark?.bookId===source.id?shelfBookmark:undefined;
     const adjustedMark=existingMark?{...mapAnchor(editBookmarkRef.current??existingMark),label:existingMark.label}:undefined;
     const nextAnchor=anchorRef.current?mapAnchor(anchorRef.current):null;
-    setSaving(true);setEditError('');try{await onSaveBook({...source,title,displayPrompt:editPrompt,messages,...(adjustedMark?{bookmarks:[adjustedMark]}:{}),updatedAt:new Date().toISOString()});anchorRef.current=nextAnchor;activeMessagesRef.current=messages;if(adjustedMark&&onBookmarkChange)await onBookmarkChange(adjustedMark,shelfBookmark?.style??selectedBookmarkStyle);draftsRef.current.clear();editingSourceRef.current=null;setEditing(false);setLeafRevision(value=>value+1);}catch{setEditError('저장하지 못했어요. 다시 시도하세요.');}finally{setSaving(false);}
+    setSaving(true);setEditError('');try{await onSaveBook({...source,title,bookmarkAssetId:editBookmarkAssetId,bookmarkStyle:selectedBookmarkStyle,displayPrompt:editPrompt,messages,...(adjustedMark?{bookmarks:[adjustedMark]}:{}),updatedAt:new Date().toISOString()});anchorRef.current=nextAnchor;activeMessagesRef.current=messages;if(adjustedMark&&onBookmarkChange)await onBookmarkChange(adjustedMark,selectedBookmarkStyle);draftsRef.current.clear();editingSourceRef.current=null;setEditing(false);setLeafRevision(value=>value+1);}catch{setEditError('저장하지 못했어요. 다시 시도하세요.');}finally{setSaving(false);}
   }
   function currentAnchor(){return bookmarkAnchor(pagesRef.current,Math.min(selectedLeaf??pageIndex,pagesRef.current.length-1),contentCount,device==='phone');}
   requestCloseRef.current=()=>{
@@ -997,7 +1001,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
   const style = { '--reader-font-size': `${fontSize}px`, '--book-cover':book.color, '--reader-book-width':`${pageGeometry.width*pageGeometry.count}px`, '--paper-width':`${pageGeometry.width}px`, '--paper-height':`${pageGeometry.height}px`, '--reader-page-padding':`${pageGeometry.padding}px`, '--reader-content-top':`${pageGeometry.contentTop}px`, '--reader-content-bottom':`${pageGeometry.contentBottom}px` } as CSSProperties;
 
   return <div ref={readerRef} className={`reader reader-theme-${theme}${theme === 'dark' ? ' dark' : ''}${fullscreen?' reader-fullscreen':''}${editing?' reader-is-editing':''}`} data-device={device} data-window-entering={windowEntering||undefined} data-drawer-closing={drawerClosing||undefined} data-drawer-open={drawerOpen||undefined} data-flush-covers={fullscreen&&device!=='desktop'||undefined} data-selecting-quote={selectingQuote||undefined} data-page-layout={spread===2?'spread':'single'} data-bookmark-current={markedPage>=pageIndex&&markedPage<pageIndex+spread||undefined} style={style} lang="ko">
-    {edgeToEdge&&activeBookmarked&&!loading&&!dataPending&&<span className="reader-corner-bookmark" role="img" aria-label="책갈피가 있는 페이지"><Bookmark size={20} fill="currentColor" aria-hidden="true"/></span>}
+    {edgeToEdge&&activeBookmarked&&!loading&&!dataPending&&<span className="reader-corner-bookmark" data-editable={editing||undefined} role={editing?"button":"img"} tabIndex={editing?0:undefined} aria-label={editing?"책갈피 편집":"책갈피가 있는 페이지"} onClick={editing?()=>setBookmarkEditing(true):undefined} onKeyDown={event=>{if(editing&&(event.key==='Enter'||event.key===' ')){event.preventDefault();setBookmarkEditing(true);}}}><Bookmark size={20} fill="currentColor" aria-hidden="true"/>{editing&&<span className="reader-bookmark-edit-hint" aria-hidden="true"><Pencil size={18}/></span>}</span>}
     {fullscreen&&!editing&&<button ref={drawerHandleRef} className="reader-drawer-handle" data-no-flip aria-label="독서 메뉴" aria-expanded={drawerOpen} aria-controls="reader-drawer" onPointerDown={startDrawerDrag} onPointerMove={moveDrawerDrag} onPointerUp={endDrawerDrag} onPointerCancel={event=>{suppressHandleClick.current=true;endDrawerDrag(event);}} onLostPointerCapture={()=>{drawerDrag.current=null;}} onClick={()=>{if(suppressHandleClick.current){suppressHandleClick.current=false;return;}if(drawerOpen)closeDrawer();else {setWindowEntering(false);setDrawerClosing(false);setDrawerOpen(true);}}}><span/></button>}
     {fullscreen&&drawerOpen&&<button className="reader-drawer-backdrop" aria-label="독서 메뉴 닫기" onClick={closeDrawer} tabIndex={-1}/>}
     <div id="reader-drawer" className="reader-drawer" hidden={fullscreen&&!editing&&!drawerOpen&&!windowEntering&&!drawerClosing} inert={fullscreen&&!editing&&!drawerOpen} aria-hidden={fullscreen&&!editing&&!drawerOpen||undefined}>
@@ -1006,7 +1010,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
       <div className="reader-toolbar-title">{editing?<input className="reader-title-input" aria-label="책 제목 수정" value={editTitle} maxLength={100} disabled={saving} onChange={event=>setEditTitle(event.target.value)} onKeyDown={event=>{event.stopPropagation();if(event.key==='Enter'&&!event.nativeEvent.isComposing){event.preventDefault();void saveEditing();}}}/>:<span>{bookTitle(book)||<span className="skeleton-fill reader-title-loading" aria-label="책 제목을 불러오는 중"/>}</span>}<small>{book.title?bookAuthor(book):''}</small></div>
       <div className="reader-tools">
         {onShare&&<button className="reader-icon-button" aria-label="책 공유" title="공유" disabled={editing||saving||loading||bookmarkBusy} onClick={()=>{setPanel(null);onShare();}}><Share2 size={18}/></button>}
-        {onSaveBook&&<button className={`reader-icon-button ${editing?'reader-active':''}`} aria-label="본문 편집" title="간단 수정" aria-pressed={editing} disabled={saving||loading||dataPending} onClick={()=>{if(editing){cancelEditing();return;}setPanel(null);draftsRef.current.clear();setEditError('');setDrawerOpen(false);editingSourceRef.current=bookRef.current;setEditTitle(bookTitle(bookRef.current));setEditPrompt(normalizeDisplayPrompt(bookRef.current.displayPrompt));editBookmarkRef.current=shelfBookmark?.bookId===book.id?shelfBookmark:null;setEditing(true);}}><Pencil size={18}/></button>}
+        {onSaveBook&&<button className={`reader-icon-button ${editing?'reader-active':''}`} aria-label="본문 편집" title="간단 수정" aria-pressed={editing} disabled={saving||loading||dataPending} onClick={()=>{if(editing){cancelEditing();return;}setPanel(null);draftsRef.current.clear();setEditError('');setDrawerOpen(false);editingSourceRef.current=bookRef.current;setEditTitle(bookTitle(bookRef.current));setEditPrompt(normalizeDisplayPrompt(bookRef.current.displayPrompt));editBookmarkRef.current=shelfBookmark?.bookId===book.id?shelfBookmark:null;setEditBookmarkAssetId(bookRef.current.bookmarkAssetId);setEditing(true);}}><Pencil size={18}/></button>}
         {onBookmarkChange&&<button className={`reader-icon-button ${activeBookmarked?'reader-active':''}`} aria-label={bookmarkAction} title={bookmarkAction} aria-pressed={activeBookmarked} disabled={editing||saving||bookmarkBusy||loading||(!activeBookmarked&&!bookmarkAnchor(pages,activeLeaf,contentCount,false))} onClick={()=>void toggleBookmark(activeLeaf)}><Bookmark size={18} fill={activeBookmarked?'currentColor':'none'}/></button>}
         {device!=='phone'&&<button ref={windowModeButtonRef} className="reader-icon-button" aria-label={fullscreen?'전체창 해제':'전체창'} title={fullscreen?'전체창 해제':'전체창'} disabled={editing} onClick={()=>fullscreen?exitFullwindow():enterFullwindow()}><Maximize size={18}/></button>}
         <button ref={element => { panelButtonRefs.current.contents = element; }} className={`reader-icon-button ${panel === 'contents' ? 'reader-active' : ''}`} aria-label="목차 보기" title="목차" disabled={editing} aria-expanded={panel === 'contents'} aria-controls="reader-contents" onClick={() => togglePanel('contents')}><List size={20} /></button>
@@ -1030,7 +1034,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
       {error && <p className="reader-error" role="alert">{error} <button type="button" className="secondary-btn" onClick={()=>setOpenRevision(value=>value+1)}>다시 시도</button></p>}
       {editError&&<p className="reader-error" role="alert">{editError}</p>}
 
-      {editing&&<SimpleEditTools prompt={editPrompt} onPromptChange={setEditPrompt} saving={saving} onAdvanced={()=>{if(draftsRef.current.size||editTitle.trim()!==bookTitle(book)||JSON.stringify(editPrompt)!==JSON.stringify(normalizeDisplayPrompt(book.displayPrompt))){notifyEdit('변경 내용을 저장하거나 취소한 뒤 고급 수정을 열어 주세요.');return;}cancelEditing();setAdvancedEditing(true);}} onCancel={cancelEditing} onSave={()=>void saveEditing()}/>}
+      {editing&&<SimpleEditTools prompt={editPrompt} onPromptChange={setEditPrompt} saving={saving} onAdvanced={()=>{if(draftsRef.current.size||editBookmarkAssetId!==book.bookmarkAssetId||selectedBookmarkStyle!==displayBookmarkStyle(book.bookmarkStyle??'normal')||editTitle.trim()!==bookTitle(book)||JSON.stringify(editPrompt)!==JSON.stringify(normalizeDisplayPrompt(book.displayPrompt))){notifyEdit('변경 내용을 저장하거나 취소한 뒤 고급 수정을 열어 주세요.');return;}cancelEditing();setAdvancedEditing(true);}} onCancel={cancelEditing} onSave={()=>void saveEditing()}/>}
 
     </main>
 
@@ -1076,6 +1080,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
     {assetPreview&&createPortal(<div className={`reader-asset-preview${assetPreview.pinned?' reader-asset-preview-pinned':''}${assetPreview.closing?' reader-asset-preview-closing':''}`} role="region" aria-label="이미지 미리보기"><button type="button" data-flip-asset key={assetPreview.owner} className="reader-asset-preview-expand" tabIndex={assetPreview.pinned?0:-1} aria-label="이미지 미리보기 접기" onClick={event=>{event.stopPropagation();hoverSuppressedRef.current.add(assetPreview.owner);setAssetPreview(null);}} style={{left:assetPreview.left,top:assetPreview.top,width:assetPreview.width,height:assetPreview.height,'--preview-clip-x':`${Math.max(0,(assetPreview.width-assetPreview.size)/2)}px`,'--preview-clip-bottom':`${Math.max(0,assetPreview.height-assetPreview.size)}px`} as CSSProperties}><AssetPreviewImage source={assetPreview.asset.src} name={assetPreview.asset.name}/></button></div>,assetPreview.container)}
     <div ref={measureRef} className="reader-measure reader-page-content" aria-hidden="true" />
     {editToast.message&&<Toast key={editToast.id} {...editToast} onDismiss={dismissEdit}/>}
+    {bookmarkEditing&&editing&&<BookmarkEditor assets={book.assets??[]} style={selectedBookmarkStyle} assetId={editBookmarkAssetId} onChange={(style,id)=>{setSelectedBookmarkStyle(style);setEditBookmarkAssetId(id);}} onClose={()=>setBookmarkEditing(false)}/>}
     {advancedEditing&&onSaveBook&&<AdvancedBookEditor book={book} onSave={async updated=>{const point=anchorRef.current,previous=bookRef.current;const next=point&&previous.messages[point.message]&&updated.messages[point.message]?{message:point.message,char:createOffsetMapper(previous.messages[point.message].content,updated.messages[point.message].content)(point.char)}:point;await onSaveBook(updated);activeMessagesRef.current=updated.messages;anchorRef.current=next;}} onClose={()=>setAdvancedEditing(false)}/>}
     {bookmarkToast&&<Toast message={bookmarkToast} tone="error" onDismiss={()=>setBookmarkToast('')}/> }
     {leaveConfirm&&<LeaveDialog moving={!!shelfBookmark} busy={bookmarkBusy} error={leaveError} onCancel={()=>{setLeaveConfirm(false);setLeaveError('');}} onLeave={()=>closeRef.current()} onSave={()=>void saveBeforeLeaving()}/>}
