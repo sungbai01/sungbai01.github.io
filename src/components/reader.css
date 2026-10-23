@@ -484,3 +484,11 @@
 .reader-edit-toolbar .display-prompt-controls{justify-content:center}
 
 .reader-back-mark,.reader-colophon-details h2,.reader-chapter-heading{word-break:keep-all;overflow-wrap:break-word}
+
+/* Resting hidden bookmarks only paint their tip. Avoid inverse polygon holes:
+   animated asset clip layers can composite through those holes on focus changes.
+   Keep the physical board polygon only while a bookmark is actually pulled. */
+.reader[data-device] .reader-stage .reader-bookmark-peek:not(:has(.reader-bookmark-dragging)){clip-path:inset(-120px -100vw var(--bookmark-tip-inset,5px) -100vw)}
+.reader[data-flush-covers=true]{--bookmark-tip-inset:0px}
+.reader[data-selecting-quote] :is(.reader-bookmark-slip,.reader-bookmark-loose){pointer-events:none!important;user-select:none;-webkit-user-select:none}
+.reader[data-selecting-quote] .reader-bookmark-slip{translate:0 0!important;rotate:0deg!important}

@@ -709,7 +709,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
       if (!page) return;
       root.render(renderLeafRef.current(page,index,spread===1));
     });
-  }, [deferredQuery,pages,editing,leafRevision,shelfBookmark,bookmarkImage,characterIcon,bookmarkBusy,saving,book.bookmarks,book.color,selectedLeaf,pageIndex]);
+  }, [deferredQuery,pages,editing,leafRevision,shelfBookmark,bookmarkImage,characterIcon,bookmarkBusy,saving,book.bookmarks,book.color,selectedLeaf,pageIndex,selectingQuote]);
 
   const jump = (page: number) => {
     if(saving||nextConfirm||leaveConfirm||!pagesReadyRef.current||!pagesRef.current.length)return;
@@ -937,7 +937,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
     flip.flip(target,FlipCorner.TOP);
   };
   bookmarkActionsRef.current.remove=source=>{if(bookmarkActionsRef.current.allowed()&&onBookmarkChange)void changeBookmark(null,source);};
-  const bookmarkInteraction={disabled:editing||saving||bookmarkBusy,canInteract:()=>bookmarkActionsRef.current.allowed(),onActivate:()=>bookmarkActionsRef.current.activate(),onRemove:onBookmarkChange?(source:HTMLElement)=>bookmarkActionsRef.current.remove(source):undefined};
+  const bookmarkInteraction={disabled:selectingQuote||editing||saving||bookmarkBusy,canInteract:()=>bookmarkActionsRef.current.allowed(),onActivate:()=>bookmarkActionsRef.current.activate(),onRemove:onBookmarkChange?(source:HTMLElement)=>bookmarkActionsRef.current.remove(source):undefined};
   const ribbonIcon=shelfBookmark?.icon??characterIcon??book.characterIcon;
   const ribbonImage=shelfBookmark?.image??bookmarkImage??ribbonIcon;
   const ribbonStyle=displayBookmarkStyle(shelfBookmark ? shelfBookmark.style ?? 'normal' : selectedBookmarkStyle);
