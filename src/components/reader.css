@@ -494,3 +494,8 @@
 .reader[data-selecting-quote] .reader-bookmark-slip{translate:0 0!important;rotate:0deg!important}
 
 .reader-flip-host [data-text-selecting] .reader-prose,.reader-flip-host [data-text-selecting] .reader-prose *{user-select:text;-webkit-user-select:text;cursor:text}
+
+.reader-toolbar-title .reader-title-input{width:min(100%,440px);min-width:0;padding:5px 8px;border:1px solid var(--reader-line);border-radius:var(--radius-control);background:var(--reader-paper);color:var(--reader-ink);font:16px 'Gowun Batang',Georgia,serif;text-align:center}
+.reader-is-editing .reader-drawer{pointer-events:auto}
+.reader-fullscreen.reader-is-editing .reader-drawer-close{display:none}
+@media(max-width:700px){.reader-toolbar-title .reader-title-input{font-size:14px;text-align:left}}

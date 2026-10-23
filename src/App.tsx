@@ -1,3 +1,4 @@
+import {bookTitle,volumeTitle} from './lib/bookTitle';
 import {removeUserInputs} from './lib/removeUserInputs';
 import ShareCountBadge from './components/ShareCountBadge';
 import PromptPicker from './components/PromptPicker';
@@ -193,7 +194,7 @@ function LibraryDrawer({open,children,account,onClose}:{open:boolean;children:Re
 
 
 function EditBook({book,onSave,onClose,scope='book'}:{book:Book;onSave:(book:Book,reset:boolean)=>Promise<void>;onClose:()=>void;scope?:'book'|'shelf'}){
-  const [draft,setDraft]=useState(()=>({...book,author:book.author?.trim()?book.author:book.aiModel??book.author??''}));const [reset,setReset]=useState(false);const [busy,setBusy]=useState(false);const [error,setError]=useState('');
+  const [draft,setDraft]=useState(()=>({...book,title:bookTitle(book),author:book.author?.trim()?book.author:book.aiModel??book.author??''}));const [reset,setReset]=useState(false);const [busy,setBusy]=useState(false);const [error,setError]=useState('');
   function defaults(){setReset(true);setDraft(previous=>({...previous,color:colors[0]!,customColor:undefined,cover:undefined,backCover:undefined,characterIcon:undefined,assets:previous.assets?.map(asset=>asset.type==='icon'?{...asset,type:'asset' as const}:asset)}));}
   return <Modal title={scope==='shelf'?'책 편집':`책 편집 · ${String(book.volumeNumber??1).padStart(2,'0')}`} onClose={onClose} wide locked={busy} headerAction={<button type="button" className="icon-btn" aria-label="표지 기본값 복원" title="표지와 초상을 기본값으로" disabled={busy} onClick={defaults}><RotateCcw size={18}/></button>}><form onSubmit={async e=>{e.preventDefault();setBusy(true);setError('');try{await onSave({...draft,title:draft.title.trim()},reset);onClose();}catch(e){setError(e instanceof Error?e.message:'저장하지 못했어요.');}finally{setBusy(false);}}}>
     <div className="edit-layout"><div className="cover-previews"><Cover book={draft}/></div><div className="space-y-4">
@@ -359,6 +360,7 @@ function AccountApp({owner}:{owner:string|null}) {
     if(!baseline)throw new Error('책을 찾지 못했어요.');
     // Reader text saves retain shelf metadata; bookmark changes use the sibling transaction.
     const patch:Partial<Book>={};
+    if(book.title!==baseline.title){patch.title=bookTitle(book);if((book.volumeCount??1)<=1)patch.seriesTitle=patch.title;}
     if(book.messages!==baseline.messages)patch.messages=book.messages;
     if(book.bookmarks!==baseline.bookmarks)patch.bookmarks=book.bookmarks;
     if(JSON.stringify(normalizeDisplayPrompt(book.displayPrompt))!==JSON.stringify(normalizeDisplayPrompt(baseline.displayPrompt)))patch.displayPrompt=normalizeDisplayPrompt(book.displayPrompt);
@@ -424,13 +426,13 @@ function AccountApp({owner}:{owner:string|null}) {
     if(!canEdit)return;
     await commitBooks([draft.id],current=>{
       const stored=current.find(book=>book.id===draft.id);if(!stored)throw new Error('책을 찾지 못했어요.');
-      return [{...styleBook(stored,draft,reset),title:draft.title}];
+      return [{...styleBook(stored,draft,reset),title:bookTitle(draft),...((stored.volumeCount??1)<=1?{seriesTitle:bookTitle(draft)}:{})}];
     });
   };
   async function decorateShelf(shelf:ShelfTarget,draft:Book,reset:boolean){
     if(!canEdit)return;
     const ids=shelfBooks(latestBooks.current,shelf).map(book=>book.id);const seriesId=shelf.ungrouped?crypto.randomUUID():shelf.id;
-    await commitBooks(ids,current=>{const siblings=shelfBooks(current,shelf);return siblings.map((book,index)=>({...styleBook(book,draft,reset),seriesId,seriesTitle:draft.title,title:`${draft.title} · ${index+1}권`,volumeNumber:index+1,volumeCount:siblings.length}));});
+    await commitBooks(ids,current=>{const siblings=shelfBooks(current,shelf);return siblings.map((book,index)=>({...styleBook(book,draft,reset),seriesId,seriesTitle:draft.title,title:volumeTitle(draft.title,index+1,siblings.length),volumeNumber:index+1,volumeCount:siblings.length}));});
     setToast('책장을 꾸몄어요.');
   }
   async function intakeBooks(request:IntakeRequest){
@@ -639,9 +641,9 @@ function AccountApp({owner}:{owner:string|null}) {
           {loading&&!books.length?<LibraryLoading view={view}/>:shown.length?<div className="shelf-groups" ref={shelfDrag.host}>{shelves.map(shelf=>{const mark=canonicalBookmark(shelfBooks(books,{id:shelf.id,title:shelf.title,ungrouped:false}));return <section key={`series:${shelf.id}`} aria-label={shelf.title} className="series-shelf" data-series-id={shelf.id}>
             <header className="series-heading"><h3>{shelf.title}</h3><span>{shelf.books.length}권</span>{canEdit&&<div className="shelf-actions"><button className="icon-btn" aria-label={`${shelf.title} 책장 편집`} title="책장 편집" disabled={busy} onClick={()=>setRenaming({id:shelf.id,title:shelf.title,ungrouped:false})}><Pencil size={16}/></button><button className="icon-btn" aria-label={`${shelf.title} 에셋 관리`} title="에셋 이미지 관리" disabled={busy} onClick={()=>void openAssets({id:shelf.id,title:shelf.title,ungrouped:false})}><Images size={17}/></button><button className="icon-btn shelf-delete danger-text" aria-label={`${shelf.title} 책장 삭제`} title={`${shelf.title} 책장 삭제`} disabled={busy||loading||splittingBooks.current.size>0} onClick={()=>{const targets=books.filter(book=>(book.seriesId??book.id)===shelf.id);setClearError('');setClearConfirm({title:shelf.title,ids:targets.map(book=>book.id)});}}><Trash2 size={17}/></button></div>}</header>
             <ShelfBox view={view}>{view==='spines'&&<span className="shelf-bookstop shelf-bookstop-start" aria-hidden="true"/>}{shelfDrag.ordered(shelf.id,shelf.books).map((book,index)=><article key={book.id} data-drag-book={book.id} className={`book-item ${view==='spines'?'spine-item':''} ${mark?.bookId===book.id?'book-has-bookmark':''}`} data-bookmarked={mark?.bookId===book.id||undefined} style={{'--cover':book.color,'--delay':`${Math.min(index,8)*60}ms`} as CSSProperties}>
-              <button className="book-read" aria-label={`${book.title} 읽기`} title={`${book.title} 읽기`} onClick={()=>openBook(book)}>
+              <button className="book-read" aria-label={`${bookTitle(book)} 읽기`} title={`${bookTitle(book)} 읽기`} onClick={()=>openBook(book)}>
                 <div className="book-stage"><div className="book-open">{mark?.bookId===book.id&&<BookRibbon book={book} mark={mark} view={view}/>}{view==='covers'?<Cover book={book}/>:<div className="book-spine"><SpineTitle title={displayBookTitle(book)}/><span className="spine-volume">{String(book.volumeNumber??1).padStart(2,'0')}</span></div>}</div></div>
-                <div className="book-caption"><div><span className="book-title">{book.title}</span><p>{bookAuthor(book)}</p></div></div>
+                <div className="book-caption"><div><span className="book-title">{bookTitle(book)}</span><p>{bookAuthor(book)}</p></div></div>
                 <div className="book-meta"><span>{book.pageCount?.toLocaleString()??'…'}페이지</span><span>{mark?.bookId===book.id&&<Bookmark size={13} fill="currentColor" aria-label="책갈피"/>}</span></div>
               </button>
               {canEdit&&<BookActions book={book} open={menu===book.id} onOpen={()=>setMenu(book.id)} onClose={()=>setMenu(previous=>previous===book.id?null:previous)} onEdit={()=>void editOne(book)} onShare={()=>void shareOne(book)} onDelete={()=>setRemove(book)}/>}

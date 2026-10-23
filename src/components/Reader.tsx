@@ -1,3 +1,4 @@
+import {bookTitle} from '../lib/bookTitle';
 import {bookAuthor} from '../lib/bookAuthor';
 import {normalizeDisplayPrompt} from '../../shared/displayPrompt';
 import SimpleEditTools from './SimpleEditTools';
@@ -281,6 +282,7 @@ function NextVolumeDialog({title,onConfirm,onClose}:{title?:string;onConfirm:()=
 
 export function Reader({ book, dataPending=false, onClose, onReady, onOpenError, initialBookmark, onNextVolume, nextVolumeTitle, onSaveBook, onShare, selectingQuote=false, onQuoteSelected, shelfBookmark, onBookmarkChange, onBookmarkStyleChange, bookmarkStyle, characterIcon, bookmarkImage }: ReaderProps) {
   const [editing,setEditing]=useState(false);
+  const [editTitle,setEditTitle]=useState(()=>bookTitle(book));
   const [editPrompt,setEditPrompt]=useState(()=>normalizeDisplayPrompt(book.displayPrompt));
   const [advancedEditing,setAdvancedEditing]=useState(false);
   const {toast:editToast,notify:notifyEdit,dismiss:dismissEdit}=useToast();
@@ -946,11 +948,12 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
   function cancelEditing(){editingSourceRef.current=null;draftsRef.current.clear();setEditing(false);setEditError('');setLeafRevision(value=>value+1);}
   async function saveEditing(){
     if(!onSaveBook||saving)return;const source=editingSourceRef.current??bookRef.current;
+    const title=bookTitle({...source,title:editTitle.trim()});if(!title){notifyEdit('책 제목을 입력해 주세요.');return;}
     const {messages,mapAnchor}=draftsRef.current.size?editedMessages(source,draftsRef.current,new Map(),[],pagesRef.current.flatMap(page=>page.fragments),[],false):{messages:source.messages,mapAnchor:(point:Anchor)=>point};
     const existingMark=shelfBookmark?.bookId===source.id?shelfBookmark:undefined;
     const adjustedMark=existingMark?{...mapAnchor(editBookmarkRef.current??existingMark),label:existingMark.label}:undefined;
     const nextAnchor=anchorRef.current?mapAnchor(anchorRef.current):null;
-    setSaving(true);setEditError('');try{await onSaveBook({...source,displayPrompt:editPrompt,messages,...(adjustedMark?{bookmarks:[adjustedMark]}:{}),updatedAt:new Date().toISOString()});anchorRef.current=nextAnchor;activeMessagesRef.current=messages;if(adjustedMark&&onBookmarkChange)await onBookmarkChange(adjustedMark,shelfBookmark?.style??selectedBookmarkStyle);draftsRef.current.clear();editingSourceRef.current=null;setEditing(false);setLeafRevision(value=>value+1);}catch{setEditError('저장하지 못했어요. 다시 시도하세요.');}finally{setSaving(false);}
+    setSaving(true);setEditError('');try{await onSaveBook({...source,title,displayPrompt:editPrompt,messages,...(adjustedMark?{bookmarks:[adjustedMark]}:{}),updatedAt:new Date().toISOString()});anchorRef.current=nextAnchor;activeMessagesRef.current=messages;if(adjustedMark&&onBookmarkChange)await onBookmarkChange(adjustedMark,shelfBookmark?.style??selectedBookmarkStyle);draftsRef.current.clear();editingSourceRef.current=null;setEditing(false);setLeafRevision(value=>value+1);}catch{setEditError('저장하지 못했어요. 다시 시도하세요.');}finally{setSaving(false);}
   }
   function currentAnchor(){return bookmarkAnchor(pagesRef.current,Math.min(selectedLeaf??pageIndex,pagesRef.current.length-1),contentCount,device==='phone');}
   requestCloseRef.current=()=>{
@@ -980,15 +983,15 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
   const style = { '--reader-font-size': `${fontSize}px`, '--book-cover':book.color, '--reader-book-width':`${pageGeometry.width*pageGeometry.count}px`, '--paper-width':`${pageGeometry.width}px`, '--paper-height':`${pageGeometry.height}px`, '--reader-page-padding':`${pageGeometry.padding}px`, '--reader-content-top':`${pageGeometry.contentTop}px`, '--reader-content-bottom':`${pageGeometry.contentBottom}px` } as CSSProperties;
 
   return <div ref={readerRef} className={`reader reader-theme-${theme}${theme === 'dark' ? ' dark' : ''}${fullscreen?' reader-fullscreen':''}${editing?' reader-is-editing':''}`} data-device={device} data-window-entering={windowEntering||undefined} data-drawer-closing={drawerClosing||undefined} data-drawer-open={drawerOpen||undefined} data-flush-covers={fullscreen&&device!=='desktop'||undefined} data-selecting-quote={selectingQuote||undefined} data-page-layout={spread===2?'spread':'single'} data-bookmark-current={markedPage>=pageIndex&&markedPage<pageIndex+spread||undefined} style={style} lang="ko">
-    {fullscreen&&<button ref={drawerHandleRef} className="reader-drawer-handle" data-no-flip aria-label="독서 메뉴" aria-expanded={drawerOpen} aria-controls="reader-drawer" onPointerDown={startDrawerDrag} onPointerMove={moveDrawerDrag} onPointerUp={endDrawerDrag} onPointerCancel={event=>{suppressHandleClick.current=true;endDrawerDrag(event);}} onLostPointerCapture={()=>{drawerDrag.current=null;}} onClick={()=>{if(suppressHandleClick.current){suppressHandleClick.current=false;return;}if(drawerOpen)closeDrawer();else {setWindowEntering(false);setDrawerClosing(false);setDrawerOpen(true);}}}><span/></button>}
+    {fullscreen&&!editing&&<button ref={drawerHandleRef} className="reader-drawer-handle" data-no-flip aria-label="독서 메뉴" aria-expanded={drawerOpen} aria-controls="reader-drawer" onPointerDown={startDrawerDrag} onPointerMove={moveDrawerDrag} onPointerUp={endDrawerDrag} onPointerCancel={event=>{suppressHandleClick.current=true;endDrawerDrag(event);}} onLostPointerCapture={()=>{drawerDrag.current=null;}} onClick={()=>{if(suppressHandleClick.current){suppressHandleClick.current=false;return;}if(drawerOpen)closeDrawer();else {setWindowEntering(false);setDrawerClosing(false);setDrawerOpen(true);}}}><span/></button>}
     {fullscreen&&drawerOpen&&<button className="reader-drawer-backdrop" aria-label="독서 메뉴 닫기" onClick={closeDrawer} tabIndex={-1}/>}
-    <div id="reader-drawer" className="reader-drawer" hidden={fullscreen&&!drawerOpen&&!windowEntering&&!drawerClosing} inert={fullscreen&&!drawerOpen} aria-hidden={fullscreen&&!drawerOpen||undefined}>
+    <div id="reader-drawer" className="reader-drawer" hidden={fullscreen&&!editing&&!drawerOpen&&!windowEntering&&!drawerClosing} inert={fullscreen&&!editing&&!drawerOpen} aria-hidden={fullscreen&&!editing&&!drawerOpen||undefined}>
     <header className="reader-toolbar">
       <button className="reader-icon-button reader-navigation-back" onClick={()=>requestCloseRef.current()} aria-label="책을 닫고 서재로 돌아가기" title="서재로 돌아가기" disabled={editing||saving}><ChevronLeft size={19} /></button>
-      <div className="reader-toolbar-title"><span>{book.title||<span className="skeleton-fill reader-title-loading" aria-label="책 제목을 불러오는 중"/>}</span><small>{book.title?bookAuthor(book):''}</small></div>
+      <div className="reader-toolbar-title">{editing?<input className="reader-title-input" aria-label="책 제목 수정" value={editTitle} maxLength={100} disabled={saving} onChange={event=>setEditTitle(event.target.value)} onKeyDown={event=>{event.stopPropagation();if(event.key==='Enter'&&!event.nativeEvent.isComposing){event.preventDefault();void saveEditing();}}}/>:<span>{bookTitle(book)||<span className="skeleton-fill reader-title-loading" aria-label="책 제목을 불러오는 중"/>}</span>}<small>{book.title?bookAuthor(book):''}</small></div>
       <div className="reader-tools">
         {onShare&&<button className="reader-icon-button" aria-label="책 공유" title="공유" disabled={editing||saving||loading||bookmarkBusy} onClick={()=>{setPanel(null);onShare();}}><Share2 size={18}/></button>}
-        {onSaveBook&&<button className={`reader-icon-button ${editing?'reader-active':''}`} aria-label="본문 편집" title="간단 수정" aria-pressed={editing} disabled={saving||loading||dataPending} onClick={()=>{if(editing){cancelEditing();return;}setPanel(null);draftsRef.current.clear();setEditError('');setDrawerOpen(false);editingSourceRef.current=bookRef.current;setEditPrompt(normalizeDisplayPrompt(bookRef.current.displayPrompt));editBookmarkRef.current=shelfBookmark?.bookId===book.id?shelfBookmark:null;setEditing(true);}}><Pencil size={18}/></button>}
+        {onSaveBook&&<button className={`reader-icon-button ${editing?'reader-active':''}`} aria-label="본문 편집" title="간단 수정" aria-pressed={editing} disabled={saving||loading||dataPending} onClick={()=>{if(editing){cancelEditing();return;}setPanel(null);draftsRef.current.clear();setEditError('');setDrawerOpen(false);editingSourceRef.current=bookRef.current;setEditTitle(bookTitle(bookRef.current));setEditPrompt(normalizeDisplayPrompt(bookRef.current.displayPrompt));editBookmarkRef.current=shelfBookmark?.bookId===book.id?shelfBookmark:null;setEditing(true);}}><Pencil size={18}/></button>}
         {onBookmarkChange&&<button className={`reader-icon-button ${activeBookmarked?'reader-active':''}`} aria-label={bookmarkAction} title={bookmarkAction} aria-pressed={activeBookmarked} disabled={editing||saving||bookmarkBusy||loading||(!activeBookmarked&&!bookmarkAnchor(pages,activeLeaf,contentCount,device==='phone'))} onClick={()=>void toggleBookmark(activeLeaf)}><Bookmark size={18} fill={activeBookmarked?'currentColor':'none'}/></button>}
         {device!=='phone'&&<button ref={windowModeButtonRef} className="reader-icon-button" aria-label={fullscreen?'전체창 해제':'전체창'} title={fullscreen?'전체창 해제':'전체창'} disabled={editing} onClick={()=>fullscreen?exitFullwindow():enterFullwindow()}><Maximize size={18}/></button>}
         <button ref={element => { panelButtonRefs.current.contents = element; }} className={`reader-icon-button ${panel === 'contents' ? 'reader-active' : ''}`} aria-label="목차 보기" title="목차" disabled={editing} aria-expanded={panel === 'contents'} aria-controls="reader-contents" onClick={() => togglePanel('contents')}><List size={20} /></button>
@@ -1013,7 +1016,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
       {error && <p className="reader-error" role="alert">{error} <button type="button" className="secondary-btn" onClick={()=>setOpenRevision(value=>value+1)}>다시 시도</button></p>}
       {editError&&<p className="reader-error" role="alert">{editError}</p>}
 
-      {editing&&<SimpleEditTools prompt={editPrompt} onPromptChange={setEditPrompt} saving={saving} onAdvanced={()=>{if(draftsRef.current.size||JSON.stringify(editPrompt)!==JSON.stringify(normalizeDisplayPrompt(book.displayPrompt))){notifyEdit('변경 내용을 저장하거나 취소한 뒤 고급 수정을 열어 주세요.');return;}cancelEditing();setAdvancedEditing(true);}} onCancel={cancelEditing} onSave={()=>void saveEditing()}/>}
+      {editing&&<SimpleEditTools prompt={editPrompt} onPromptChange={setEditPrompt} saving={saving} onAdvanced={()=>{if(draftsRef.current.size||editTitle.trim()!==bookTitle(book)||JSON.stringify(editPrompt)!==JSON.stringify(normalizeDisplayPrompt(book.displayPrompt))){notifyEdit('변경 내용을 저장하거나 취소한 뒤 고급 수정을 열어 주세요.');return;}cancelEditing();setAdvancedEditing(true);}} onCancel={cancelEditing} onSave={()=>void saveEditing()}/>}
 
     </main>
 
@@ -1032,7 +1035,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
         {panel === 'contents' && <>
           <p className="reader-panel-description">챕터 {chapterEntries.length}개 · 전체 {contentCount}쪽</p>
           <nav className="reader-contents-list" aria-label="이야기 목차">
-            <button className="reader-contents-item" onClick={() => { jump(0); setPanel(null); }}><span className="reader-contents-number"><BookOpen size={16} /></span><span><strong>{book.title}</strong><small>책의 처음으로</small></span><span className="reader-contents-page">1</span></button>
+            <button className="reader-contents-item" onClick={() => { jump(0); setPanel(null); }}><span className="reader-contents-number"><BookOpen size={16} /></span><span><strong>{bookTitle(book)}</strong><small>책의 처음으로</small></span><span className="reader-contents-page">1</span></button>
             {chapterEntries.map(({message,index,char,number},chapterIndex) => {
               const page = pageForAnchor(pages, { message: index, char });
               return <button className={`reader-contents-item ${page <= pageIndex && pageIndex < (chapterIndex+1<chapterEntries.length?pageForAnchor(pages,{message:chapterEntries[chapterIndex+1].index,char:chapterEntries[chapterIndex+1].char}):pages.length) ? 'reader-current-passage' : ''}`} key={`${index}:${char}`} onClick={() => goToAnchor({ message: index, char })}>
