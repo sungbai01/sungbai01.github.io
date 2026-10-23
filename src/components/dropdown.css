@@ -1,0 +1,22 @@
+.dropdown-control{position:relative;min-width:0}
+.dropdown-trigger{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:38px;padding:10px 12px;border:1px solid var(--sand-5);border-radius:var(--radius-control);background:var(--sand-1);color:var(--sand-12);font-size:12px;text-align:left}
+.dropdown-trigger>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dropdown-trigger:hover:enabled,.dropdown-trigger[aria-expanded=true]{background:var(--sand-3)}
+.dropdown-trigger>svg{flex:none;transition:rotate .15s}.dropdown-trigger[aria-expanded=true]:not(.dropdown-icon-trigger)>svg{rotate:180deg}
+.dropdown-compact .dropdown-trigger{min-height:32px;padding:6px 10px;font-size:11px}
+.dropdown-trigger.dropdown-icon-trigger{display:grid;place-items:center;min-height:34px;width:34px;height:34px;padding:0;background:transparent;border-color:transparent}
+.dropdown-options{position:fixed;inset:auto;margin:0;box-sizing:border-box;min-height:0;max-height:180px;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;overflow-anchor:none;scrollbar-width:thin;padding:5px;border:1px solid var(--sand-5);border-radius:var(--radius-control);background:var(--sand-1);color:var(--sand-12);box-shadow:0 8px 24px #0002;animation:dropdown-in .13s ease-out}
+.dropdown-options::backdrop{background:transparent;pointer-events:none}
+.dropdown-options .dropdown-option{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:9px 10px;border-radius:var(--radius-detail);font-size:12px;text-align:left;color:var(--sand-12)}
+.dropdown-option>span{min-width:0;overflow-wrap:anywhere}
+.dropdown-options .dropdown-option:is(:hover,:focus-visible,[aria-selected=true]){background:var(--sand-4);color:var(--jade-11)}
+.dropdown-options .dropdown-option[data-danger]{color:var(--brand-red-ink)}
+.dropdown-options .dropdown-option[data-danger]:is(:hover,:focus-visible){background:var(--brand-red-soft)}
+.dropdown-control :focus-visible,.dropdown-options :focus-visible{outline:2px solid var(--jade-8);outline-offset:-2px}
+.dropdown-options[data-closing]{animation:dropdown-out .12s ease-in forwards;pointer-events:none}
+.dropdown-pages{display:flex;align-items:center;justify-content:space-between;gap:6px;padding-top:5px;border-top:1px solid var(--sand-5);font-size:10px}
+.dropdown-pages button{padding:8px;border-radius:var(--radius-detail)}.dropdown-pages button:hover:enabled{background:var(--sand-4)}
+@keyframes dropdown-in{from{opacity:0}to{opacity:1}}@keyframes dropdown-out{from{opacity:1}to{opacity:0}}
+@media(prefers-reduced-motion:reduce){.dropdown-options,.dropdown-options[data-closing]{animation:none}.dropdown-trigger>svg{transition:none}}
+
+.dropdown-field>.dropdown-control{margin-top:7px}

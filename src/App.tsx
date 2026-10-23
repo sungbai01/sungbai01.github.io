@@ -1,3 +1,4 @@
+import Dropdown from './components/Dropdown';
 import {bookTitle,volumeTitle} from './lib/bookTitle';
 import {removeUserInputs} from './lib/removeUserInputs';
 import ShareCountBadge from './components/ShareCountBadge';
@@ -141,28 +142,10 @@ function Modal({title, children, onClose, wide=false, locked=false,headerAction}
 }
 
 function SortMenu({value,onChange}:{value:string;onChange:(value:string)=>void}){
-  const [open,setOpen]=useState(false);const root=useRef<HTMLDivElement>(null);const trigger=useRef<HTMLButtonElement>(null);const id=useId();
-  const options=[{value:'recent',label:'최근 저장 순'},{value:'oldest',label:'오래된 순'},{value:'title',label:'제목순'}];
-  useEffect(()=>{if(!open)return;const close=(event:PointerEvent)=>{if(!root.current?.contains(event.target as Node))setOpen(false);};document.addEventListener('pointerdown',close);root.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus();return()=>document.removeEventListener('pointerdown',close);},[open]);
-  return <div className="sort-menu" ref={root} onBlur={event=>{if(!event.currentTarget.contains(event.relatedTarget as Node))setOpen(false);}} onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();setOpen(false);trigger.current?.focus();}if(open&&['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();const items=Array.from(root.current!.querySelectorAll<HTMLButtonElement>('[role="option"]'));const index=items.indexOf(document.activeElement as HTMLButtonElement);items[event.key==='Home'?0:event.key==='End'?items.length-1:(index+(event.key==='ArrowDown'?1:items.length-1))%items.length]?.focus();}}}>
-    <button ref={trigger} className="sort-trigger" type="button" aria-label="책 정렬" aria-haspopup="listbox" aria-expanded={open} aria-controls={id} onClick={()=>setOpen(previous=>!previous)} onKeyDown={event=>{if(!open&&['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();setOpen(true);}}}>{options.find(option=>option.value===value)?.label}<ChevronDown size={13}/></button>
-    {open&&<div id={id} role="listbox" aria-label="책 정렬" className="sort-options">{options.map(option=><button key={option.value} type="button" role="option" aria-selected={value===option.value} onClick={()=>{onChange(option.value);setOpen(false);trigger.current?.focus();}}><span>{option.label}</span>{value===option.value&&<Check size={14}/>}</button>)}</div>}
-  </div>;
+ return <Dropdown label="책 정렬" value={value} compact options={[{value:'recent',label:'최근 저장 순'},{value:'oldest',label:'오래된 순'},{value:'title',label:'제목순'}]} onChange={onChange}/>;
 }
 function BookActions({book,open,onOpen,onClose,onEdit,onDelete}:{book:Book;open:boolean;onOpen:()=>void;onClose:()=>void;onEdit:()=>void;onDelete:()=>void}){
- const popup=useRef<HTMLDivElement>(null);const trigger=useRef<HTMLButtonElement>(null);const id=useId();
- useLayoutEffect(()=>{
-  const element=popup.current;if(!element)return;
-  if(!open){if(element.matches(':popover-open'))element.hidePopover();return;}
-  function position(){const anchor=trigger.current?.getBoundingClientRect();if(!anchor||!element)return;const width=Math.min(158,innerWidth-16);const height=Math.min(138,innerHeight-16);const above=innerHeight-anchor.bottom<height+10&&anchor.top>height+10;element.style.width=`${width}px`;element.style.maxHeight=`${height}px`;element.style.left=`${Math.max(8,Math.min(anchor.right-width,innerWidth-width-8))}px`;element.style.top=`${Math.max(8,Math.min(above?anchor.top-height-6:anchor.bottom+6,innerHeight-height-8))}px`;}
-  element.showPopover();position();element.querySelector<HTMLButtonElement>('button')?.focus({preventScroll:true});
-  const scrolled=(event:Event)=>{if(!element.contains(event.target as Node))position();};window.addEventListener('resize',position);window.addEventListener('scroll',scrolled,true);
-  return()=>{window.removeEventListener('resize',position);window.removeEventListener('scroll',scrolled,true);if(element.matches(':popover-open'))element.hidePopover();};
- },[open]);
- return <div className={`book-menu-wrap ${open?'menu-open':''}`}><button ref={trigger} className="icon-btn" title="책 관리" aria-label={`${book.title} 관리`} aria-haspopup="menu" aria-controls={id} aria-expanded={open} onClick={event=>{event.stopPropagation();if(open)onClose();else onOpen();}}><Ellipsis size={19}/></button><div ref={popup} id={id} popover="auto" role="menu" aria-label={`${book.title} 관리`} className="book-actions-popover" onToggle={event=>{if(event.newState==='closed'&&open)onClose();}} onKeyDown={event=>{
-  if(event.key==='Escape'){event.preventDefault();event.stopPropagation();onClose();trigger.current?.focus({preventScroll:true});}
-  if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();const items=Array.from(popup.current!.querySelectorAll<HTMLButtonElement>('button'));const index=items.indexOf(document.activeElement as HTMLButtonElement);items[event.key==='Home'?0:event.key==='End'?items.length-1:(index+(event.key==='ArrowDown'?1:items.length-1))%items.length]?.focus({preventScroll:true});}
- }}><button role="menuitem" onClick={()=>{onClose();onEdit();}}>책 편집</button><button role="menuitem" className="danger-text" onClick={()=>{onClose();onDelete();}}>삭제</button></div></div>;
+ return <div className={`book-menu-wrap ${open?'menu-open':''}`}><Dropdown label={`${book.title} 관리`} mode="menu" triggerContent={<Ellipsis size={19}/>} minMenuWidth={158} open={open} onOpenChange={next=>next?onOpen():onClose()} options={[{value:'edit',label:'책 편집'},{value:'delete',label:'삭제',danger:true}]} onChange={value=>value==='edit'?onEdit():onDelete()}/></div>;
 }
 function LibraryDrawer({open,children,account,onClose}:{open:boolean;children:ReactNode;account:ReactNode;onClose:()=>void}){
   const ref=useRef<HTMLDialogElement>(null);

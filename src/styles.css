@@ -218,14 +218,6 @@ html{scrollbar-gutter:stable;overflow-anchor:none}
 .drawer-panel{height:100%;padding:24px 18px}
 .drawer-panel>header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;padding:0 10px;font-family:var(--font-serif);font-size:21px}
 .sort-menu{position:relative;flex-shrink:0}
-.sort-trigger{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:32px;padding:6px 10px;border:1px solid var(--sand-5);border-radius:var(--radius-control);background:var(--sand-2);font-size:11px;color:var(--sand-11)}
-.sort-trigger:hover,.sort-trigger[aria-expanded=true]{background:var(--sand-4)}
-.sort-trigger svg{transition:transform .18s}
-.sort-trigger[aria-expanded=true] svg{transform:rotate(180deg)}
-.sort-options{position:absolute;right:0;top:calc(100% + 7px);z-index:30;min-width:146px;padding:5px;border:1px solid var(--sand-5);border-radius:var(--radius-control);background:var(--sand-2);box-shadow:0 8px 24px #202d2618}
-.sort-options button{display:flex;align-items:center;justify-content:space-between;gap:16px;width:100%;padding:10px;border-radius:var(--radius-detail);text-align:left;font-size:11px;color:var(--sand-11)}
-.sort-options button:hover,.sort-options button:focus-visible{background:var(--sand-4)}
-.sort-options button[aria-selected=true]{color:var(--jade-11);background:var(--sand-3)}
 .view-switch.view-segment-toggle{position:relative;display:flex;gap:0;flex:0 0 70px;width:70px;height:32px;min-height:32px;padding:3px;border:1px solid var(--sand-5);border-radius:var(--radius-control);background:var(--sand-3)}
 .view-segment-toggle>span:not(.view-switch-thumb){position:relative;z-index:1;display:grid;place-items:center;flex:1;color:var(--sand-10);transition:color .2s}
 .view-segment-toggle>span.selected{color:var(--jade-11)}
@@ -314,10 +306,6 @@ html[data-library-theme=dark]{color-scheme:dark;background:var(--sand-2)}
 @media(max-width:560px){.bookshelf-grid{--display-stage:226px;padding:40px 12px 22px;column-gap:24px}}
 @media(max-width:355px){.bookshelf-grid{--display-stage:208px;column-gap:20px}}
 
-.book-actions-popover{position:fixed;inset:auto;margin:0;padding:5px;border:1px solid var(--sand-5);border-radius:var(--radius-control);background:var(--sand-1);color:var(--sand-12);box-shadow:0 8px 28px color-mix(in srgb,var(--sand-12),transparent 82%);overflow:auto;overscroll-behavior:contain}
-.book-actions-popover button{display:block;width:100%;padding:10px;text-align:left;border-radius:var(--radius-detail);font-size:11px}
-.book-actions-popover button:hover,.book-actions-popover button:focus-visible{background:var(--sand-4)}
-.book-actions-popover::backdrop{background:transparent;pointer-events:none}
 
 /* Size the library from its real contents, without a second viewport floor. */
 html,body{overflow-x:clip}

@@ -1,7 +1,8 @@
+import Dropdown from './Dropdown';
 import {normalizeDisplayPrompt} from '../../shared/displayPrompt';
 import DisplayPromptControls from './DisplayPromptControls';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { ChevronDown, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import type { Book } from '../lib/library';
 import { createManuscript,updateManuscript,applyManuscript } from '../lib/advancedEditing';
 import { startsChapter } from '../lib/pagination';
@@ -11,24 +12,8 @@ import './advanced-book-editor.css';
 
 export type AdvancedBookEditorProps = { book: Book; onSave: (book: Book) => Promise<void>; onClose: () => void };
 
-/** A bounded menu: opening a 20,000-message book never mounts 20,000 rows. */
-function EditorPicker({ label, options, value, onChange }: { label: string; options: { value: number; label: string }[]; value?: number; onChange: (value: number) => void }) {
-  const [page, setPage] = useState(0);
-  const menu = useRef<HTMLDetailsElement>(null);
-  const size = 60, selected = options.findIndex(option => option.value === value);
-  useEffect(() => {
-    const outside = (event: PointerEvent) => { if (!menu.current?.contains(event.target as Node) && menu.current) menu.current.open = false; };
-    document.addEventListener('pointerdown', outside);
-    return () => document.removeEventListener('pointerdown', outside);
-  }, []);
-  return <div className="advanced-editor-picker"><span>{label}</span><details ref={menu} onToggle={event => { if (event.currentTarget.open) setPage(Math.floor(Math.max(0, selected) / size)); }} onKeyDown={event => {
-    if (event.key === 'Escape' && menu.current?.open) { event.preventDefault(); event.stopPropagation(); menu.current.open = false; menu.current.querySelector('summary')?.focus(); }
-  }}><summary aria-label={`${label} 이동`}>{options[selected]?.label ?? '없음'}<ChevronDown size={14}/></summary>
-    <div className="advanced-editor-options" aria-label={`${label} 목록`}>
-      {options.slice(page * size, (page + 1) * size).map(option => <button key={option.value} type="button" aria-current={option.value === value ? 'true' : undefined} onClick={() => { onChange(option.value); menu.current!.open = false; menu.current!.querySelector('summary')?.focus(); }}>{option.label}</button>)}
-      {options.length > size && <div className="advanced-editor-menu-pages"><button type="button" disabled={page === 0} onClick={() => setPage(index => index - 1)}>이전 목록</button><span>{page + 1} / {Math.ceil(options.length / size)}</span><button type="button" disabled={(page + 1) * size >= options.length} onClick={() => setPage(index => index + 1)}>다음 목록</button></div>}
-    </div>
-  </details></div>;
+function EditorPicker({label,options,value,onChange}:{label:string;options:{value:number;label:string}[];value?:number;onChange:(value:number)=>void}){
+ return <div className="field dropdown-field"><span>{label}</span><Dropdown label={`${label} 이동`} value={value===undefined?undefined:String(value)} options={options.map(option=>({...option,value:String(option.value)}))} onChange={next=>onChange(Number(next))}/></div>;
 }
 
 /** Mount once per book (use key={book.id} when switching books). */
