@@ -1,3 +1,4 @@
+import Toast from './Toast';
 import { createContext, useContext, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode, PointerEvent as ReactPointerEvent } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -342,7 +343,6 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
   const [saving,setSaving]=useState(false);
   const [editError,setEditError]=useState('');
   const [bookmarkToast,setBookmarkToast]=useState('');
-  useEffect(()=>{if(!bookmarkToast)return;const timer=setTimeout(()=>setBookmarkToast(''),3600);return()=>clearTimeout(timer);},[bookmarkToast]);
   const [leafRevision,setLeafRevision]=useState(0);
   const draftsRef=useRef(new Map<string,string>());
   const chapterDraftsRef=useRef(new Map<number,ChapterDraft>());
@@ -1194,7 +1194,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
     </>}
     {assetPreview&&createPortal(<div className={`reader-asset-preview${assetPreview.pinned?' reader-asset-preview-pinned':''}${assetPreview.closing?' reader-asset-preview-closing':''}`} role="region" aria-label="이미지 미리보기"><button type="button" data-flip-asset key={assetPreview.owner} className="reader-asset-preview-expand" tabIndex={assetPreview.pinned?0:-1} aria-label="이미지 미리보기 접기" onClick={event=>{event.stopPropagation();hoverSuppressedRef.current.add(assetPreview.owner);setAssetPreview(null);}} style={{left:assetPreview.left,top:assetPreview.top,width:assetPreview.width,height:assetPreview.height,'--preview-clip-x':`${Math.max(0,(assetPreview.width-assetPreview.size)/2)}px`,'--preview-clip-bottom':`${Math.max(0,assetPreview.height-assetPreview.size)}px`} as CSSProperties}><img src={assetPreview.asset.src} alt={assetPreview.asset.name} draggable={false}/></button></div>,assetPreview.container)}
     <div ref={measureRef} className="reader-measure reader-page-content" aria-hidden="true" />
-    {bookmarkToast&&<div className="toast" role="status">{bookmarkToast}</div>}
+    {bookmarkToast&&<Toast message={bookmarkToast} tone="error" onDismiss={()=>setBookmarkToast('')}/> }
     {leaveConfirm&&<LeaveDialog moving={!!shelfBookmark} busy={bookmarkBusy} error={leaveError} onCancel={()=>{setLeaveConfirm(false);setLeaveError('');}} onLeave={()=>closeRef.current()} onSave={()=>void saveBeforeLeaving()}/>}
     {nextConfirm&&onNextVolume&&<NextVolumeDialog title={nextVolumeTitle} onClose={()=>setNextConfirm(false)} onConfirm={()=>{setNextConfirm(false);onNextVolume();}}/>}
   </div>;

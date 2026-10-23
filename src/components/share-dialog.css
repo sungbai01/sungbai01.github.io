@@ -1,9 +1,9 @@
 .share-ticket-dialog{position:fixed;inset:0;margin:auto;width:min(1060px,calc(100vw - 32px));height:fit-content;max-height:calc(100dvh - 32px);padding:14px;border:0;background:transparent;color:var(--sand-12);overflow:auto}
 .share-ticket-dialog::backdrop{background:#15201c99;backdrop-filter:blur(8px)}
-.share-ticket-workspace{display:flex;gap:18px;align-items:flex-start}
-.share-interactive-ticket{position:relative;flex:1;min-width:0;aspect-ratio:2/1;filter:drop-shadow(0 16px 26px #0004)}
-.share-ticket-render{display:block;width:100%;height:100%;object-fit:contain}
-.share-ticket-placeholder{display:flex;height:100%;border-radius:var(--radius-panel);overflow:hidden;color:#fffdf5}
+.share-ticket-workspace{display:flex;gap:18px;align-items:flex-start;animation:share-dialog-enter .22s cubic-bezier(.22,.7,.25,1)}
+.share-interactive-ticket{position:relative;flex:1;min-width:0;aspect-ratio:2/1;filter:drop-shadow(0 16px 26px #0004);min-height:0;align-self:flex-start}
+.share-ticket-render{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:contain;animation:share-card-reveal .18s ease-out}
+.share-ticket-placeholder{position:absolute;inset:0;display:flex;height:100%;border-radius:var(--radius-panel);overflow:hidden;color:#fffdf5}
 .share-ticket-placeholder>div{display:flex;flex:1;min-width:0;flex-direction:column;gap:20px;padding:5%;background:linear-gradient(35deg,#101813ed,#10181344)}
 .share-ticket-placeholder strong{font:clamp(16px,2.6vw,30px)/1.4 var(--font-serif);overflow-wrap:anywhere}
 .share-ticket-placeholder small{font-size:clamp(6px,1vw,12px)}
@@ -14,13 +14,19 @@
 .share-ticket-quote-target:hover:enabled{background:#ffffff16;border-color:#fff}
 .share-ticket-quote-target>span{display:flex;flex-direction:column;gap:5px;align-items:center;font-size:clamp(10px,1.3vw,14px)}
 .share-ticket-quote-target small{font-size:clamp(8px,1vw,11px);opacity:.65}
-.share-ticket-tools{display:flex;flex-direction:column;gap:10px;flex:none}
-.share-ticket-tools button,.share-ticket-info{width:44px;height:44px;display:grid;place-items:center;background:var(--sand-2);color:var(--sand-12);border:1px solid var(--sand-6);border-radius:var(--radius-control);box-shadow:0 3px 16px #0002;transition:background .15s,transform .15s}
+.share-ticket-tools{display:flex;flex-direction:column;gap:10px;flex:0 0 44px;width:44px}
+.share-ticket-tools button{width:44px;height:44px;display:grid;place-items:center;background:var(--sand-2);color:var(--sand-12);border:1px solid var(--sand-6);border-radius:var(--radius-control);box-shadow:0 3px 16px #0002;transition:background .15s,transform .15s}
 .share-ticket-tools button:hover:not(:disabled){background:var(--sand-4);transform:translateY(-1px)}
 .share-ticket-dialog button:disabled{opacity:.4;cursor:default}
-.share-ticket-info{color:var(--sand-10)}
 .share-ticket-tools .share-ticket-close:hover:enabled{background:var(--brand-red-soft);border-color:var(--brand-red-border);color:var(--brand-red-ink);transform:none}
-.share-ticket-message{display:flex;align-items:center;justify-content:center;gap:8px;background:var(--sand-2);border-radius:var(--radius-control);padding:10px 16px;font-size:12px}
-.share-ticket-manual-copy{display:block;width:calc(100% - 62px);margin-top:14px;border:1px solid var(--sand-6);background:var(--sand-2);color:var(--sand-11);border-radius:var(--radius-control);padding:10px;font-size:11px}
-.share-ticket-manual-copy{min-height:90px;resize:vertical}
-@media(max-width:600px){.share-ticket-workspace{gap:10px}.share-ticket-tools{gap:8px}.share-ticket-placeholder>div{gap:12px}.share-ticket-placeholder aside{gap:14px}.share-ticket-manual-copy{width:100%}}
+@media(max-width:600px){.share-ticket-workspace{gap:10px}.share-ticket-tools{gap:8px}.share-ticket-placeholder>div{gap:12px}.share-ticket-placeholder aside{gap:14px}}
+
+.share-ticket-dialog::backdrop{animation:share-backdrop-enter .22s ease-out}
+.share-ticket-share{position:relative}
+.share-ticket-actions{position:absolute;right:calc(100% + 10px);top:0;display:flex;gap:8px;z-index:2;animation:share-actions-enter .18s ease-out}
+.share-ticket-tools .share-ticket-actions button{width:auto;min-width:104px;display:flex;justify-content:center;gap:7px;padding:0 12px;white-space:nowrap;font-size:11px}
+@keyframes share-dialog-enter{from{opacity:0;transform:translateY(12px) scale(.985)}to{opacity:1;transform:none}}
+@keyframes share-backdrop-enter{from{opacity:0}to{opacity:1}}
+@keyframes share-card-reveal{from{opacity:0}to{opacity:1}}
+@keyframes share-actions-enter{from{opacity:0;transform:translateX(8px)}to{opacity:1;transform:none}}
+@media(prefers-reduced-motion:reduce){.share-ticket-workspace,.share-ticket-dialog::backdrop,.share-ticket-render,.share-ticket-actions{animation:none}}

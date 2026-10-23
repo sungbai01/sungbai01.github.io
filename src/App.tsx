@@ -1,3 +1,4 @@
+import Toast from './components/Toast';
 import { lazy, Suspense, useCallback, useMemo, useEffect, useLayoutEffect, useRef, useState, useId, type CSSProperties, type ReactNode } from 'react';
 import { ArrowDownToLine, ArrowRight, BookOpen, Bookmark, Check, ChevronDown, Ellipsis, Library, LoaderCircle, Menu, Pencil, Images, Link, Plus, RotateCcw, Search, Trash2, Upload, X } from 'lucide-react';
 import { getLibraryGeneration, importChatFile, BOOK_COLORS, type Book } from './lib/library';
@@ -311,7 +312,6 @@ function AccountApp({owner}:{owner:string|null}) {
     return()=>{active=false;};
   },[library,owner,route,accountReady,openAttempt]);
   useEffect(()=>{const change=()=>{setRoute(currentBookId());setMenu(null);};addEventListener('hashchange',change);return()=>removeEventListener('hashchange',change);},[]);
-  useEffect(()=>{if(!toast)return;const timer=setTimeout(()=>setToast(''),3600);return()=>clearTimeout(timer);},[toast]);
   useEffect(()=>{if(!menu)return;const close=()=>setMenu(null);document.addEventListener('click',close);return()=>document.removeEventListener('click',close);},[menu]);
   const openBook=useCallback((book:Book)=>{
     library.assertCurrent();setReadyRoute(null);setReaderReady(null);setOpenError('');
@@ -603,7 +603,7 @@ function AccountApp({owner}:{owner:string|null}) {
       {assetManager}
       {managingShares&&<ShareManager onClose={()=>setManagingShares(false)}/>}
     {sharing&&<ShareDialog book={sharing} loadBook={loadShareBook} quote={shareQuotes[sharing.id]??''} onSelectQuote={()=>selectShareQuote(sharing)} onClose={()=>setSharing(null)} onManageAssets={()=>{if(sharing)void openAssets(bookShelf(sharing));}}/>}
-      {toast&&<div className="toast" role="status">{toast}</div>}
+      {toast&&<Toast message={toast} onDismiss={()=>setToast('')}/> }
     </>;
   }
   return <div className="app-shell">
@@ -667,7 +667,7 @@ function AccountApp({owner}:{owner:string|null}) {
     {managingShares&&<ShareManager onClose={()=>setManagingShares(false)}/>}
     {sharing&&<ShareDialog book={sharing} loadBook={loadShareBook} quote={shareQuotes[sharing.id]??''} onSelectQuote={()=>selectShareQuote(sharing)} onClose={()=>setSharing(null)} onManageAssets={()=>{if(sharing)void openAssets(bookShelf(sharing));}}/>}
     {canEdit&&remove&&<Modal title="책 삭제" onClose={()=>setRemove(null)}><p className="modal-description">‘{remove.title}’을 삭제할까요?</p><div className="modal-actions"><button className="secondary-btn" title="삭제 전 이 책을 백업" onClick={()=>void exportOne(remove)}><ArrowDownToLine size={16}/> 백업</button><button className="danger-btn" title="대화와 책갈피를 삭제합니다" disabled={busy} onClick={async()=>{if(!canEdit||deletingRef.current||editingShelf.current||preparingAssets.current||splittingBooks.current.size)return;const assertAccount=accountGuard();deletingRef.current=true;setBusy(true);try{await library.edit(store=>store.deleteBook(remove.id));assertAccount();const next=latestBooks.current.filter(b=>b.id!==remove.id);latestBooks.current=next;setBooks(next);setRemove(null);setToast('삭제 완료');}catch{setToast('삭제 실패');}finally{deletingRef.current=false;setBusy(false);}}}>삭제</button></div></Modal>}
-    {toast&&<div className="toast" role="status"><Check size={16}/>{toast}</div>}
+    {toast&&<Toast message={toast} onDismiss={()=>setToast('')}/> }
   </div>;
 }
 

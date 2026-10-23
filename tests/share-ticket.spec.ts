@@ -11,12 +11,17 @@ for(const width of [390,1440])test(`share ticket opens before book fetch (${widt
  await expect(page.getByRole('dialog',{name:'책 공유'})).toBeVisible();
  await expect(page.locator('.share-interactive-ticket')).toContainText('티켓 테스트');
  await expect(page.getByRole('button',{name:'공유할 대사 선택',exact:true})).toBeDisabled();
+ expect(await page.locator('.share-ticket-workspace').evaluate(el=>getComputedStyle(el).animationName)).toBe('share-dialog-enter');
+ await page.evaluate(()=>document.querySelector('.share-ticket-workspace')!.getAnimations().forEach(animation=>animation.finish()));
+ const before=await page.locator('.share-interactive-ticket').boundingBox();
  const fits=await page.locator('.share-ticket-dialog').evaluate(el=>el.scrollWidth<=el.clientWidth);
  expect(fits).toBe(true);
  await page.evaluate(()=>(window as any).finishBook());
  await expect(page.getByRole('button',{name:'공유할 대사 선택',exact:true})).toBeEnabled();
  await expect(page.getByRole('button',{name:'카드 이미지 저장',exact:true})).toBeEnabled();
  await expect(page.locator('.share-ticket-render')).toBeVisible();
+ expect(await page.locator('.share-interactive-ticket').boundingBox()).toEqual(before);
+ await expect(page.locator('.share-ticket-info,.share-ticket-message')).toHaveCount(0);
  await expect(page.locator('.share-ticket-tools button').first()).toHaveCSS('border-radius','6px');
  const aligned=await page.evaluate(()=>Math.abs(document.querySelector('.share-interactive-ticket')!.getBoundingClientRect().top-document.querySelector('.share-ticket-close')!.getBoundingClientRect().top)<1);expect(aligned).toBe(true);
  await page.getByRole('button',{name:'닫기',exact:true}).hover();
@@ -38,7 +43,7 @@ for(const width of [390,1440])test(`share ticket opens before book fetch (${widt
 });
 
 
-test('HTML copy creates its link and includes body images without extra options',async({page})=>{
+for(const format of ['HTML','URL'])test(`${format} share creates its link and includes body images without extra options`,async({page})=>{
  await page.route('https://fonts.googleapis.com/**',r=>r.abort());await page.route('https://fonts.gstatic.com/**',r=>r.abort());
  const calls:{method:string;path:string;role:string|null}[]=[];
  await page.route('**/library/books/ticket-test/share**',async route=>{
@@ -54,14 +59,19 @@ test('HTML copy creates its link and includes body images without extra options'
   const {mountTicket}=await import('/tests/share-ticket-harness.tsx');mountTicket(true);
  });
  await expect(page.getByRole('dialog',{name:'책 공유'})).toBeVisible();await page.evaluate(()=>(window as any).finishBook());
- await expect(page.getByRole('button',{name:'카드 HTML 복사',exact:true})).toBeEnabled();
+ await expect(page.getByRole('button',{name:'공유',exact:true})).toBeEnabled();
+ await page.getByRole('button',{name:'공유',exact:true}).click();
+ await expect(page.getByRole('button',{name:'공유',exact:true})).toBeDisabled();
+ await expect(page.getByRole('button',{name:'URL로 공유',exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'HTML로 공유',exact:true})).toBeVisible();
+ const flyoutFits=await page.locator('.share-ticket-actions').evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth;});expect(flyoutFits).toBe(true);
  expect(calls).toEqual([]);
- await page.getByRole('button',{name:'카드 HTML 복사',exact:true}).click();
+ await page.getByRole('button',{name:format+'로 공유',exact:true}).click();
  await expect(page.getByRole('status').filter({hasText:'복사했어요.'})).toBeVisible();
- expect(calls.map(call=>[call.method,call.role])).toEqual([['GET',null],['POST',null],['POST','asset'],['POST','card']]);
+ expect(calls.map(call=>[call.method,call.role])).toEqual([['GET',null],['POST',null],['POST','asset'],...(format==='HTML'?[['POST','card']]:[])]);
  expect(await page.evaluate(()=>(window as any).copied)).toContain('#/share/'+'a'.repeat(43));
- await page.getByRole('button',{name:'카드 HTML 복사',exact:true}).click();
- expect(calls.length).toBe(4);
+ await page.getByRole('button',{name:format+'로 공유',exact:true}).click();
+ expect(calls.length).toBe(format==='HTML'?4:3);
 });
 test('empty quote draws no quotation mark and selection can confirm empty',async({page})=>{
  await page.route('https://fonts.googleapis.com/**',r=>r.abort());await page.route('https://fonts.gstatic.com/**',r=>r.abort());
@@ -78,4 +88,27 @@ test('empty quote draws no quotation mark and selection can confirm empty',async
  await expect(page.getByRole('button',{name:'대사 없이 공유',exact:true})).toBeEnabled();
  await page.getByRole('button',{name:'대사 없이 공유',exact:true}).click();
  expect(await page.evaluate(()=>(window as any).chosenQuote)).toBe('');
+});
+
+test('share errors stay in a dismissible toast without moving the card',async({page})=>{
+ await page.route('https://fonts.googleapis.com/**',r=>r.abort());await page.route('https://fonts.gstatic.com/**',r=>r.abort());
+ await page.goto('http://127.0.0.1:5175/');await page.evaluate(async()=>{const {mountTicket}=await import('/tests/share-ticket-harness.tsx');mountTicket();});
+ await expect(page.getByRole('dialog',{name:'책 공유'})).toBeVisible();await page.evaluate(()=>(window as any).finishBook());
+ await page.getByRole('button',{name:'공유',exact:true}).click();
+ const before=await page.locator('.share-interactive-ticket').boundingBox();
+ await page.getByRole('button',{name:'HTML로 공유',exact:true}).click();
+ await expect(page.locator('.share-ticket-dialog .toast')).toHaveAttribute('role','alert');
+ await expect(page.locator('.share-ticket-dialog .toast')).toContainText('로그인한 서재');
+ expect(await page.locator('.share-interactive-ticket').boundingBox()).toEqual(before);
+ await page.getByRole('button',{name:'알림 닫기',exact:true}).click();await expect(page.locator('.share-ticket-dialog .toast')).toHaveCount(0);
+});
+
+test('shared toast expires and repeated notifications restart its lifetime',async({page})=>{
+ await page.clock.install();await page.route('https://fonts.googleapis.com/**',r=>r.abort());await page.route('https://fonts.gstatic.com/**',r=>r.abort());
+ await page.goto('http://127.0.0.1:5175/');await page.evaluate(async()=>{const {mountTicket}=await import('/tests/share-ticket-harness.tsx');mountTicket();});
+ await expect(page.getByRole('dialog',{name:'책 공유'})).toBeVisible();await page.evaluate(()=>(window as any).finishBook());
+ await page.getByRole('button',{name:'공유',exact:true}).click();await page.getByRole('button',{name:'URL로 공유',exact:true}).click();
+ await expect(page.locator('.toast')).toBeVisible();await page.clock.fastForward(3000);
+ await page.getByRole('button',{name:'URL로 공유',exact:true}).click();await page.clock.fastForward(1000);await expect(page.locator('.toast')).toBeVisible();
+ await page.clock.fastForward(2700);await expect(page.locator('.toast')).toHaveCount(0);
 });

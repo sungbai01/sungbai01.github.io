@@ -98,6 +98,6 @@ test('bookmark save failure uses a toast instead of page error',async({page})=>{
  await page.goto('http://127.0.0.1:5175/');await page.evaluate(async()=>{const {mountFailure}=await import('/tests/bookmark-failure-harness.tsx');mountFailure();});
  await expect(page.locator('.reader-stage')).toHaveAttribute('aria-busy','false');
  await page.getByRole('button',{name:'현재 위치에 책갈피',exact:true}).click();
- await expect(page.locator('.reader .toast')).toHaveText('책갈피를 저장하지 못했어요.');
+ await expect(page.locator('.reader .toast')).toContainText('책갈피를 저장하지 못했어요.');
  await expect(page.locator('.reader-error')).toHaveCount(0);
 });
