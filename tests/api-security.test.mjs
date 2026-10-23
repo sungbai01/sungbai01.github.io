@@ -22,6 +22,57 @@ const reply=(b,status)=>new Response(JSON.stringify(b),{status});
 const png=size=>{const data=new Uint8Array(size);data.set([137,80,78,71,13,10,26,10]);return data;};
 const upload=(db,bucket,name='audit',size=1024)=>api.uploadShareImage(new Request('https://audit/upload',{method:'POST',headers:{'X-Image-Role':'asset','X-Image-Name':name},body:png(size)}),db,bucket,owner,'audit',origin,reply);
 const bucket={async put(){},async delete(){},async get(){return {body:new Blob([png(40)]).stream()};}};
+
+test('unknown and expired shares never consume the successful public read budget',async()=>{
+ const {db,sql}=fixture();
+ assert.equal((await api.publicShare(new Request('https://audit/shares/'+'Z'.repeat(43)),db,origin,reply)).status,404);
+ sql.prepare('UPDATE book_shares SET last_access_at=?').run(now-8*86400000);
+ assert.equal((await api.publicShare(new Request('https://audit/shares/'+share),db,origin,reply)).status,404);
+ assert.equal(sql.prepare('SELECT COUNT(*) n FROM public_read_budget').get().n,0);
+});
+
+test('publish refuses a source deleted or edited while reading request references',async()=>{
+ for(const deleted of [true,false]){
+  const {db,sql}=fixture();const book=JSON.parse(sql.prepare('SELECT body FROM book_shares').get().body);
+  assert.equal((await api.libraryApi(new Request('https://audit/library/books/audit',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({book,baseRevision:0})}),db,owner,origin,reply)).status,200);
+  let release,started;const gate=new Promise(r=>release=r),reading=new Promise(r=>started=r);
+  const request=new Request('https://audit/library/books/audit/share',{method:'POST',body:'{}'});
+  Object.defineProperty(request,'body',{value:new ReadableStream({async pull(controller){started();await gate;controller.enqueue(new TextEncoder().encode('{"references":[]}'));controller.close();}},{highWaterMark:0})});
+  const pending=api.manageShare(request,db,owner,'audit',origin,reply);await reading;
+  sql.prepare('UPDATE books SET deleted=?,revision=revision+1 WHERE owner_id=? AND book_id=?').run(deleted?1:0,owner,'audit');
+  sql.prepare('DELETE FROM book_shares').run();release();
+  assert.equal((await pending).status,409);assert.equal(sql.prepare('SELECT COUNT(*) n FROM book_shares').get().n,0);
+ }
+});
+
+test('new uploads count images reused from other shares before touching R2',async()=>{
+ const {db,sql}=fixture();
+ for(let i=0;i<25;i++){
+  const key='reused'+i;sql.prepare('INSERT INTO share_objects VALUES(?,?,?,?)').run(key,'T'.repeat(43),2000000,now);
+  sql.prepare('INSERT INTO share_media VALUES(?,?,?,?,?,?,?)').run(share,'img'+i,'asset'+i,'asset',key,'image/png',2000000);
+ }
+ let puts=0;assert.equal((await upload(db,{...bucket,async put(){puts++;}},'fresh',1000)).status,413);
+ assert.equal(puts,0);assert.equal(sql.prepare('SELECT COUNT(*) n FROM share_upload_reservations').get().n,0);
+});
+
+test('image reuse counts pending upload reservations',async()=>{
+ const {db,sql}=fixture();await upload(db,bucket,'first',1000);
+ for(let i=0;i<24;i++)sql.prepare('INSERT INTO share_media VALUES(?,?,?,?,?,?,?)').run(share,'reused'+i,'reused'+i,'asset','external'+i,'image/png',2000000);
+ sql.prepare('INSERT INTO share_upload_reservations(object_key,share_id,bytes,created_at,owner_id) VALUES(?,?,?,?,?)').run('pending',share,1998500,now,owner);
+ const hash=sql.prepare('SELECT content_hash FROM share_object_info').get().content_hash;
+ const response=await api.prepareShareImages(new Request('https://audit/images',{method:'PUT',body:JSON.stringify({images:[{name:'copy',role:'asset',hash}]})}),db,owner,'audit',origin,reply);
+ assert.equal(response.status,200);assert.equal((await response.json()).images[0].url,null);
+});
+
+test('referenced image count and pending uploads cannot exceed 64 entries',async()=>{
+ const {db,sql}=fixture();await upload(db,bucket,'first',1000);
+ for(let i=0;i<62;i++)sql.prepare('INSERT INTO share_media VALUES(?,?,?,?,?,?,?)').run(share,'reused'+i,'reused'+i,'asset','external'+i,'image/png',1000);
+ sql.prepare('INSERT INTO share_upload_reservations(object_key,share_id,bytes,created_at,owner_id) VALUES(?,?,?,?,?)').run('pending',share,1000,now,owner);
+ assert.equal((await upload(db,bucket,'fresh')).status,413);
+ const hash=sql.prepare('SELECT content_hash FROM share_object_info').get().content_hash;
+ const response=await api.prepareShareImages(new Request('https://audit/images',{method:'PUT',body:JSON.stringify({images:[{name:'copy',role:'asset',hash}]})}),db,owner,'audit',origin,reply);
+ assert.equal((await response.json()).images[0].url,null);
+});
 test('operation exhaustion rejects without charging storage or creating orphan reservations',async()=>{
  const {db,sql}=fixture();sql.prepare('INSERT INTO share_operation_budget(month,writes) VALUES(?,10000)').run(new Date().toISOString().slice(0,7));
  for(let i=0;i<3;i++)assert.equal((await upload(db,bucket)).status,429);

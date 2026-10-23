@@ -35,8 +35,8 @@ async function reuseImage(request:Request,db:TextDatabase,owner:string,share:str
  SELECT ?1,?2,?3,?4,?5,?6,?7
  WHERE EXISTS(SELECT 1 FROM share_object_info WHERE object_key=?5 AND owner_id=?8 AND deleting=0)
  AND EXISTS(SELECT 1 FROM book_shares WHERE share_id=?1 AND owner_id=?8 AND last_access_at>?9)
- AND (SELECT COALESCE(SUM(bytes),0) FROM share_media WHERE share_id=?1 AND NOT(name=?3 AND role=?4))+?7<=50000000
- AND ((SELECT COUNT(*) FROM share_media WHERE share_id=?1)<64 OR EXISTS(SELECT 1 FROM share_media WHERE share_id=?1 AND name=?3 AND role=?4))
+ AND (SELECT COALESCE(SUM(bytes),0) FROM share_media WHERE share_id=?1 AND NOT(name=?3 AND role=?4))+(SELECT COALESCE(SUM(bytes),0) FROM share_upload_reservations WHERE share_id=?1)+?7<=50000000
+ AND (SELECT COUNT(*) FROM share_media WHERE share_id=?1 AND NOT(name=?3 AND role=?4))+(SELECT COUNT(*) FROM share_upload_reservations WHERE share_id=?1)<64
  ON CONFLICT(share_id,name,role) DO UPDATE SET image_id=excluded.image_id,object_key=excluded.object_key,mime=excluded.mime,bytes=excluded.bytes`).bind(share,image,name,role,object.object_key,object.mime,object.bytes,owner,Date.now()-SHARE_IDLE_MS).run();
  return result.meta.changes?imageUrl(request,share,image,object.mime):null;
 }

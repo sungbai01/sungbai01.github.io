@@ -40,6 +40,10 @@ export async function publicShare(request:Request,db:TextDatabase,origin:string,
  const id=new URL(request.url).pathname.slice('/shares/'.length);
  if(request.method!=='GET'||!tokenPattern.test(id))return reply({error:'공유한 책을 찾을 수 없어요.'},404,origin);
  const now=Date.now();
+ // Invalid/expired capabilities must not spend the shared successful-read budget.
+ // Edge visitor limits still protect this lookup against invalid-address floods.
+ const live=await db.prepare('SELECT 1 AS found FROM book_shares WHERE share_id=?1 AND last_access_at>?2').bind(id,now-SHARE_IDLE_MS).first();
+ if(!live)return reply({error:'공유가 종료되었거나 존재하지 않는 책이에요.'},404,origin);
  if(!await allowPublicRead(db))return reply({error:'오늘의 공유 조회 한도에 도달했어요.'},429,origin);
  // Count successful public book opens, including refreshes; images/owner previews do not count.
  const row=await db.prepare('UPDATE book_shares SET view_count=MIN(view_count+1,9007199254740991),last_access_at=CASE WHEN last_access_at<=?3 THEN ?4 ELSE last_access_at END WHERE share_id=?1 AND last_access_at>?2 RETURNING body').bind(id,now-SHARE_IDLE_MS,now-60*60*1000,now).first<{body:string}>();
@@ -71,7 +75,7 @@ export async function manageShare(request:Request,db:TextDatabase,owner:string,b
  if(request.method!=='POST')return reply({error:'허용되지 않는 요청이에요.'},405,origin);
  // Never accept public text, owner IDs or arbitrary URLs from the client.
  // Copy the authenticated owner's already validated D1 book only.
- const source=await db.prepare('SELECT body FROM books WHERE owner_id = ?1 AND book_id = ?2 AND deleted = 0').bind(owner,bookId).first<{body:string}>();
+ const source=await db.prepare('SELECT body,revision FROM books WHERE owner_id = ?1 AND book_id = ?2 AND deleted = 0').bind(owner,bookId).first<{body:string;revision:number}>();
  if(!source)return reply({error:'서버에 저장된 책을 찾을 수 없어요.'},404,origin);
  const book=cloudBook(JSON.parse(source.body) as Book);
  delete book.bookmarks;
@@ -94,10 +98,12 @@ export async function manageShare(request:Request,db:TextDatabase,owner:string,b
  // Quotas checked inside the write, including concurrent create requests.
  const result=await db.prepare(`INSERT INTO book_shares(share_id,owner_id,book_id,body,bytes,created_at,updated_at,last_access_at,title)
  SELECT ?1,?2,?3,?4,?5,?6,?6,?6,?7
- WHERE ((SELECT COUNT(*) FROM book_shares WHERE owner_id=?2 AND last_access_at>?6-604800000)<10 OR EXISTS(SELECT 1 FROM book_shares WHERE owner_id=?2 AND book_id=?3))
+  WHERE EXISTS(SELECT 1 FROM books WHERE owner_id=?2 AND book_id=?3 AND deleted=0 AND revision=?8)
+  AND ((SELECT COUNT(*) FROM book_shares WHERE owner_id=?2 AND last_access_at>?6-604800000)<10 OR EXISTS(SELECT 1 FROM book_shares WHERE owner_id=?2 AND book_id=?3))
  AND (SELECT COALESCE(SUM(bytes),0) FROM book_shares WHERE owner_id=?2 AND book_id!=?3)+?5<=20000000
  AND (SELECT COALESCE(SUM(bytes),0) FROM book_shares WHERE NOT(owner_id=?2 AND book_id=?3))+?5<=100000000
- ON CONFLICT(owner_id,book_id) DO UPDATE SET body=excluded.body,bytes=excluded.bytes,updated_at=excluded.updated_at,title=excluded.title`).bind(shareId,owner,bookId,body,bytes,now,book.title.slice(0,200)).run();
+  ON CONFLICT(owner_id,book_id) DO UPDATE SET body=excluded.body,bytes=excluded.bytes,updated_at=excluded.updated_at,title=excluded.title`).bind(shareId,owner,bookId,body,bytes,now,book.title.slice(0,200),source.revision).run();
+ if(!result.meta.changes&&!await db.prepare('SELECT 1 AS found FROM books WHERE owner_id=?1 AND book_id=?2 AND deleted=0 AND revision=?3').bind(owner,bookId,source.revision).first())return reply({error:'공유하는 동안 책이 변경되었어요. 다시 열어 확인해 주세요.'},409,origin);
  if(!result.meta.changes)return reply({error:'공유 URL은 계정당 10개까지 만들 수 있어요. 기존 공유를 삭제하거나 보관 용량을 확인해 주세요.'},413,origin);
  const row=await db.prepare('SELECT share_id, updated_at FROM book_shares WHERE owner_id = ?1 AND book_id = ?2').bind(owner,bookId).first<{share_id:string;updated_at:number}>();
 
