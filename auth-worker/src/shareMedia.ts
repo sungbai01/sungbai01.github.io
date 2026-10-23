@@ -106,9 +106,13 @@ export async function uploadShareImage(request:Request,db:TextDatabase,bucket:Sh
 export async function publicShareImage(request:Request,db:TextDatabase,bucket:ShareBucket|undefined){
  const headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; sandbox",'Referrer-Policy':'no-referrer','Access-Control-Allow-Origin':'*'};
  const match=/^\/share-media\/([A-Za-z0-9_-]{43})\/([a-f0-9-]{36})(?:\.(png|jpe?g|webp))?$/.exec(new URL(request.url).pathname);
- if(!match||request.method!=='GET'||!bucket)return new Response(null,{status:404,headers});
- const image=await db.prepare('SELECT object_key,mime FROM share_media WHERE share_id=?1 AND image_id=?2 AND EXISTS(SELECT 1 FROM book_shares WHERE share_id=?1 AND last_access_at>?3)').bind(match[1],match[2],Date.now()-SHARE_IDLE_MS).first<{object_key:string;mime:string}>();
+ if(!match||!['GET','HEAD'].includes(request.method)||!bucket)return new Response(null,{status:404,headers});
+ const image=await db.prepare('SELECT object_key,mime,bytes FROM share_media WHERE share_id=?1 AND image_id=?2 AND EXISTS(SELECT 1 FROM book_shares WHERE share_id=?1 AND last_access_at>?3)').bind(match[1],match[2],Date.now()-SHARE_IDLE_MS).first<{object_key:string;mime:string;bytes:number}>();
  if(!image||(match[3]&&(match[3]==='jpeg'?'jpg':match[3])!==imageExtension(image.mime)))return new Response(null,{status:404,headers});
+ if(request.method==='HEAD'){
+  if(!await allowPublicRead(db))return new Response(null,{status:429,headers});
+  return new Response(null,{headers:{...headers,'Content-Type':image.mime,'Content-Length':String(image.bytes)}});
+ }
  // Validate current publication before any cache hit: expiry/deletion stays immediate.
  const cache=(globalThis as unknown as {caches?:{default?:Cache}}).caches?.default;
  const cacheKey=new Request(`https://galpi-share-cache.invalid/${image.object_key}`);

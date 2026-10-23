@@ -231,3 +231,11 @@ test('image URLs carry the real extension while legacy URLs share bytes and acce
  sql.prepare("UPDATE share_media SET name='__galpi_cover_icon__' WHERE name='png'").run();const managed=await (await api.shareManagement(new Request('https://audit/library/shares'),db,owner,origin,reply)).json();assert.match(managed.shares[0].card.backgroundUrl,/\.png$/);
  const url=settings.share.images[0].url;sql.prepare('UPDATE book_shares SET last_access_at=?').run(now-8*86400000);const before=gets;assert.equal((await api.publicShareImage(new Request(url),db,storage)).status,404);assert.equal(gets,before);assert.equal(payloads.size,3);
 });
+
+test('public image HEAD works cross-origin without R2 reads, respects expiry and throttling',async()=>{
+ const {db,sql}=fixture();const uploaded=await upload(db,bucket,'head',1024);const {url}=await uploaded.json();let gets=0;const env={...envFor(db),SHARE_IMAGES:{...bucket,async get(){gets++;return bucket.get();}}};
+ for(const requestOrigin of ['https://arca.live','']){const response=await api.worker.fetch(new Request(url,{method:'HEAD',headers:requestOrigin?{Origin:requestOrigin}:{}}),env);assert.equal(response.status,200);assert.equal(response.headers.get('Content-Type'),'image/png');assert.equal(response.headers.get('Content-Length'),'1024');assert.equal(response.headers.get('Access-Control-Allow-Origin'),'*');assert.equal(await response.text(),'');}
+ assert.equal(gets,0);assert.equal(sql.prepare('SELECT view_count n FROM book_shares').get().n,0);assert.equal(sql.prepare('SELECT SUM(reads) n FROM share_operation_budget').get().n,0);
+ env.SHARE_LIMIT={async limit(){return {success:false};}};assert.equal((await api.worker.fetch(new Request(url,{method:'HEAD'}),env)).status,429);env.SHARE_LIMIT=limit;
+ sql.prepare('UPDATE book_shares SET last_access_at=?').run(now-8*86400000);assert.equal((await api.worker.fetch(new Request(url,{method:'HEAD'}),env)).status,404);assert.equal(gets,0);
+});

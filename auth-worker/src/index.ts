@@ -31,12 +31,12 @@ async function handle(request:Request,env:Env):Promise<Response>{
   const path=new URL(request.url).pathname;
   const visitor=await visitorKey(request);
   if(request.method!=='OPTIONS'&&!await allowed(env.VISITOR_LIMIT,visitor))return limited(origins.includes(origin)?origin:'');
-  if((path.startsWith('/shares/')||path.startsWith('/share-media/'))&&request.method==='GET'){
+  if((path.startsWith('/shares/')||path.startsWith('/share-media/'))&&['GET','HEAD'].includes(request.method)){
    const id=path.split('/')[2]??'';
    if(!/^[A-Za-z0-9_-]{43}$/.test(id))return reply({error:'공유를 찾을 수 없어요.'},404,origins.includes(origin)?origin:'');
    if(!await allowed(env.SHARE_LIMIT,id))return limited(origins.includes(origin)?origin:'');
   }
-  if(path.startsWith('/share-media/')&&request.method==='GET'){
+  if(path.startsWith('/share-media/')&&['GET','HEAD'].includes(request.method)){
    if(!env.DB)return new Response(null,{status:503});
    return publicShareImage(request,env.DB,env.SHARE_IMAGES);
   }
