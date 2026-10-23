@@ -213,5 +213,5 @@ test('author credit is consistent in UI helper and exported card',async({page})=
   CanvasRenderingContext2D.prototype.fillText=function(text,...args){drawn.push(text);return original.call(this,text,...args);};
   try{await makeTicketCard(book,'   ');return {credit:bookAuthor(book),legacy:bookAuthor({author:'',aiModel:'Opus 5.5'}),unknown:bookAuthor({author:''}),drawn};}finally{CanvasRenderingContext2D.prototype.fillText=original;}
  });
- expect(result.credit).toBe('GPT 5.5');expect(result.legacy).toBe('Opus 5.5');expect(result.unknown).toBe('저자 미상');expect(result.drawn).toContain('저자');expect(result.drawn).not.toContain('저자 모델');expect(result.drawn.join('')).toContain('GPT 5.5');expect(result.drawn).not.toContain('“');expect(result.drawn.join('')).not.toContain('기본 프롬프트');expect(result.drawn.join('')).not.toContain(' · ');
+ expect(result.credit).toBe('GPT 5.5');expect(result.legacy).toBe('Opus 5.5');expect(result.unknown).toBe('저자 미상');expect(result.drawn).not.toContain('저자');expect(result.drawn).toContain('갈피  /  간직할 이야기');expect(result.drawn).not.toContain('저자 모델');expect(result.drawn.join('')).toContain('GPT 5.5');expect(result.drawn).not.toContain('“');expect(result.drawn.join('')).not.toContain('기본 프롬프트');expect(result.drawn.join('')).not.toContain(' · ');
 });
