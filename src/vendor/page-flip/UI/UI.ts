@@ -13,7 +13,16 @@ export abstract class UI {
     protected readonly wrapper: HTMLElement;
     protected distElement: HTMLElement;
 
-    private pointer: {id:number;start:Point;last:Point;startedAt:number;touch:boolean;asset:boolean;started:boolean} | null = null;
+    private pointer: {id:number;start:Point;last:Point;startedAt:number;touch:boolean;asset:boolean;started:boolean;selecting?:boolean} | null = null;
+    private holdTimer:ReturnType<typeof setTimeout>|null=null;
+    private selectionAnchor:{node:Node;offset:number}|null=null;
+    private proseCaret(x:number,y:number):{node:Node;offset:number}|null{
+        const doc=document as Document&{caretPositionFromPoint?:(x:number,y:number)=>{offsetNode:Node;offset:number}|null;caretRangeFromPoint?:(x:number,y:number)=>Range|null};
+        const position=doc.caretPositionFromPoint?.(x,y),range=position?null:doc.caretRangeFromPoint?.(x,y),node=position?.offsetNode??range?.startContainer,offset=position?.offset??range?.startOffset;
+        const parent=node?.nodeType===Node.ELEMENT_NODE?node as Element:node?.parentElement;
+        return node&&offset!==undefined&&this.distElement.contains(node)&&parent?.closest('.reader-prose')?{node,offset}:null;
+    }
+    private clearHold():void{if(this.holdTimer!==null)clearTimeout(this.holdTimer);this.holdTimer=null;}
     private readonly swipeDistance: number;
     private suppressAssetClickUntil=0;
     private onClickCapture=(event:MouseEvent):void=>{if(performance.now()<this.suppressAssetClickUntil){event.preventDefault();event.stopImmediatePropagation();}};
@@ -157,10 +166,26 @@ export abstract class UI {
     }
     private onPointerDown=(event:PointerEvent):void=>{
         if(!event.isPrimary||event.button!==0||this.pointer||!this.checkTarget(event.target))return;
+        delete this.distElement.dataset.textSelecting;
+        window.getSelection()?.removeAllRanges();
         const point=this.getMousePos(event.clientX,event.clientY);
+        const prose=!!(event.target as Element)?.closest('.reader-prose');
         const asset=!!(event.target as Element)?.closest('[data-flip-asset]');
-        this.pointer={id:event.pointerId,start:point,last:point,startedAt:performance.now(),touch:event.pointerType!=='mouse',asset,started:!asset};
+        this.pointer={id:event.pointerId,start:point,last:point,startedAt:performance.now(),touch:event.pointerType!=='mouse',asset,started:!asset&&!prose};
         if(asset)return;
+        if(prose){
+            const x=event.clientX,y=event.clientY,id=event.pointerId;
+            this.holdTimer=setTimeout(()=>{
+                this.holdTimer=null;const pointer=this.pointer;if(!pointer||pointer.id!==id||pointer.started||!this.app.isInteractionEnabled())return;
+                const caret=this.proseCaret(x,y);if(!caret)return;
+                let start=caret.offset,end=caret.offset;
+                if(caret.node.nodeType===Node.TEXT_NODE){const text=caret.node.textContent??'';for(const word of text.matchAll(/[\p{L}\p{N}_]+/gu))if(word.index!<=caret.offset&&word.index!+word[0].length>=caret.offset){start=word.index!;end=start+word[0].length;break;}}
+                pointer.selecting=true;this.selectionAnchor={node:caret.node,offset:start};this.distElement.dataset.textSelecting='true';
+                window.getSelection()?.setBaseAndExtent(caret.node,start,caret.node,end);
+            },450);
+            try{this.distElement.setPointerCapture(event.pointerId);}catch{}
+            if(event.cancelable)event.preventDefault();return;
+        }
         this.app.startUserTouch(point);
         try{this.distElement.setPointerCapture(event.pointerId);}catch{}
         if(event.cancelable)event.preventDefault();
@@ -169,11 +194,12 @@ export abstract class UI {
         const pointer=this.pointer;if(!pointer||event.pointerId!==pointer.id)return;
         const point=this.getMousePos(event.clientX,event.clientY);pointer.last=point;
         if(!this.app.isInteractionEnabled()){this.clearUserTouch();return;}
+        if(pointer.selecting){const caret=this.proseCaret(event.clientX,event.clientY);if(caret&&this.selectionAnchor)window.getSelection()?.setBaseAndExtent(this.selectionAnchor.node,this.selectionAnchor.offset,caret.node,caret.offset);if(event.cancelable)event.preventDefault();return;}
         // A release outside the window may not deliver pointerup. Recover on reentry.
         if(event.pointerType==='mouse'&&event.buttons===0){this.completeGesture(point);return;}
         if(!pointer.started){
             if(Math.hypot(point.x-pointer.start.x,point.y-pointer.start.y)<=5)return;
-            pointer.started=true;this.app.startUserTouch(pointer.start);
+            this.clearHold();pointer.started=true;this.app.startUserTouch(pointer.start);
             try{this.distElement.setPointerCapture(event.pointerId);}catch{}
         }
         this.app.userMove(point,pointer.touch);
@@ -186,6 +212,8 @@ export abstract class UI {
     };
     private completeGesture(point:Point):void {
         const pointer=this.pointer;if(!pointer)return;
+        if(pointer.selecting){this.clearUserTouch();return;}
+        if(!pointer.asset&&!pointer.started)this.app.startUserTouch(pointer.start);
         if(pointer.asset&&!pointer.started){this.clearUserTouch();return;}
         if(pointer.asset)this.suppressAssetClickUntil=performance.now()+500;
         const dx=point.x-pointer.start.x,dy=point.y-pointer.start.y;
@@ -206,6 +234,7 @@ export abstract class UI {
     private onBlur=():void=>{if(this.pointer)this.completeGesture(this.pointer.last);};
 
     public clearUserTouch():void {
+        this.clearHold();this.selectionAnchor=null;
         const pointer=this.pointer;this.pointer=null;
         if(pointer)try{if(this.distElement.hasPointerCapture(pointer.id))this.distElement.releasePointerCapture(pointer.id);}catch{}
     }

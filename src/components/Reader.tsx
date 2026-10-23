@@ -156,19 +156,19 @@ function EditableChunk({text,opening,onInput,onOverflow,editKey}:{text:string;op
  const ref=useRef<HTMLParagraphElement>(null),accepted=useRef(text),initial=useRef(text),baselineOverflow=useRef(0);
  const notify=useContext(EditNoticeContext);
  useLayoutEffect(()=>{if(ref.current){if(ref.current.innerText!==text)ref.current.textContent=text;accepted.current=text;const content=ref.current.closest<HTMLElement>('.reader-page-content');baselineOverflow.current=content?Math.max(0,content.scrollHeight-content.clientHeight):0;}},[text]);
- const warn=()=>notify('긴 글과 줄바꿈은 고급 수정에서 편집해 주세요.');
+ const warn=()=>notify('긴 글은 고급 수정에서 편집해 주세요.');
  function changed(element:HTMLParagraphElement){
   const value=element.innerText,content=element.closest<HTMLElement>('.reader-page-content');
-  if(value.length>initial.current.length+80||value.split('\n').length>initial.current.split('\n').length){
+  if(value.length>initial.current.length+160){
    element.textContent=accepted.current;warn();return;
   }
   if(content&&content.scrollHeight-content.clientHeight>baselineOverflow.current+2){const prefix=onOverflow(value,element);if(prefix!==undefined){accepted.current=prefix;onInput(prefix);return;}element.textContent=accepted.current;warn();return;}
   accepted.current=value;onInput(value);
  }
- return <div className="reader-edit-chunk"><p ref={ref} className={`reader-prose reader-live-passage${opening?' reader-chapter-opening':''}`} role="textbox" data-edit-key={editKey} aria-label="페이지 본문 편집" contentEditable="plaintext-only" suppressContentEditableWarning data-no-flip onBeforeInput={event=>{const native=event.nativeEvent as InputEvent;if(native.inputType==='insertParagraph'||native.inputType==='insertLineBreak'){event.preventDefault();warn();}}} onKeyDown={event=>{if(event.key==='Enter'&&!event.nativeEvent.isComposing){event.preventDefault();warn();}}} onInput={event=>{if(!(event.nativeEvent as InputEvent).isComposing)changed(event.currentTarget);}} onCompositionEnd={event=>changed(event.currentTarget)} onDrop={event=>{event.preventDefault();warn();}} onPaste={event=>{
+ return <div className="reader-edit-chunk"><p ref={ref} className={`reader-prose reader-live-passage${opening?' reader-chapter-opening':''}`} role="textbox" data-edit-key={editKey} aria-label="페이지 본문 편집" contentEditable="plaintext-only" suppressContentEditableWarning data-no-flip onInput={event=>{if(!(event.nativeEvent as InputEvent).isComposing)changed(event.currentTarget);}} onCompositionEnd={event=>changed(event.currentTarget)} onDrop={event=>{event.preventDefault();warn();}} onPaste={event=>{
   event.preventDefault();event.stopPropagation();
-  const value=event.clipboardData.getData('text/plain');
-  if(value.length>160||/[\r\n]/.test(value)){warn();return;}
+  const value=event.clipboardData.getData('text/plain').replace(/\r\n?/g,'\n');
+  if(value.length>160){warn();return;}
   const selection=window.getSelection();if(!selection?.rangeCount)return;
   const range=selection.getRangeAt(0),element=event.currentTarget;
   if(!element.contains(range.startContainer)||!element.contains(range.endContainer))return;

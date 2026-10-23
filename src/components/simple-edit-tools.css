@@ -1,11 +1,11 @@
 .reader .reader-edit-tools{position:fixed;top:82px;right:max(16px,env(safe-area-inset-right));bottom:auto;left:auto;transform:none;z-index:130;max-width:calc(100vw - 24px);border-radius:var(--radius-control);background:var(--reader-panel-bg);border:1px solid var(--reader-line)}
 .reader-fullscreen .reader-edit-tools{top:max(12px,env(safe-area-inset-top))}
-.reader .reader-edit-tools .reader-inline-actions{position:static;display:flex;gap:4px;padding:4px;max-width:none;transform:none;border:0;background:transparent}
+.reader .reader-edit-tools .reader-inline-actions{position:static;display:flex;flex-direction:column;gap:4px;padding:4px;max-width:none;transform:none;border:0;background:transparent}
 .reader .reader-edit-tools .reader-inline-actions button{display:grid;place-items:center;width:36px;height:36px;padding:0;border:0;border-radius:var(--radius-control);color:var(--reader-ink);background:transparent}
 .reader .reader-edit-tools .reader-inline-actions button:hover:enabled,.reader .reader-edit-tools button[aria-expanded=true]{background:var(--reader-hover)}
 .reader .reader-edit-tools .reader-inline-actions button:last-child{background:var(--reader-accent);color:var(--reader-paper)}
 .reader .reader-edit-tools button:disabled{opacity:.5;cursor:default}
-.simple-edit-settings{position:absolute;right:0;top:calc(100% + 8px);width:280px;max-width:calc(100vw - 24px);max-height:calc(100dvh - 150px);overflow:auto;overscroll-behavior:contain;padding:16px;background:var(--reader-panel-bg);border:1px solid var(--reader-line);border-radius:var(--radius-panel);animation:simple-edit-settings-enter .15s ease-out;transform-origin:top right;color:var(--reader-ink)}
+.simple-edit-settings{position:absolute;right:calc(100% + 8px);top:0;width:280px;max-width:calc(100vw - 84px);max-height:calc(100dvh - 110px);overflow:auto;overscroll-behavior:contain;padding:16px;background:var(--reader-panel-bg);border:1px solid var(--reader-line);border-radius:var(--radius-panel);animation:simple-edit-settings-enter .15s ease-out;transform-origin:top right;color:var(--reader-ink)}
 .simple-edit-settings[data-closing]{animation:simple-edit-settings-exit .15s ease-in forwards;pointer-events:none}
 .simple-edit-settings .intake-prompt{margin:0;padding:0;border:0}
 .simple-edit-settings .display-prompt-controls{display:grid;justify-content:stretch;gap:12px;margin-top:16px;padding:0}
