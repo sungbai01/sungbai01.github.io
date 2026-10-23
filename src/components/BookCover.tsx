@@ -1,3 +1,4 @@
+import {ImagePlus} from 'lucide-react';
 import {useLayoutEffect,useRef,useState} from 'react';
 import type {CSSProperties} from 'react';
 import {BOOK_COLORS,type Book} from '../lib/library';
@@ -6,7 +7,7 @@ import {CoverTitle} from './SpineTitle';
 import './book-cover.css';
 
 /** Both library and reader use the same cover, uniformly fitted without stretching. */
-export default function BookCover({book,small=false,fit=false}:{book:Book;small?:boolean;fit?:boolean}){
+export default function BookCover({book,small=false,fit=false,onSelectAsset,disabled=false}:{book:Book;small?:boolean;fit?:boolean;onSelectAsset?:()=>void;disabled?:boolean}){
  const frame=useRef<HTMLDivElement>(null),cover=useRef<HTMLDivElement>(null);
  const [scale,setScale]=useState(1);
  useLayoutEffect(()=>{
@@ -27,7 +28,7 @@ export default function BookCover({book,small=false,fit=false}:{book:Book;small?
  const title=book.title.replace(/\s*·\s*\d+권\s*$/,'').trim()||book.title;
  const content=<div ref={cover} className={`book-cover ${small?'cover-small':''}${fit?' book-cover-reader':''}`} style={{'--cover':book.color||BOOK_COLORS[0],...(fit?{'--cover-fit-scale':scale}:{})} as CSSProperties}>
   {book.cover&&<AssetImage skeleton={!fit} className="cover-image" src={book.cover} alt="" resolutionScale={fit?scale:1}/>}
-  <div className="cover-content"><CoverTitle title={title} small={small}/><div className="cover-portrait">{icon?<AssetImage skeleton={!fit} src={icon} alt={`${book.author||'캐릭터'} 초상`} resolutionScale={fit?scale:1}/>:<span className="cover-ornament" aria-hidden="true">✳</span>}</div><span className="cover-volume">{String(book.volumeNumber??1).padStart(2,'0')}</span></div>
+  <div className="cover-content"><CoverTitle title={title} small={small}/><div className="cover-portrait">{icon?<AssetImage skeleton={!fit} src={icon} alt={`${book.author||'캐릭터'} 초상`} resolutionScale={fit?scale:1}/>:<span className="cover-ornament" aria-hidden="true">✳</span>}{onSelectAsset&&<button type="button" className="cover-asset-select" aria-label="표지 에셋 선택" title="표지 에셋 선택" disabled={disabled} onClick={onSelectAsset}><ImagePlus size={24}/></button>}</div><span className="cover-volume">{String(book.volumeNumber??1).padStart(2,'0')}</span></div>
  </div>;
  return fit?<div ref={frame} className="book-cover-fit" style={{'--cover':book.color||BOOK_COLORS[0]} as CSSProperties}>{content}</div>:content;
 }

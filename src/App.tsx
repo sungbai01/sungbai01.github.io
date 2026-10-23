@@ -194,10 +194,10 @@ function LibraryDrawer({open,children,account,onClose}:{open:boolean;children:Re
 
 
 function EditBook({book,onSave,onClose,scope='book'}:{book:Book;onSave:(book:Book,reset:boolean)=>Promise<void>;onClose:()=>void;scope?:'book'|'shelf'}){
-  const [draft,setDraft]=useState(()=>({...book,title:bookTitle(book),author:book.author?.trim()?book.author:book.aiModel??book.author??''}));const [reset,setReset]=useState(false);const [busy,setBusy]=useState(false);const [error,setError]=useState('');
+  const [draft,setDraft]=useState(()=>({...book,title:bookTitle(book),author:book.author?.trim()?book.author:book.aiModel??book.author??''}));const [reset,setReset]=useState(false);const [choosingCover,setChoosingCover]=useState(false);const [busy,setBusy]=useState(false);const [error,setError]=useState('');
   function defaults(){setReset(true);setDraft(previous=>({...previous,color:colors[0]!,customColor:undefined,cover:undefined,backCover:undefined,characterIcon:undefined,assets:previous.assets?.map(asset=>asset.type==='icon'?{...asset,type:'asset' as const}:asset)}));}
   return <Modal title={scope==='shelf'?'책 편집':`책 편집 · ${String(book.volumeNumber??1).padStart(2,'0')}`} onClose={onClose} wide locked={busy} headerAction={<button type="button" className="icon-btn" aria-label="표지 기본값 복원" title="표지와 초상을 기본값으로" disabled={busy} onClick={defaults}><RotateCcw size={18}/></button>}><form onSubmit={async e=>{e.preventDefault();setBusy(true);setError('');try{await onSave({...draft,title:draft.title.trim()},reset);onClose();}catch(e){setError(e instanceof Error?e.message:'저장하지 못했어요.');}finally{setBusy(false);}}}>
-    <div className="edit-layout"><div className="cover-previews"><Cover book={draft}/></div><div className="space-y-4">
+    <div className="edit-layout"><div className="cover-previews"><Cover book={draft} disabled={busy} onSelectAsset={()=>setChoosingCover(true)}/></div><div className="space-y-4">
       <label className="field">책 제목<input required maxLength={100} value={draft.title} onChange={e=>setDraft({...draft,title:e.target.value})}/></label>
       <AuthorPicker value={draft.author} disabled={busy} onChange={author=>setDraft({...draft,author})}/>
       <PromptPicker value={draft.displayPrompt} onChange={displayPrompt=>setDraft({...draft,displayPrompt})} disabled={busy}/>
@@ -205,11 +205,11 @@ function EditBook({book,onSave,onClose,scope='book'}:{book:Book;onSave:(book:Boo
       
     </div></div>
     {error&&<p className="error-message" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-btn" disabled={busy} onClick={onClose}>취소</button><button className="primary-btn" disabled={busy||!draft.title.trim()}>{busy?<LoaderCircle size={16} className="animate-spin"/>:<Check size={16}/>} 저장하기</button></div>
-  </form></Modal>;
+  </form>{choosingCover&&<Modal title="표지 에셋 선택" onClose={()=>setChoosingCover(false)}><div className="cover-asset-options">{!draft.assets?.length&&<p>등록된 에셋이 없어요.</p>}{draft.assets?.map(asset=><button key={asset.id} type="button" aria-label={`${asset.name} 표지로 선택`} aria-pressed={draft.characterIcon===asset.src} onClick={()=>{setDraft(previous=>({...previous,characterIcon:asset.src,assets:previous.assets?.map(entry=>({...entry,type:entry.id===asset.id?'icon':'asset'}))}));setChoosingCover(false);}}><img src={asset.src} alt="" loading="lazy"/><span>{asset.name}</span></button>)}</div></Modal>}</Modal>;
 }
 function styleBook(book:Book,draft:Book,reset:boolean):Book{
-  return {...book,author:draft.author.trim(),aiModel:undefined,displayPrompt:normalizeDisplayPrompt(draft.displayPrompt),color:draft.color,customColor:draft.customColor,
-    ...(reset?{cover:undefined,backCover:undefined,characterIcon:undefined,assets:book.assets?.some(asset=>asset.type==='icon')?book.assets.map(asset=>asset.type==='icon'?{...asset,type:'asset' as const}:asset):book.assets}:{})};
+  return {...book,author:draft.author.trim(),aiModel:undefined,displayPrompt:normalizeDisplayPrompt(draft.displayPrompt),color:draft.color,customColor:draft.customColor,characterIcon:draft.characterIcon,assets:book.assets?.map(asset=>({...asset,type:draft.assets?.find(entry=>entry.id===asset.id)?.type??asset.type})),
+    ...(reset?{cover:undefined,backCover:undefined}:{})};
 }
 
 

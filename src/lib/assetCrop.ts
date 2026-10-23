@@ -1,3 +1,4 @@
+import {prepareAssetPreview} from './assetPreview';
 type Crop={src:string;width:number;height:number};
 const cache=new Map<string,Map<string,Promise<Crop>>>();
 const recent:{source:string;size:string}[]=[];
@@ -11,10 +12,11 @@ export function rasterAssetCrop(source:string,cssWidth:number,cssHeight:number):
  let sizes=cache.get(source);if(!sizes){sizes=new Map();cache.set(source,sizes);}
  const existing=sizes.get(size);if(existing)return existing;
  const pending=new Promise<Crop>(resolve=>{
-  const image=new Image();image.decoding='async';
+  const image=new Image();image.decoding='async';let preparedUrl='';const release=()=>{if(preparedUrl)URL.revokeObjectURL(preparedUrl);};
   if(/^https?:/i.test(source))image.crossOrigin='anonymous';
-  image.onerror=()=>resolve({src:source,width:0,height:0});
+  image.onerror=()=>{release();resolve({src:source,width:0,height:0});};
   image.onload=()=>{
+   release();
    const width=image.naturalWidth,height=image.naturalHeight;
    try{
     // Preserve animated assets rather than freezing their first frame.
@@ -32,7 +34,7 @@ export function rasterAssetCrop(source:string,cssWidth:number,cssHeight:number):
     resolve({src:canvas.toDataURL('image/png'),width,height});
    }catch{resolve({src:source,width,height});}
   };
-  image.src=source;
+  if(/^https?:/i.test(source))void prepareAssetPreview(source).then(blob=>{preparedUrl=URL.createObjectURL(blob);image.src=preparedUrl;},()=>{image.src=source;});else image.src=source;
  });
  sizes.set(size,pending);recent.push({source,size});
  while(recent.length>24){const oldest=recent.shift()!;const entries=cache.get(oldest.source);entries?.delete(oldest.size);if(!entries?.size)cache.delete(oldest.source);}

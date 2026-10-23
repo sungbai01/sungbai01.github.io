@@ -34,6 +34,7 @@ import AssetImage from './AssetImage';
 import BookCover from './BookCover';
 import {ReadingSkeleton} from './LoadingSkeleton';
 import {beginSkeletonTask} from '../lib/loadingActivity';
+import {prepareAssetPreview} from '../lib/assetPreview';
 import {squareAssetCrop} from '../lib/assetCrop';
 import './reader.css';
 
@@ -185,6 +186,14 @@ function EditablePassage({fragment,onEdit,draft}:{fragment:Fragment;onEdit:EditF
 }
 
 type AssetPreview={container:HTMLElement;closing?:boolean;asset:BookAsset;owner:string;pinned:boolean;left:number;top:number;width:number;height:number;size:number};
+function AssetPreviewImage({source,name}:{source:string;name:string}){
+ const [decoded,setDecoded]=useState('');
+ useEffect(()=>{let active=true,url='';setDecoded('');
+  void prepareAssetPreview(source).then(blob=>{url=URL.createObjectURL(blob);return url;},()=>source).then(async src=>{const image=new Image();image.src=src;await image.decode();if(active)setDecoded(src);}).catch(()=>{});
+  return()=>{active=false;if(url)URL.revokeObjectURL(url);};
+ },[source]);
+ return <img src={decoded||undefined} data-ready={!!decoded} alt={name} draggable={false}/>;
+}
 const displayBookmarkStyle=(style:BookmarkStyle):BookmarkStyle=>style==='character'?'image':style;
 function InlineAsset({fragment,editing,onEdit,draft,onPreview}:{fragment:Fragment;editing:boolean;onEdit:EditFragment;draft?:string;onPreview:(asset:BookAsset|null,owner:string,pinned?:boolean)=>void}){
  const asset=fragment.asset!;
@@ -192,6 +201,7 @@ function InlineAsset({fragment,editing,onEdit,draft,onPreview}:{fragment:Fragmen
  const [removed,setRemoved]=useState(draft==='');
  const [crop,setCrop]=useState<{src:string;width:number;height:number}|null>(null);
  useEffect(()=>{let active=true;void squareAssetCrop(asset.src,fragment.assetSize??300).then(value=>{if(active)setCrop(value);});return()=>{active=false;};},[asset.src,fragment.assetSize]);
+ useEffect(()=>{void prepareAssetPreview(asset.src).catch(()=>{});},[asset.src]);
  const buttonRef=useRef<HTMLButtonElement>(null);
  const preview=useRef(onPreview);preview.current=onPreview;
  const eligible=()=>!editing&&!buttonRef.current?.closest('[data-flip-copy="true"],[inert],[aria-hidden="true"]');
@@ -1059,7 +1069,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
         </>}
       </div>
     </>}
-    {assetPreview&&createPortal(<div className={`reader-asset-preview${assetPreview.pinned?' reader-asset-preview-pinned':''}${assetPreview.closing?' reader-asset-preview-closing':''}`} role="region" aria-label="이미지 미리보기"><button type="button" data-flip-asset key={assetPreview.owner} className="reader-asset-preview-expand" tabIndex={assetPreview.pinned?0:-1} aria-label="이미지 미리보기 접기" onClick={event=>{event.stopPropagation();hoverSuppressedRef.current.add(assetPreview.owner);setAssetPreview(null);}} style={{left:assetPreview.left,top:assetPreview.top,width:assetPreview.width,height:assetPreview.height,'--preview-clip-x':`${Math.max(0,(assetPreview.width-assetPreview.size)/2)}px`,'--preview-clip-bottom':`${Math.max(0,assetPreview.height-assetPreview.size)}px`} as CSSProperties}><img src={assetPreview.asset.src} alt={assetPreview.asset.name} draggable={false}/></button></div>,assetPreview.container)}
+    {assetPreview&&createPortal(<div className={`reader-asset-preview${assetPreview.pinned?' reader-asset-preview-pinned':''}${assetPreview.closing?' reader-asset-preview-closing':''}`} role="region" aria-label="이미지 미리보기"><button type="button" data-flip-asset key={assetPreview.owner} className="reader-asset-preview-expand" tabIndex={assetPreview.pinned?0:-1} aria-label="이미지 미리보기 접기" onClick={event=>{event.stopPropagation();hoverSuppressedRef.current.add(assetPreview.owner);setAssetPreview(null);}} style={{left:assetPreview.left,top:assetPreview.top,width:assetPreview.width,height:assetPreview.height,'--preview-clip-x':`${Math.max(0,(assetPreview.width-assetPreview.size)/2)}px`,'--preview-clip-bottom':`${Math.max(0,assetPreview.height-assetPreview.size)}px`} as CSSProperties}><AssetPreviewImage source={assetPreview.asset.src} name={assetPreview.asset.name}/></button></div>,assetPreview.container)}
     <div ref={measureRef} className="reader-measure reader-page-content" aria-hidden="true" />
     {editToast.message&&<Toast key={editToast.id} {...editToast} onDismiss={dismissEdit}/>}
     {advancedEditing&&onSaveBook&&<AdvancedBookEditor book={book} onSave={async updated=>{const point=anchorRef.current,previous=bookRef.current;const next=point&&previous.messages[point.message]&&updated.messages[point.message]?{message:point.message,char:createOffsetMapper(previous.messages[point.message].content,updated.messages[point.message].content)(point.char)}:point;await onSaveBook(updated);activeMessagesRef.current=updated.messages;anchorRef.current=next;}} onClose={()=>setAdvancedEditing(false)}/>}
