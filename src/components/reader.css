@@ -504,3 +504,6 @@
 .reader-asset-preview-expand:has(>img[data-ready="false"]){visibility:hidden;animation:none}
 
 .reader.reader-fullscreen:is([data-device=phone],[data-device=fold]) .reader-main{padding:0}
+
+.reader .reader-corner-bookmark{position:absolute;left:max(8px,env(safe-area-inset-left));top:max(8px,env(safe-area-inset-top));z-index:30;width:34px;height:34px;background:color-mix(in srgb,var(--reader-paper) 88%,transparent);border-radius:var(--radius-control);box-shadow:none}
+.reader .reader-corner-bookmark:hover:enabled{background:var(--reader-paper)}

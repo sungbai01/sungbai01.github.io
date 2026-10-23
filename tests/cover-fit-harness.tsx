@@ -1,0 +1,4 @@
+import React from 'react';
+import {createRoot} from 'react-dom/client';
+import BookCover from '../src/components/BookCover';
+export function mountCovers(){const host=document.createElement('div');document.body.append(host);const book={id:'fit',title:'같은 표지',author:'test',description:'',color:'#1d3b31',createdAt:'',updatedAt:'',messages:[],characterIcon:'data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="800"><rect width="400" height="800" fill="green"/></svg>')};createRoot(host).render(<>{[{width:384,height:900},{width:600,height:900},{width:600,height:600}].map((size,i)=><div className="cover-fit-case" key={i} style={{position:'relative',...size,margin:12}}><BookCover book={book} fit/></div>)}<div className="library-cover-case"><BookCover book={book}/></div></>);}
