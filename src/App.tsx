@@ -1,3 +1,4 @@
+import {removeUserInputs} from './lib/removeUserInputs';
 import ShareCountBadge from './components/ShareCountBadge';
 import PromptPicker from './components/PromptPicker';
 import {bookAuthor} from './lib/bookAuthor';
@@ -459,7 +460,7 @@ function AccountApp({owner}:{owner:string|null}) {
         ...(palette?{color:palette,customColor:palette}:{})
       }));
     }
-    if(request.mode==='file')incoming=incoming.map(book=>replaceBookUserName(book,request.sourceUserNames,request.userName));
+    if(request.mode==='file')incoming=incoming.map(book=>removeUserInputs(replaceBookUserName(book,request.sourceUserNames,request.userName),[...request.sourceUserNames,request.userName]));
     // Parse every staged file first. Preparation happens once, before any write.
     const prepared=await prepareBooks(incoming.map(book=>({...book,displayPrompt:normalizeDisplayPrompt(request.displayPrompt)})));
     assertAccount();

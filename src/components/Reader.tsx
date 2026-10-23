@@ -1,6 +1,6 @@
 import {bookAuthor} from '../lib/bookAuthor';
 import {normalizeDisplayPrompt} from '../../shared/displayPrompt';
-import DisplayPromptControls from './DisplayPromptControls';
+import SimpleEditTools from './SimpleEditTools';
 import {resolveDisplayImageReferences} from '../lib/displayRules';
 import type {QuotePageRange} from '../lib/shareTicket';
 import Toast from './Toast';
@@ -1013,7 +1013,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
       {error && <p className="reader-error" role="alert">{error} <button type="button" className="secondary-btn" onClick={()=>setOpenRevision(value=>value+1)}>다시 시도</button></p>}
       {editError&&<p className="reader-error" role="alert">{editError}</p>}
 
-      {editing&&<div className="reader-edit-toolbar"><DisplayPromptControls value={editPrompt} onChange={setEditPrompt} disabled={saving}/><div className="reader-inline-actions"><span>간단 수정</span><button disabled={saving} onClick={()=>{if(draftsRef.current.size||JSON.stringify(editPrompt)!==JSON.stringify(normalizeDisplayPrompt(book.displayPrompt))){notifyEdit('변경 내용을 저장하거나 취소한 뒤 고급 수정을 열어 주세요.');return;}cancelEditing();setAdvancedEditing(true);}}>고급 수정</button><button disabled={saving} onClick={cancelEditing}>취소</button><button disabled={saving} onClick={()=>void saveEditing()}><Check size={16}/>{saving?'저장 중…':'저장'}</button></div></div>}
+      {editing&&<SimpleEditTools prompt={editPrompt} onPromptChange={setEditPrompt} saving={saving} onAdvanced={()=>{if(draftsRef.current.size||JSON.stringify(editPrompt)!==JSON.stringify(normalizeDisplayPrompt(book.displayPrompt))){notifyEdit('변경 내용을 저장하거나 취소한 뒤 고급 수정을 열어 주세요.');return;}cancelEditing();setAdvancedEditing(true);}} onCancel={cancelEditing} onSave={()=>void saveEditing()}/>}
 
     </main>
 
