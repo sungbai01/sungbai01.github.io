@@ -15,6 +15,11 @@ export async function getActiveShareCount(signal?:AbortSignal):Promise<number>{
 }
 export type SharedImage={name:string;role:string;hash:string|null;url:string};
 export type ShareInfo={id:string;updatedAt:number;cardUrl?:string|null;contentHash?:string;card?:ShareCardLayout;credit?:Pick<Book,'author'|'aiModel'|'color'|'volumeNumber'|'displayPrompt'>;images?:SharedImage[]};
+export function sharedCardImage(share:ShareInfo){
+ const names=[share.card?.backgroundName,'__galpi_share_background__','__galpi_cover_icon__'].filter(Boolean);
+ for(const name of names){const image=share.images?.find(image=>image.name===name&&image.role!=='card');if(image)return image.url;}
+ return '';
+}
 export function shareUrl(id:string){return `${location.origin}${location.pathname}#/share/${id}`;}
 export async function shareRequest(bookId:string,method='GET',signal?:AbortSignal,book?:Book):Promise<ShareInfo|null>{
  const session=getAuthSession();if(!session)throw new Error('공유하려면 Google 로그인이 필요해요.');
@@ -40,13 +45,13 @@ export async function loadSharedBook(id:string,signal:AbortSignal):Promise<Book>
 export function downloadBlob(blob:Blob,name:string){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 const escapeHtml=(text:string)=>text.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 export function cardHtml(book:Book,url:string,imageUrl:string,layout:ShareCardLayout={title:book.title,quote:'',imagePosition:0}){
- const image=imageUrl?new URL(imageUrl):null;if(image&&image.protocol!=='https:')throw new Error('HTTPS 이미지 주소를 입력해 주세요.');
+ const image=imageUrl?new URL(imageUrl):null;if(image&&(image.protocol!=='https:'||image.username||image.password))throw new Error('HTTPS 이미지 주소를 입력해 주세요.');
  const link=new URL(url);if(!['https:','http:'].includes(link.protocol))throw new Error('공유 주소가 올바르지 않아요.');
  const credit=bookAuthor(book,'\n✦\n').split('\n').map(line=>line==='✦'?'<span style="font-size:12px;">✦</span>':escapeHtml(line)).join('<br>');
  const quote=layout.quote.trim();const pages=quote&&layout.quotePages?(layout.quotePages.start===layout.quotePages.end?`p. ${layout.quotePages.start}`:`pp. ${layout.quotePages.start}–${layout.quotePages.end}`):'';
  const color=/^#[a-f0-9]{6}$/i.test(book.color)?book.color:'#1d3b31';
- const background=image?`background-image:linear-gradient(35deg,rgba(16,24,19,.93),rgba(16,24,19,.27)),url(&quot;${escapeHtml(image.href)}&quot;);background-size:cover;background-position:center ${Math.round(Math.max(0,Math.min(1,layout.imagePosition))*100)}%;`:'';
- return `<div style="text-align:center;"><div style="display:inline-block;width:720px;max-width:100%;"><table role="presentation" align="center" cellpadding="0" cellspacing="0" width="100%" style="width:100%;table-layout:fixed;border-collapse:collapse;overflow:hidden;border-radius:12px;background:${color};"><tbody><tr><td width="78%" style="width:78%;vertical-align:top;padding:24px 30px;color:#fffdf5;text-align:left;${background}"><div style="font:10px sans-serif;letter-spacing:1px;">GALPI / A STORY TO KEEP</div><div style="font:24px/1.4 Georgia,serif;margin:22px 0 38px;word-break:keep-all;overflow-wrap:break-word;">${escapeHtml(layout.title)}</div>${!image?'<div data-galpi-image-slot="true" style="background:#ffffff12;border:1px dashed #ffffff66;padding:32px 12px;margin:0 0 24px;text-align:center;min-height:100px;"><p style="margin:0;font:13px sans-serif;">이미지를 여기에 붙여넣으세요</p></div>':''}${quote?`<div style="font:36px Georgia,serif;line-height:1;">“</div><div style="font:16px/1.6 Georgia,serif;white-space:pre-wrap;overflow-wrap:break-word;">${escapeHtml(quote)}</div>${pages?`<div style="text-align:right;font:10px sans-serif;margin-top:12px;">${pages}</div>`:''}`:''}<div style="border-top:1px solid #ffffff55;margin-top:32px;padding-top:14px;font:10px sans-serif;">${quote?'이 이야기의 한 장면':'당신에게 건네는 이야기'}</div></td><td width="22%" style="width:22%;vertical-align:top;padding:24px 16px;background:#f1eee6;color:#263d32;text-align:center;border-left:1px dashed #ccc8bd;"><div style="font:9px sans-serif;">갈피 / 간직할 이야기</div><div style="font:9px sans-serif;margin-top:30px;">VOLUME</div><div style="font:54px Georgia,serif;margin:10px 0 38px;">${String(book.volumeNumber??1).padStart(2,'0')}</div><div style="font:13px/1.7 Georgia,serif;word-break:keep-all;overflow-wrap:break-word;">${credit}</div><div style="font:14px Georgia,serif;margin-top:52px;"><a href="${escapeHtml(link.href)}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none;">책 읽기 ↗</a></div></td></tr></tbody></table></div></div>`;
+ const artwork=image?`<img src="${escapeHtml(image.href)}" alt="${escapeHtml(layout.title)}" referrerpolicy="no-referrer" width="480" style="display:block;width:100%;max-width:100%;height:auto;margin:0 auto 24px;">`:'';
+ return `<div style="text-align:center;"><a href="${escapeHtml(link.href)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;width:720px;max-width:100%;color:inherit;text-decoration:none;"><table role="presentation" align="center" cellpadding="0" cellspacing="0" width="100%" style="width:100%;table-layout:fixed;border-collapse:collapse;overflow:hidden;border-radius:12px;background:${color};"><tbody><tr><td width="78%" style="width:78%;vertical-align:top;padding:24px 30px;color:#fffdf5;text-align:left;"><div style="font:10px sans-serif;letter-spacing:1px;">GALPI / A STORY TO KEEP</div><div style="font:24px/1.4 Georgia,serif;margin:22px 0 38px;word-break:keep-all;overflow-wrap:break-word;">${escapeHtml(layout.title)}</div>${artwork}${quote?`<div style="font:36px Georgia,serif;line-height:1;">“</div><div style="font:16px/1.6 Georgia,serif;white-space:pre-wrap;overflow-wrap:break-word;">${escapeHtml(quote)}</div>${pages?`<div style="text-align:right;font:10px sans-serif;margin-top:12px;">${pages}</div>`:''}`:''}<div style="border-top:1px solid #ffffff55;margin-top:32px;padding-top:14px;font:10px sans-serif;">${quote?'이 이야기의 한 장면':'당신에게 건네는 이야기'}</div></td><td width="22%" style="width:22%;vertical-align:top;padding:24px 16px;background:#f1eee6;color:#263d32;text-align:center;border-left:1px dashed #ccc8bd;"><div style="font:9px sans-serif;">갈피 / 간직할 이야기</div><div style="font:9px sans-serif;margin-top:30px;">VOLUME</div><div style="font:54px Georgia,serif;margin:10px 0 38px;">${String(book.volumeNumber??1).padStart(2,'0')}</div><div style="font:13px/1.7 Georgia,serif;word-break:keep-all;overflow-wrap:break-word;">${credit}</div><div style="font:14px Georgia,serif;margin-top:52px;">책 읽기 ↗</div></td></tr></tbody></table></a></div>`;
 }
 export async function saveShareCardLayout(book:Book,layout:ShareCardLayout){
  const session=getAuthSession();if(!session||!apiBase)throw new Error('다시 로그인해 주세요.');const response=await fetch(`${apiBase}/library/books/${encodeURIComponent(book.id)}/share/card`,{method:'PUT',credentials:'omit',headers:{Authorization:`Bearer ${session.token}`,'Content-Type':'application/json'},body:JSON.stringify(layout)});const result=await response.json();if(!response.ok)throw new Error(result.error||'공유 카드를 저장하지 못했어요.');if(getAuthSession()?.user.id!==session.user.id)throw new Error('계정이 변경되었어요.');
@@ -106,13 +111,13 @@ export async function prepareShareUpdate(book:Book,share:ShareInfo|null){
 export async function syncShareImages(book:Book,images:StagedImage[],existing:SharedImage[],onProgress:(done:number,total:number)=>void){
  const same=(image:StagedImage)=>existing.some(old=>old.name===image.name&&old.role===image.role&&old.hash===image.hash);
  const missing=images.filter(image=>!same(image));const removed=existing.some(old=>!images.some(image=>image.name===old.name&&image.role===old.role));
- if(!missing.length&&!removed)return false;
+ if(!missing.length&&!removed)return {changed:false,images:existing};
  const matches=missing.length?await existingShareMedia(book,missing):[];let done=0;const seen=new Set(existing.filter(image=>image.hash).map(image=>image.hash));
  for(const image of missing){let url=matches.find(entry=>entry.name===image.name&&entry.role===image.role)?.url;
   if(!url&&seen.has(image.hash))url=(await existingShareMedia(book,[image]))[0]?.url;
   if(!url){if(!image.blob)throw new Error('공유 이미지를 다시 선택해 주세요.');await uploadShareMedia(book,image.blob,image.name,image.role);}
   seen.add(image.hash);onProgress(++done,missing.length);
  }
- await existingShareMedia(book,images,true);return true;
+ const final=await existingShareMedia(book,images,true);return {changed:true,images:final.map(image=>{if(!image.url)throw new Error('공유 이미지 주소를 확인하지 못했어요.');return {...image,url:image.url};})};
 }
 export async function uploadBookShareAssets(book:Book,onProgress:(done:number,total:number)=>void){const prepared=await prepareShareUpdate(book,null);await syncShareImages(prepared.book,prepared.images,[],onProgress);}

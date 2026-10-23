@@ -27,7 +27,7 @@ export default function ShareManager({onClose}:{onClose:()=>void}){
  async function copy(entry:Entry,html=false){
   let value=shareUrl(entry.id);
   try{
-   if(html){if(!entry.card)throw new Error('공유 카드 설정이 없어요.');value=cardHtml({...entry.card,id:entry.bookId,description:'',createdAt:'',updatedAt:'',messages:[]},value,'',entry.card);}
+   if(html){if(!entry.card)throw new Error('공유 카드 설정이 없어요.');value=cardHtml({...entry.card,id:entry.bookId,description:'',createdAt:'',updatedAt:'',messages:[]},value,entry.card.backgroundUrl??'',entry.card);}
    if(html&&navigator.clipboard.write&&typeof ClipboardItem!=='undefined')await navigator.clipboard.write([new ClipboardItem({'text/html':new Blob([value],{type:'text/html'}),'text/plain':new Blob([value],{type:'text/plain'})})]);else await navigator.clipboard.writeText(value);
    if(alive.current){setManualCopy('');notify(html?'HTML을 복사했어요.':'링크를 복사했어요.','success');}
   }catch(cause){if(alive.current){setManualCopy(value);notify(cause instanceof Error?cause.message:'직접 복사해 주세요.','error',0);}}
