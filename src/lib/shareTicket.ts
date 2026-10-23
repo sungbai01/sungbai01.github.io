@@ -81,7 +81,7 @@ export async function makeTicketCard(book:Book,quote='',quotePages?:QuotePageRan
  // Genuine transparent cut-outs, so the card works on light and dark communities.
  ctx.globalCompositeOperation='destination-out';for(const y of [0,720]){ctx.beginPath();ctx.arc(1120,y,19,0,Math.PI*2);ctx.fill();}
  ctx.globalCompositeOperation='source-over';
- const encode=(source:HTMLCanvasElement)=>new Promise<Blob>((resolve,reject)=>source.toBlob(blob=>blob&&blob.size<=2_000_000?resolve(blob):reject(new Error('카드 이미지가 너무 커요. 다른 배경 이미지를 선택해 주세요.')),'image/webp',.94));
+ const encode=(source:HTMLCanvasElement)=>new Promise<Blob>((resolve,reject)=>source.toBlob(blob=>blob?resolve(blob):reject(new Error('카드 이미지를 만들지 못했어요.')),'image/png'));
  if(onEditorPreview){
   const editor=document.createElement('canvas');editor.width=1440;editor.height=720;const edit=editor.getContext('2d')!;edit.drawImage(canvas,0,0);
   // A transparent foreground keeps all fixed typography stationary while the

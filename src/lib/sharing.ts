@@ -42,7 +42,6 @@ export async function loadSharedBook(id:string,signal:AbortSignal):Promise<Book>
  return result.book;
  }finally{finishLoading();}
 }
-export function downloadBlob(blob:Blob,name:string){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 const escapeHtml=(text:string)=>text.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 export function cardHtml(book:Book,url:string,imageUrl:string,layout:ShareCardLayout={title:book.title,quote:'',imagePosition:0}){
  const image=imageUrl?new URL(imageUrl):null;if(image&&(image.protocol!=='https:'||image.username||image.password))throw new Error('HTTPS 이미지 주소를 입력해 주세요.');
@@ -77,12 +76,15 @@ export function imageCardHtml(title:string,url:string,imageUrl:string){
  return `<div><a href="${escapeHtml(link.href)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;width:720px;max-width:100%;text-decoration:none;"><img src="${escapeHtml(image.href)}" alt="${escapeHtml(title)}" width="720" height="360" referrerpolicy="no-referrer" style="display:block;width:100%;max-width:100%;height:auto;margin:0;border:0;"></a></div>`;
 }
 export async function uploadShareCard(book:Book,blob:Blob){const hash=await hashBlob(blob),images=await existingShareMedia(book,[{name:'__galpi_ticket_card__',role:'card',hash}]);return images[0]?.url??uploadShareMedia(book,blob,'__galpi_ticket_card__','card');}
-export async function copyImageCard(book:Book,blob:Blob,id:string){
- const url=await uploadShareCard(book,blob),html=imageCardHtml(book.title,shareUrl(id),url);
- if(!navigator.clipboard.write||typeof ClipboardItem==='undefined'){await navigator.clipboard.writeText(html);return;}
- const image=await createImageBitmap(blob);const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;canvas.getContext('2d')!.drawImage(image,0,0);image.close();
- const png=new Promise<Blob>((resolve,reject)=>canvas.toBlob(value=>value?resolve(value):reject(new Error('이미지를 복사하지 못했어요.')),'image/png'));
- await navigator.clipboard.write([new ClipboardItem({'text/html':new Blob([html],{type:'text/html'}),'text/plain':new Blob([html],{type:'text/plain'}),'image/png':png})]);
+/** PNG only: pasting must not select external-image HTML instead of attaching the image. */
+export async function copyPngImage(source:Blob|Promise<Blob>){
+ if(!navigator.clipboard?.write||typeof ClipboardItem==='undefined')throw new Error('이 브라우저에서는 이미지 복사를 지원하지 않아요.');
+ const png=Promise.resolve(source).then(async blob=>{
+  if(blob.type==='image/png')return blob;
+  const image=await createImageBitmap(blob);const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;canvas.getContext('2d')!.drawImage(image,0,0);image.close();
+  return new Promise<Blob>((resolve,reject)=>canvas.toBlob(value=>value?resolve(value):reject(new Error('이미지를 복사하지 못했어요.')),'image/png'));
+ });
+ await navigator.clipboard.write([new ClipboardItem({'image/png':png})]);
 }
 export async function shareBackgroundBlob(book:Book,mime='image/webp'){
  const src=book.assets?.find(asset=>asset.id===book.shareCardAssetId)?.src??book.characterIcon??book.assets?.find(asset=>asset.type==='icon')?.src;return src?shareImageBlob(src,mime):null;
