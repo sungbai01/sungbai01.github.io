@@ -207,6 +207,12 @@ test('public book opens count atomically, owner previews and image requests do n
  sql.prepare('UPDATE book_shares SET last_access_at=?').run(now-8*86400000);await api.cleanExpiredShares(db,bucket);assert.equal(sql.prepare('SELECT view_count n FROM share_history WHERE share_id=?').get(share).n,8);
 });
 
-test('generated card upload is rejected by the server',async()=>{
- const {db}=fixture();const response=await api.uploadShareImage(new Request('https://audit/upload',{method:'POST',headers:{'X-Image-Role':'card','X-Image-Name':'ticket'},body:png(40)}),db,bucket,owner,'audit',origin,reply);assert.equal(response.status,400);
+test('generated card uploads obey the same storage and deduplication limits',async()=>{
+ const {db}=fixture();const response=await api.uploadShareImage(new Request('https://audit/upload',{method:'POST',headers:{'X-Image-Role':'card','X-Image-Name':'ticket'},body:png(40)}),db,bucket,owner,'audit',origin,reply);assert.equal(response.status,200);
+});
+
+
+test('normal image finalization preserves the generated card reference',async()=>{
+ const {db,sql}=fixture();await api.uploadShareImage(new Request('https://audit/upload',{method:'POST',headers:{'X-Image-Role':'card','X-Image-Name':'__galpi_ticket_card__'},body:png(40)}),db,bucket,owner,'audit',origin,reply);
+ const response=await api.prepareShareImages(new Request('https://audit/images',{method:'PUT',body:JSON.stringify({images:[],complete:true})}),db,owner,'audit',origin,reply);assert.equal(response.status,200);assert.equal(sql.prepare("SELECT COUNT(*) n FROM share_media WHERE role='card'").get().n,1);
 });

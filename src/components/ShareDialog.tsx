@@ -1,9 +1,9 @@
 import type {ShareCardLayout} from '../../shared/shareCard';
 import {useEffect,useId,useMemo,useRef,useState} from 'react';
-import {Download,Images,LoaderCircle,X,Share2,Link,Code2,ArrowUp,ArrowDown,GripVertical} from 'lucide-react';
+import {Download,Images,LoaderCircle,X,Share2,Link,Code2,ArrowUp,ArrowDown,GripVertical,Image as ImageIcon} from 'lucide-react';
 import type {Book} from '../lib/library';
 import {getAuthSession} from '../lib/auth';
-import {cardHtml,downloadBlob,makeShareCard,shareRequest,shareUrl,sharedCardImage,saveShareCardLayout,prepareShareUpdate,syncShareImages,withSharedAssets,type ShareInfo} from '../lib/sharing';
+import {cardHtml,copyImageCard,downloadBlob,makeShareCard,shareRequest,shareUrl,sharedCardImage,saveShareCardLayout,prepareShareUpdate,syncShareImages,withSharedAssets,type ShareInfo} from '../lib/sharing';
 import Toast from './Toast';
 import ShareCardEditor from './ShareCardEditor';
 import ShareTicketFace from './ShareTicketFace';
@@ -48,6 +48,7 @@ export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAs
   return()=>controller.abort();
  },[sourceBook.id]);
  useEffect(()=>()=>{if(preview)URL.revokeObjectURL(preview);},[preview]);
+ const artworkSource=cardBook.assets?.find(asset=>asset.id===cardBook.shareCardAssetId)?.src??cardBook.characterIcon??cardBook.assets?.find(asset=>asset.type==='icon')?.src;
  useEffect(()=>{
   if(bookPending||bookError||imageDragging)return;
   let active=true,temporary='';setRenderPending(true);
@@ -61,11 +62,11 @@ export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAs
    }).catch(cause=>{if(temporary)URL.revokeObjectURL(temporary);if(active){setCard(undefined);setRenderPending(false);notify(cause instanceof Error?cause.message:'카드를 만들지 못했어요.','error');}});
   },previewReady.current?120:0);
   return()=>{active=false;clearTimeout(timer);};
- },[cardBook,quote,quotePages,bookPending,bookError,notify,imagePosition,imageDragging]);
+ },[cardBook.title,cardBook.author,cardBook.aiModel,cardBook.color,cardBook.volumeNumber,cardBook.displayPrompt?.id,artworkSource,quote,quotePages?.start,quotePages?.end,bookPending,bookError,notify,imagePosition,imageDragging]);
  async function copy(value:string,html=false){try{if(html&&navigator.clipboard.write&&typeof ClipboardItem!=='undefined'){await navigator.clipboard.write([new ClipboardItem({'text/html':new Blob([value],{type:'text/html'}),'text/plain':new Blob([value],{type:'text/plain'})})]);}else await navigator.clipboard.writeText(value);if(alive.current){setManualCopy('');notify('복사했어요.','success');}}catch{if(alive.current){setManualCopy(value);notify('복사 권한이 없어요. 직접 복사해 주세요.','error',0);}}}
  const cardSettingsKey=(value?:ShareCardLayout)=>JSON.stringify(value?[value.title.trim(),value.quote,value.quotePages?.start??null,value.quotePages?.end??null,value.imagePosition,value.backgroundName??'']:null);
  const draftLayout=():ShareCardLayout=>({title:cardBook.title,quote,quotePages,imagePosition,...((backgroundName??cardBook.assets?.find(asset=>asset.id===cardBook.shareCardAssetId)?.name)?{backgroundName:backgroundName??cardBook.assets?.find(asset=>asset.id===cardBook.shareCardAssetId)?.name}:{})});
- async function shareCard(format:'url'|'html'){
+ async function shareCard(format:'url'|'html'|'image'){
   if(!card||renderPending||requestBusy.current||bookPending||bookError||checking||closing)return;
   requestBusy.current=true;setBusy(true);setManualCopy('');notify('공유를 준비하고 있어요.','progress',0);
   try{
@@ -77,7 +78,7 @@ export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAs
    const media=await syncShareImages(prepared.book,prepared.images,before?.images??[],(done,total)=>{if(alive.current)notify(`이미지 ${done}/${total} 업데이트 중…`,'progress',0);});
    const saved=draftLayout();if(cardSettingsKey(before?.card)!==cardSettingsKey(saved))await saveShareCardLayout(book,saved);
    const ready:ShareInfo={...share!,contentHash:prepared.hash,card:saved,images:media.images,credit:{author:prepared.book.author,aiModel:prepared.book.aiModel,color:prepared.book.color,volumeNumber:prepared.book.volumeNumber,displayPrompt:prepared.book.displayPrompt}};
-   if(alive.current){setPublished(ready);await copy(format==='url'?shareUrl(ready.id):cardHtml({...cardBook,...ready.credit,title:saved.title},shareUrl(ready.id),sharedCardImage(ready),saved),format==='html');}
+   if(alive.current){setPublished(ready);if(format==='image'){await copyImageCard({...cardBook,...ready.credit},card,ready.id);notify('이미지와 링크를 복사했어요.','success');return;}await copy(format==='url'?shareUrl(ready.id):cardHtml({...cardBook,...ready.credit,title:saved.title},shareUrl(ready.id),sharedCardImage(ready),saved),format==='html');}
   }catch(cause){if(alive.current)notify(cause instanceof Error?cause.message:'공유를 완료하지 못했어요.','error');}
   finally{requestBusy.current=false;if(alive.current)setBusy(false);}
  }
@@ -112,6 +113,7 @@ export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAs
      {expanded&&<div className="share-ticket-actions" data-closing={shareClosing||undefined} inert={shareClosing||undefined} id={`${title}-share-actions`} role="group" aria-label="공유 형식">
       <button aria-label="URL로 공유" title="URL로 공유" disabled={locked||checking||renderPending} onClick={()=>void shareCard('url')}><Link size={18}/></button>
       <button aria-label="HTML로 공유" title="HTML로 공유" disabled={locked||checking||renderPending} onClick={()=>void shareCard('html')}><Code2 size={18}/></button>
+      <button aria-label="이미지로 공유" title="이미지로 공유" disabled={locked||checking||renderPending} onClick={()=>void shareCard('image')}><ImageIcon size={18}/></button>
      </div>}
     </div>
    </nav>
