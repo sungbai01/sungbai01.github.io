@@ -1,6 +1,6 @@
 import type {ShareCardLayout} from '../../shared/shareCard';
 import {useEffect,useId,useMemo,useRef,useState} from 'react';
-import {Images,LoaderCircle,X,Share2,ArrowUp,ArrowDown,GripVertical,Image as ImageIcon} from 'lucide-react';
+import {Images,LoaderCircle,X,Share2,Link,ArrowUp,ArrowDown,GripVertical,Image as ImageIcon} from 'lucide-react';
 import type {Book} from '../lib/library';
 import {getAuthSession} from '../lib/auth';
 import {copyPngImage,makeShareCard,shareRequest,shareUrl,saveShareCardLayout,prepareShareUpdate,syncShareImages,withSharedAssets,type ShareInfo} from '../lib/sharing';
@@ -9,17 +9,21 @@ import ShareCardEditor from './ShareCardEditor';
 import ShareTicketFace from './ShareTicketFace';
 import {useToast} from '../lib/useToast';
 import {type QuotePageRange,type TicketTextLayout} from '../lib/shareTicket';
+import {readShareDraft,shareDraftKey,writeShareDraft} from '../lib/shareDraft';
 import './share-dialog.css';
 export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAssets,quote:providedQuote='',quotePages:providedPages,onRestoreSettings,onSelectQuote,onQuoteChange,cardTitle,onCardTitleChange,shelfTitle,imagePosition:initialImagePosition=0,onImagePositionChange}:{onRestoreSettings?:(layout:ShareCardLayout)=>void;imagePosition?:number;onImagePositionChange?:(position:number)=>void;shelfTitle?:string;quote?:string;quotePages?:QuotePageRange;cardTitle?:string;onCardTitleChange?:(title:string)=>void;onSelectQuote?:()=>void;onQuoteChange?:(text:string)=>void;book:Book;loadBook?:(book:Book)=>Promise<Book>;onClose:()=>void;onManageAssets?:()=>void}){
+ const [draftCache]=useState(()=>{const key=shareDraftKey(sourceBook.id);return {key,value:cardTitle===undefined&&!providedQuote?readShareDraft(key):undefined};});
  const [book,setBook]=useState(sourceBook),[bookPending,setBookPending]=useState(!!loadBook),[bookError,setBookError]=useState('');
  useEffect(()=>{let active=true;setBook(sourceBook);setBookPending(!!loadBook);setBookError('');if(loadBook)void loadBook(sourceBook).then(value=>{if(active)setBook(value);}).catch(()=>{if(active)setBookError('책을 불러오지 못했어요. 닫고 다시 열어 주세요.');}).finally(()=>{if(active)setBookPending(false);});return()=>{active=false;};},[sourceBook,loadBook]);
- const [quote,setQuote]=useState(providedQuote),[quotePages,setQuotePages]=useState(providedPages);
- useEffect(()=>setQuote(providedQuote),[providedQuote]);useEffect(()=>setQuotePages(providedPages),[providedPages]);
- const [published,setPublished]=useState<ShareInfo|null>(null),[checking,setChecking]=useState(!!getAuthSession()),[lookupFailed,setLookupFailed]=useState(false),[backgroundName,setBackgroundName]=useState<string>();
+ const [quote,setQuote]=useState(draftCache.value?.quote??providedQuote),[quotePages,setQuotePages]=useState(draftCache.value?.quotePages??providedPages);
+ const previousQuote=useRef(providedQuote),previousPages=useRef(providedPages);
+ useEffect(()=>{if(previousQuote.current!==providedQuote){setQuote(providedQuote);previousQuote.current=providedQuote;}},[providedQuote]);useEffect(()=>{if(previousPages.current!==providedPages){setQuotePages(providedPages);previousPages.current=providedPages;}},[providedPages]);
+ useEffect(()=>{if(draftCache.value)onRestoreSettings?.(draftCache.value);},[draftCache]);
+ const [published,setPublished]=useState<ShareInfo|null>(null),[checking,setChecking]=useState(!!getAuthSession()),[lookupFailed,setLookupFailed]=useState(false),[backgroundName,setBackgroundName]=useState<string|undefined>(draftCache.value?.backgroundName);
  const restoreDraft=useRef(cardTitle===undefined&&!providedQuote);
- const [imagePosition,setImagePosition]=useState(initialImagePosition),[imageDragging,setImageDragging]=useState(false);
+ const [imagePosition,setImagePosition]=useState(draftCache.value?.imagePosition??initialImagePosition),[imageDragging,setImageDragging]=useState(false);
  const imageDrag=useRef<{id:number;y:number;position:number;scale:number}|null>(null);
- const [customTitle,setCustomTitle]=useState<string|undefined>(cardTitle);
+ const [customTitle,setCustomTitle]=useState<string|undefined>(draftCache.value?.title??cardTitle);
  const visualBook=useMemo(()=>{const value=withSharedAssets(book,published);const chosen=backgroundName?value.assets?.find(asset=>asset.name===backgroundName):undefined;return chosen?{...value,shareCardAssetId:chosen.id}:value;},[book,published,backgroundName]);
  const cardBook=useMemo(()=>({...visualBook,title:customTitle??shelfTitle??book.seriesTitle??book.title}),[visualBook,customTitle,shelfTitle,book.seriesTitle,book.title]);
  const previousAsset=useRef(book.shareCardAssetId);useEffect(()=>{if(previousAsset.current!==book.shareCardAssetId&&previousAsset.current!==undefined)setBackgroundName(undefined);previousAsset.current=book.shareCardAssetId;},[book.shareCardAssetId]);
@@ -31,6 +35,11 @@ export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAs
  function requestClose(){if(busy||closing)return;if(matchMedia('(prefers-reduced-motion: reduce)').matches){closeCallback.current();return;}setClosing(true);closeTimer.current=setTimeout(()=>closeCallback.current(),260);}
  const [busy,setBusy]=useState(false),[imageCopying,setImageCopying]=useState(false),[manualCopy,setManualCopy]=useState('');
  const copying=useRef(false);
+ const [expanded,setExpanded]=useState(false),[shareClosing,setShareClosing]=useState(false);
+ const shareTools=useRef<HTMLDivElement>(null),shareExitTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
+ useEffect(()=>()=>clearTimeout(shareExitTimer.current),[]);
+ function closeShare(){if(shareExitTimer.current)return;if(matchMedia('(prefers-reduced-motion: reduce)').matches){setExpanded(false);return;}setShareClosing(true);shareExitTimer.current=setTimeout(()=>{setExpanded(false);setShareClosing(false);shareExitTimer.current=undefined;},190);}
+ useEffect(()=>{if(!expanded)return;const close=(event:PointerEvent)=>{if(!shareTools.current?.contains(event.target as Node))closeShare();};document.addEventListener('pointerdown',close);return()=>document.removeEventListener('pointerdown',close);},[expanded]);
  const {toast,notify,dismiss}=useToast();
  useEffect(()=>{if(!bookError)return;notify(bookError,'error');},[bookError,notify]);
  const requestBusy=useRef(false);
@@ -80,7 +89,8 @@ export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAs
   finally{requestBusy.current=false;if(alive.current)setBusy(false);}
  }
 
- const locked=busy||imageCopying||closing||bookPending||!!bookError;
+ useEffect(()=>{if(!checking&&!lookupFailed&&!bookPending&&!bookError)writeShareDraft(draftCache.key,draftLayout());},[draftCache,checking,lookupFailed,bookPending,bookError,cardBook.title,quote,quotePages,imagePosition,backgroundName,cardBook.shareCardAssetId]);
+ const locked=busy||imageCopying||closing||bookPending||checking||lookupFailed||!!bookError;
  const movable=!!layout.artwork&&layout.artwork.overflow>0;
  const positionChange=(position:number)=>{setImagePosition(position);onImagePositionChange?.(position);};
  const dragStart=(event:React.PointerEvent<HTMLElement>)=>{
@@ -92,7 +102,7 @@ export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAs
  };
  const dragMove=(event:React.PointerEvent<HTMLElement>)=>{const drag=imageDrag.current;if(!drag||drag.id!==event.pointerId||!layout.artwork)return;event.preventDefault();positionChange(Math.max(0,Math.min(1,drag.position-(event.clientY-drag.y)/(layout.artwork.overflow*drag.scale))));};
  const dragEnd=(event:React.PointerEvent<HTMLElement>)=>{if(imageDrag.current?.id!==event.pointerId)return;dragMove(event);imageDrag.current=null;setImageDragging(false);if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId);};
- return <dialog ref={dialog} className="share-ticket-dialog" data-closing={closing||undefined} aria-labelledby={title} onCancel={event=>{event.preventDefault();requestClose();}}>
+ return <dialog ref={dialog} className="share-ticket-dialog" data-closing={closing||undefined} aria-labelledby={title} onCancel={event=>{event.preventDefault();if(expanded)closeShare();else requestClose();}}>
   <h2 id={title} className="sr-only">책 공유</h2>
   <div className="share-ticket-frame"><div className="share-ticket-workspace">
    <div className="share-image-drag-hint" role="slider" aria-label="배경 이미지 상하 위치" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(imagePosition*100)} aria-orientation="vertical" aria-disabled={!movable||locked} tabIndex={movable&&!locked?0:-1} title="배경 이미지를 잡고 위아래로 드래그하세요" onPointerDown={dragStart} onPointerMove={dragMove} onPointerUp={dragEnd} onPointerCancel={dragEnd} onLostPointerCapture={()=>{imageDrag.current=null;setImageDragging(false);}} onKeyDown={event=>{if(!movable||locked)return;const value=event.key==='ArrowUp'?imagePosition-.05:event.key==='ArrowDown'?imagePosition+.05:event.key==='Home'?0:event.key==='End'?1:undefined;if(value!==undefined){event.preventDefault();setRenderPending(true);positionChange(Math.max(0,Math.min(1,value)));}}}><ArrowUp size={16}/><span/><GripVertical size={18}/><span/><ArrowDown size={16}/></div>
@@ -103,10 +113,13 @@ export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAs
    </article>
    <nav className="share-ticket-tools" aria-label="공유 도구">
     <button className="share-ticket-close" aria-label="닫기" title="닫기" disabled={busy||closing} onClick={requestClose}><X size={20}/></button>
-    {onManageAssets&&<button disabled={busy} onClick={onManageAssets} title="공유 카드 이미지 선택" aria-label="공유 카드 이미지 선택"><Images size={20}/></button>}
-    <div className="share-ticket-share">
-     <button aria-label="URL로 공유" title="URL로 공유" disabled={!card||renderPending||locked||checking} onClick={()=>void shareCard()}>{busy||checking?<LoaderCircle className="animate-spin" size={20}/>:<Share2 size={20}/>}</button>
-     <button aria-label="이미지 복사" title="이미지 복사" disabled={!card||renderPending||locked||checking} onClick={()=>void copyImage()}>{imageCopying?<LoaderCircle className="animate-spin" size={20}/>:<ImageIcon size={20}/>}</button>
+    {onManageAssets&&<button disabled={locked} onClick={onManageAssets} title="공유 카드 이미지 선택" aria-label="공유 카드 이미지 선택"><Images size={20}/></button>}
+    <div className="share-ticket-share" ref={shareTools}>
+     <button aria-label="공유" title="공유" aria-expanded={expanded} aria-controls={`${title}-share-actions`} disabled={!card||renderPending||locked||checking||expanded} onClick={()=>setExpanded(true)}>{busy||checking?<LoaderCircle className="animate-spin" size={20}/>:<Share2 size={20}/>}</button>
+     {expanded&&<div className="share-ticket-actions" data-closing={shareClosing||undefined} inert={shareClosing||undefined} id={`${title}-share-actions`} role="group" aria-label="공유 형식">
+      <button aria-label="URL로 공유" title="URL로 공유" disabled={locked||checking||renderPending} onClick={()=>void shareCard()}>{busy?<LoaderCircle className="animate-spin" size={18}/>:<Link size={18}/>}</button>
+      <button aria-label="이미지 복사" title="이미지 복사" disabled={locked||checking||renderPending} onClick={()=>void copyImage()}>{imageCopying?<LoaderCircle className="animate-spin" size={18}/>:<ImageIcon size={18}/>}</button>
+     </div>}
     </div>
    </nav>
   </div>
