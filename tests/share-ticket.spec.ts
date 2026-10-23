@@ -24,6 +24,7 @@ for(const width of [390,1440])test(`share ticket opens before book fetch (${widt
  for(const sample of motion.samples)expect([sample.scrollX,sample.scrollY,sample.gutter]).toEqual([0,0,0]);
  expect(motion.filter).toBe('none');
  await expect(page.locator('.share-ticket-placeholder')).toHaveCSS('mask-mode','luminance');
+ await expect(page.locator('.share-ticket-placeholder .skeleton-fill')).toHaveCount(0);
  const before=await page.locator('.share-interactive-ticket').boundingBox();
  const fits=await page.locator('.share-ticket-dialog').evaluate(el=>el.scrollWidth<=el.clientWidth);
  expect(fits).toBe(true);

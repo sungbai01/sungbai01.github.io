@@ -12,7 +12,6 @@
 .share-ticket-placeholder small{font-size:clamp(6px,1vw,12px)}
 .share-ticket-placeholder aside{width:22.22%;background:#f1eee6f2;color:#263d32;display:flex;flex-direction:column;gap:24px;padding:4% 3%}
 .share-ticket-placeholder aside strong{font:clamp(24px,7vw,70px) Georgia,serif}
-.share-ticket-placeholder .skeleton-fill{height:8px;max-width:65%;margin-top:18px}
 .share-ticket-quote-target{position:absolute;left:4.4%;top:35%;width:69%;height:49%;border:1px dashed transparent;border-radius:var(--radius-control);background:transparent;color:#fffdf5;display:grid;place-items:center;outline-offset:2px;transition:background .15s,border-color .15s}
 .share-ticket-quote-target:is(:hover,:focus-visible):enabled{background:#ffffff08;border-color:#fff8}
 .share-ticket-quote-target>span{display:flex;flex-direction:column;gap:5px;align-items:center;font-size:clamp(10px,1.3vw,14px)}
