@@ -3,3 +3,6 @@
 .managed-share-preview{position:relative;width:100%;margin-top:14px;overflow:hidden}.managed-share-preview iframe{display:block;border:0;background:transparent}.managed-share-legacy-card{display:block;width:100%;height:auto;margin-top:14px}
 
 .managed-share-preview .share-interactive-ticket{width:100%;pointer-events:none;user-select:none}.share-manager-item .share-view-count{color:var(--sand-10)}
+
+.managed-share-dialog .share-interactive-ticket[data-readonly]{pointer-events:none;user-select:none}
+@media(max-width:560px){.share-manager-item{gap:5px}.share-manager-item>.icon-btn{width:28px;height:30px}}
