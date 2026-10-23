@@ -4,8 +4,8 @@
 
 .share-ticket-dialog::backdrop{background:#15201c99;backdrop-filter:blur(8px)}
 .share-ticket-workspace{display:flex;gap:18px;align-items:flex-start;transform-origin:48% 70%;animation:share-dialog-enter .46s cubic-bezier(.16,1,.3,1)}
-.share-interactive-ticket{position:relative;flex:1;min-width:0;aspect-ratio:2/1;min-height:0;align-self:flex-start}
-.share-ticket-render{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:contain;animation:share-card-reveal .18s ease-out}
+.share-interactive-ticket{position:relative;flex:1;min-width:0;aspect-ratio:2/1;container-type:inline-size;min-height:0;align-self:flex-start}
+.share-ticket-render{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:contain}
 .share-ticket-placeholder{position:absolute;inset:0;display:flex;height:100%;border-radius:var(--radius-panel);overflow:hidden;color:#fffdf5}
 .share-ticket-placeholder>div{display:flex;flex:1;min-width:0;flex-direction:column;gap:20px;padding:5%;background:linear-gradient(35deg,#101813ed,#10181344)}
 .share-ticket-placeholder strong{font:clamp(16px,2.6vw,30px)/1.4 var(--font-serif);overflow-wrap:anywhere}
@@ -49,17 +49,24 @@
 
 .share-ticket-quote-placeholder{position:absolute;inset:0;width:100%;height:100%;fill:#fffdf5;pointer-events:none}
 
-.share-card-editor{position:absolute;inset:0;pointer-events:none}.share-card-editor button,.share-card-editor form{pointer-events:auto}
-.share-card-title-target{position:absolute;left:4.4%;top:10%;width:69%;height:20%;border:1px dashed transparent;border-radius:var(--radius-control)}
-.share-card-title-target:is(:hover,:focus-visible):enabled{border-color:#fff8;background:#ffffff08}
+.share-card-editor{position:absolute;inset:0;pointer-events:none}.share-card-editor button,.share-card-editor textarea{pointer-events:auto}
+
+
 .share-card-menu{position:absolute;z-index:3;left:4.4%;top:38%;display:flex;flex-direction:column;min-width:124px;padding:4px;border:1px solid var(--brand-border);border-radius:var(--radius-control);background:var(--brand-surface);color:var(--brand-text);animation:share-editor-menu-enter .15s ease-out;pointer-events:auto}
 .share-card-menu button{padding:9px 12px;text-align:left;border-radius:var(--radius-control);font-size:12px}.share-card-menu button:hover{background:var(--brand-primary-soft)}.share-card-menu .share-card-quote-delete:hover{background:var(--brand-red-soft);color:var(--brand-red-ink)}
 .share-card-menu[data-closing]{animation:share-editor-menu-exit .15s ease-in forwards;pointer-events:none}
-.share-card-edit-form{position:absolute;inset:7% 3%;display:flex;flex-direction:column;gap:8px;padding:10px;background:var(--brand-surface);color:var(--brand-text);border:1px solid var(--brand-border);border-radius:var(--radius-control)}
-.share-card-edit-form textarea{width:100%;flex:1;min-height:0;resize:none;padding:8px;border:1px solid var(--brand-border);border-radius:var(--radius-control);background:var(--brand-background);color:var(--brand-text);font:13px/1.6 var(--font-serif)}
-.share-card-edit-form>div{display:flex;justify-content:flex-end;gap:8px}.share-card-edit-form button{display:grid;place-items:center;width:32px;height:30px;border-radius:var(--radius-control)}.share-card-edit-form button:hover{background:var(--brand-primary-soft)}
+
+
+
 .share-ticket-actions>button{animation:share-action-item-enter .18s ease-out both}.share-ticket-actions>button:nth-child(2){animation-delay:65ms}
 .share-ticket-actions[data-closing]>button{animation:share-action-item-exit .1s ease-in both}.share-ticket-actions[data-closing]>button:first-child{animation-delay:45ms}
 @keyframes share-editor-menu-enter{from{opacity:0;translate:0 5px}to{opacity:1;translate:0 0}}@keyframes share-editor-menu-exit{from{opacity:1;translate:0 0}to{opacity:0;translate:0 5px}}
 @keyframes share-action-item-enter{from{opacity:0;translate:-8px 0}to{opacity:1;translate:0 0}}@keyframes share-action-item-exit{from{opacity:1;translate:0 0}to{opacity:0;translate:-8px 0}}
 @media(prefers-reduced-motion:reduce){.share-card-menu,.share-card-menu[data-closing],.share-ticket-actions>button,.share-ticket-actions[data-closing]>button{animation:none}}
+
+.share-card-editor textarea{position:absolute;margin:0;padding:0;border:0;outline:1px dashed transparent;outline-offset:5px;border-radius:0;background:transparent;color:#fffdf5;font-family:'Gowun Batang',serif;font-weight:400;resize:none;overflow:hidden;box-shadow:none;letter-spacing:0;overflow-wrap:anywhere;white-space:pre-wrap}
+.share-card-editor textarea:is(:hover,:focus-visible){outline-color:#fff8}.share-card-editor textarea:disabled{opacity:1}
+.share-card-title-field{left:4.4444%;top:12%;width:68.75%;height:20%;line-height:1.4}
+.share-card-quote-field{left:4.8611%;top:39%;width:66.6667%;height:43%;line-height:1.3}
+.share-card-quote-field::placeholder{color:#fffdf5;opacity:.7}
+.share-card-quote-menu-trigger{position:absolute;left:3.6%;top:29.5%;width:7%;height:10%;border-radius:var(--radius-control)}.share-card-quote-menu-trigger:is(:hover,:focus-visible){outline:1px dashed #fff8}

@@ -6,13 +6,13 @@ import {cardHtml,downloadBlob,makeShareCard,shareRequest,shareUrl,uploadShareCar
 import Toast from './Toast';
 import ShareCardEditor from './ShareCardEditor';
 import {useToast} from '../lib/useToast';
-import {type QuotePageRange} from '../lib/shareTicket';
+import {type QuotePageRange,type TicketTextLayout} from '../lib/shareTicket';
 import './share-dialog.css';
 export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAssets,quote='',quotePages,onSelectQuote,onQuoteChange,cardTitle,onCardTitleChange}:{quote?:string;quotePages?:QuotePageRange;cardTitle?:string;onCardTitleChange?:(title:string)=>void;onSelectQuote?:()=>void;onQuoteChange?:(text:string)=>void;book:Book;loadBook?:(book:Book)=>Promise<Book>;onClose:()=>void;onManageAssets?:()=>void}){
  const [book,setBook]=useState(sourceBook),[bookPending,setBookPending]=useState(!!loadBook),[bookError,setBookError]=useState('');
  useEffect(()=>{let active=true;setBook(sourceBook);setBookPending(!!loadBook);setBookError('');if(loadBook)void loadBook(sourceBook).then(value=>{if(active)setBook(value);}).catch(()=>{if(active)setBookError('책을 불러오지 못했어요. 닫고 다시 열어 주세요.');}).finally(()=>{if(active)setBookPending(false);});return()=>{active=false;};},[sourceBook,loadBook]);
  const [customTitle,setCustomTitle]=useState<string|undefined>(cardTitle);
- const cardBook=useMemo(()=>customTitle?{...book,title:customTitle}:book,[book,customTitle]);
+ const cardBook=useMemo(()=>customTitle!==undefined?{...book,title:customTitle}:book,[book,customTitle]);
  const dialog=useRef<HTMLDialogElement>(null),title=useId();
  const [closing,setClosing]=useState(false);
  const closeTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
@@ -28,14 +28,28 @@ export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAs
  useEffect(()=>{if(!bookError)return;notify(bookError,'error');},[bookError,notify]);
  useEffect(()=>{if(!expanded)return;const close=(event:PointerEvent)=>{if(!shareTools.current?.contains(event.target as Node))closeShare();};document.addEventListener('pointerdown',close);return()=>document.removeEventListener('pointerdown',close);},[expanded]);
  const requestBusy=useRef(false),published=useRef<ShareInfo|null>(null),assetsUploaded=useRef(false),hostedCard=useRef('');
- const [card,setCard]=useState<Blob>(),[preview,setPreview]=useState('');const alive=useRef(true);
+ const [card,setCard]=useState<Blob>(),[preview,setPreview]=useState(''),[layout,setLayout]=useState<TicketTextLayout>({titleSize:48,quoteSize:32}),[renderPending,setRenderPending]=useState(true);
+ const alive=useRef(true),previewReady=useRef(false);
  useEffect(()=>{alive.current=true;const element=dialog.current!;element.showModal();return()=>{alive.current=false;element.close();};},[]);
- useEffect(()=>{setCard(undefined);setPreview('');hostedCard.current='';assetsUploaded.current=false;published.current=null;},[cardBook,quote,quotePages]);
- useEffect(()=>{if(!card)return;const url=URL.createObjectURL(card);setPreview(url);return()=>URL.revokeObjectURL(url);},[card]);
- useEffect(()=>{if(bookPending||bookError)return;setCard(undefined);setPreview('');hostedCard.current='';let active=true;void makeShareCard(cardBook,quote,quotePages).then(value=>{if(active)setCard(value);}).catch(cause=>{if(active)notify(cause instanceof Error?cause.message:'카드를 만들지 못했어요.','error');});return()=>{active=false;};},[cardBook,quote,quotePages,bookPending,bookError]);
+ useEffect(()=>{hostedCard.current='';assetsUploaded.current=false;published.current=null;},[cardBook,quote,quotePages]);
+ useEffect(()=>()=>{if(preview)URL.revokeObjectURL(preview);},[preview]);
+ useEffect(()=>{
+  if(bookPending||bookError)return;
+  let active=true,temporary='';setRenderPending(true);hostedCard.current='';
+  const timer=setTimeout(()=>{
+   let pendingLayout:TicketTextLayout|undefined;
+   void makeShareCard(cardBook,quote,quotePages,(blob,nextLayout)=>{temporary=URL.createObjectURL(blob);pendingLayout=nextLayout;}).then(async result=>{
+    if(!active){if(temporary)URL.revokeObjectURL(temporary);return;}
+    const decoded=new Image();decoded.src=temporary;await decoded.decode();
+    if(!active){URL.revokeObjectURL(temporary);return;}
+    setCard(result);setPreview(temporary);if(pendingLayout)setLayout(pendingLayout);previewReady.current=true;setRenderPending(false);
+   }).catch(cause=>{if(temporary)URL.revokeObjectURL(temporary);if(active){setCard(undefined);setRenderPending(false);notify(cause instanceof Error?cause.message:'카드를 만들지 못했어요.','error');}});
+  },previewReady.current?120:0);
+  return()=>{active=false;clearTimeout(timer);};
+ },[cardBook,quote,quotePages,bookPending,bookError,notify]);
  async function copy(value:string){try{await navigator.clipboard.writeText(value);if(alive.current){setManualCopy('');notify('복사했어요.','success');}}catch{if(alive.current){setManualCopy(value);notify('복사 권한이 없어요. 직접 복사해 주세요.','error',0);}}}
  async function shareCard(format:'url'|'html'){
-  if(!card||requestBusy.current||bookPending||bookError)return;
+  if(!card||renderPending||requestBusy.current||bookPending||bookError)return;
   requestBusy.current=true;setBusy(true);setManualCopy('');notify('공유를 준비하고 있어요.','progress',0);
   try{
    if(!getAuthSession())throw new Error('공유는 로그인한 서재에서 이용할 수 있어요.');
@@ -54,16 +68,16 @@ export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAs
   <div className="share-ticket-frame"><div className="share-ticket-workspace">
    <article className="share-interactive-ticket" aria-label="저장될 공유 카드">
     <h3 className="sr-only">{cardBook.title}</h3>
-    {preview?<img className="share-ticket-render" src={preview} alt={`${cardBook.title} 공유 카드 미리보기`}/>:<div className="share-ticket-placeholder" style={{backgroundColor:book.color}} aria-busy="true"><div><small>GALPI / A STORY TO KEEP</small><strong>{cardBook.title}</strong><span className="skeleton-fill"/></div><aside><small>갈피 / SHARED BOOK</small><strong>{String(book.volumeNumber??1).padStart(2,'0')}</strong><small>{book.author||'저자 모델 미상'}</small></aside></div>}
-    <ShareCardEditor title={cardBook.title} quote={quote} locked={locked} onSelectQuote={onSelectQuote} onQuoteChange={onQuoteChange} onTitleChange={value=>{setCustomTitle(value);onCardTitleChange?.(value);}}/>
+    {preview?<img className="share-ticket-render" src={preview} alt={`${cardBook.title} 공유 카드 미리보기`}/>:<div className="share-ticket-placeholder" style={{backgroundColor:book.color}} aria-busy="true"><div><small>GALPI / A STORY TO KEEP</small><span className="skeleton-fill"/></div><aside><small>갈피 / SHARED BOOK</small><strong>{String(book.volumeNumber??1).padStart(2,'0')}</strong><small>{book.author||'저자 모델 미상'}</small></aside></div>}
+    <ShareCardEditor title={cardBook.title} quote={quote} locked={locked} layout={layout} onSelectQuote={onSelectQuote} onQuoteChange={onQuoteChange?value=>{setRenderPending(true);onQuoteChange(value);}:undefined} onTitleChange={value=>{setRenderPending(true);setCustomTitle(value);onCardTitleChange?.(value);}}/>
 
    </article>
    <nav className="share-ticket-tools" aria-label="공유 도구">
     <button className="share-ticket-close" aria-label="닫기" title="닫기" disabled={busy||closing} onClick={requestClose}><X size={20}/></button>
     {onManageAssets&&<button disabled={busy} onClick={onManageAssets} title="공유 카드 이미지 선택" aria-label="공유 카드 이미지 선택"><Images size={20}/></button>}
-    <button aria-label="카드 이미지 저장" title="카드 이미지 저장" disabled={!card||locked} onClick={()=>{if(card)downloadBlob(card,`갈피-공유카드.${card.type==='image/webp'?'webp':'png'}`);}}><Download size={20}/></button>
+    <button aria-label="카드 이미지 저장" title="카드 이미지 저장" disabled={!card||renderPending||locked} onClick={()=>{if(card)downloadBlob(card,`갈피-공유카드.${card.type==='image/webp'?'webp':'png'}`);}}><Download size={20}/></button>
     <div className="share-ticket-share" ref={shareTools}>
-     <button aria-label="공유" title="공유" aria-expanded={expanded} aria-controls={`${title}-share-actions`} disabled={!card||locked||expanded} onClick={()=>setExpanded(true)}>{busy?<LoaderCircle className="animate-spin" size={20}/>:<Share2 size={20}/>}</button>
+     <button aria-label="공유" title="공유" aria-expanded={expanded} aria-controls={`${title}-share-actions`} disabled={!card||renderPending||locked||expanded} onClick={()=>setExpanded(true)}>{busy?<LoaderCircle className="animate-spin" size={20}/>:<Share2 size={20}/>}</button>
      {expanded&&<div className="share-ticket-actions" data-closing={shareClosing||undefined} inert={shareClosing||undefined} id={`${title}-share-actions`} role="group" aria-label="공유 형식">
       <button aria-label="URL로 공유" title="URL로 공유" disabled={locked} onClick={()=>void shareCard('url')}><Link size={18}/></button>
       <button aria-label="HTML로 공유" title="HTML로 공유" disabled={locked} onClick={()=>void shareCard('html')}><Code2 size={18}/></button>

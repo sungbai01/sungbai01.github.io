@@ -3,11 +3,12 @@ import type {Book} from './library';
 export const SHARE_QUOTE_LIMIT=240;
 export type QuotePageRange={start:number;end:number};
 export const TICKET_QUOTE_MARK={x:60,y:278,size:70};
+export type TicketTextLayout={titleSize:number;quoteSize:number};
 
 // References: Behance /242278809 (perforation and separate stub),
 // Dribbble /26570471 (typographic hierarchy and whitespace).
 // Book details replace travel/cinema fields; the user's artwork remains the backdrop.
-export async function makeTicketCard(book:Book,quote='',quotePages?:QuotePageRange):Promise<Blob>{
+export async function makeTicketCard(book:Book,quote='',quotePages?:QuotePageRange,onEditorPreview?:(blob:Blob,layout:TicketTextLayout)=>void):Promise<Blob>{
  const source=book.assets?.find(asset=>asset.id===book.shareCardAssetId)?.src
    ??book.characterIcon??book.assets?.find(asset=>asset.type==='icon')?.src;
  // Card text and artwork prepare concurrently. Unrelated UI fonts must not
@@ -30,6 +31,9 @@ export async function makeTicketCard(book:Book,quote='',quotePages?:QuotePageRan
  const shade=ctx.createLinearGradient(0,720,1050,0);
  shade.addColorStop(0,'#101813ed');shade.addColorStop(.6,'#101813b8');shade.addColorStop(1,'#10181344');
  ctx.fillStyle=shade;ctx.fillRect(0,0,1440,720);
+ const background=onEditorPreview?document.createElement('canvas'):null;
+ if(background){background.width=1440;background.height=720;background.getContext('2d')!.drawImage(canvas,0,0);}
+ let quoteSize=32,pageLabel='',pageLabelY=0;
  const lines=(text:string,width:number)=>{
   const result:string[]=[];
   for(const paragraph of text.split('\n')){let line='';for(const char of paragraph){if(line&&ctx.measureText(line+char).width>width){result.push(line);line='';}line+=char;}result.push(line);}
@@ -48,11 +52,11 @@ export async function makeTicketCard(book:Book,quote='',quotePages?:QuotePageRan
  const excerpt=quote.trim().slice(0,SHARE_QUOTE_LIMIT);
  if(excerpt){
   ctx.fillStyle='#fffdf5';ctx.font=`${TICKET_QUOTE_MARK.size}px Georgia,serif`;ctx.fillText('“',TICKET_QUOTE_MARK.x,TICKET_QUOTE_MARK.y);
-  const passage=fit(excerpt,960,quotePages?7:8,32,26);
+  const passage=fit(excerpt,960,quotePages?7:8,32,26);quoteSize=passage.size;
   passage.rows.forEach((line,i)=>ctx.fillText(line,70,310+i*passage.size*1.3));
   if(quotePages&&Number.isInteger(quotePages.start)&&quotePages.start>0&&quotePages.end>=quotePages.start){
    ctx.fillStyle='#eeede7';ctx.font='20px sans-serif';ctx.textAlign='right';
-   ctx.fillText(`${quotePages.start}${quotePages.end!==quotePages.start?'–'+quotePages.end:''}쪽`,1030,Math.min(610,310+(passage.rows.length-1)*passage.size*1.3+44));
+   pageLabel=`${quotePages.start}${quotePages.end!==quotePages.start?'–'+quotePages.end:''}쪽`;pageLabelY=Math.min(610,310+(passage.rows.length-1)*passage.size*1.3+44);ctx.fillText(pageLabel,1030,pageLabelY);
    ctx.textAlign='left';
   }
  }
@@ -72,5 +76,14 @@ export async function makeTicketCard(book:Book,quote='',quotePages?:QuotePageRan
  // Genuine transparent cut-outs, so the card works on light and dark communities.
  ctx.globalCompositeOperation='destination-out';for(const y of [0,720]){ctx.beginPath();ctx.arc(1120,y,19,0,Math.PI*2);ctx.fill();}
  ctx.globalCompositeOperation='source-over';
- return new Promise((resolve,reject)=>canvas.toBlob(blob=>blob&&blob.size<=2_000_000?resolve(blob):reject(new Error('카드 이미지가 너무 커요. 다른 배경 이미지를 선택해 주세요.')),'image/webp',.94));
+ const encode=(source:HTMLCanvasElement)=>new Promise<Blob>((resolve,reject)=>source.toBlob(blob=>blob&&blob.size<=2_000_000?resolve(blob):reject(new Error('카드 이미지가 너무 커요. 다른 배경 이미지를 선택해 주세요.')),'image/webp',.94));
+ if(background&&onEditorPreview){
+  const editor=document.createElement('canvas');editor.width=1440;editor.height=720;const edit=editor.getContext('2d')!;edit.drawImage(canvas,0,0);
+  // Preserve the exported artwork and all noneditable details, then let the
+  // two in-place text fields paint title/quote without duplicate canvas text.
+  edit.drawImage(background,54,80,1010,540,54,80,1010,540);
+  if(pageLabel){edit.fillStyle='#eeede7';edit.font='20px sans-serif';edit.textAlign='right';edit.fillText(pageLabel,1030,pageLabelY);}
+  const [result,preview]=await Promise.all([encode(canvas),encode(editor)]);onEditorPreview(preview,{titleSize:title.size,quoteSize});return result;
+ }
+ return encode(canvas);
 }
