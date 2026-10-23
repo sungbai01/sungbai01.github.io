@@ -29,7 +29,7 @@
 .google-login-modal{width:min(380px,calc(100vw - 32px))}
 .google-login-slot{display:grid;grid-template-columns:minmax(0,1fr);align-items:center;justify-items:center;height:100px;padding:14px 0;min-width:0}
 .google-login-slot>*{grid-area:1/1;min-width:0}
-.google-login-slot>.google-account-provider{display:block;width:min(100%,320px);height:44px;flex:none;contain:layout size;opacity:0;visibility:hidden;pointer-events:none}
+.google-login-slot>.google-account-provider{display:block;width:min(100%,320px);height:44px;flex:none;contain:layout size;opacity:0;visibility:visible;pointer-events:none}
 .google-login-slot>.google-account-provider[data-ready='true']{opacity:1;visibility:visible;pointer-events:auto}
 .google-login-slot>.google-account-button{max-width:260px}
 .google-login-progress{display:flex;align-items:center;gap:10px;color:var(--sand-11);font-size:12px}
