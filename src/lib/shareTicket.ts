@@ -47,7 +47,7 @@ export async function makeTicketCard(book:Book,quote='',quotePages?:QuotePageRan
  };
  ctx.fillStyle='#eeede7';ctx.font='20px sans-serif';ctx.fillText('GALPI  /  A STORY TO KEEP',64,62);
  ctx.fillStyle='#fffdf5';
- const title=fit(book.title.replace(/\s*·\s*\d+권\s*$/,''),990,2,48,32);
+ const title=fit(book.title.replace(/\s*·\s*\d+권\s*$/,''),990,1,48,24);
  title.rows.forEach((line,i)=>ctx.fillText(line,64,133+i*title.size*1.4));
  const excerpt=quote.trim().slice(0,SHARE_QUOTE_LIMIT);
  if(excerpt){

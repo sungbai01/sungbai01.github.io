@@ -8,11 +8,11 @@ import ShareCardEditor from './ShareCardEditor';
 import {useToast} from '../lib/useToast';
 import {type QuotePageRange,type TicketTextLayout} from '../lib/shareTicket';
 import './share-dialog.css';
-export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAssets,quote='',quotePages,onSelectQuote,onQuoteChange,cardTitle,onCardTitleChange}:{quote?:string;quotePages?:QuotePageRange;cardTitle?:string;onCardTitleChange?:(title:string)=>void;onSelectQuote?:()=>void;onQuoteChange?:(text:string)=>void;book:Book;loadBook?:(book:Book)=>Promise<Book>;onClose:()=>void;onManageAssets?:()=>void}){
+export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAssets,quote='',quotePages,onSelectQuote,onQuoteChange,cardTitle,onCardTitleChange,shelfTitle}:{shelfTitle?:string;quote?:string;quotePages?:QuotePageRange;cardTitle?:string;onCardTitleChange?:(title:string)=>void;onSelectQuote?:()=>void;onQuoteChange?:(text:string)=>void;book:Book;loadBook?:(book:Book)=>Promise<Book>;onClose:()=>void;onManageAssets?:()=>void}){
  const [book,setBook]=useState(sourceBook),[bookPending,setBookPending]=useState(!!loadBook),[bookError,setBookError]=useState('');
  useEffect(()=>{let active=true;setBook(sourceBook);setBookPending(!!loadBook);setBookError('');if(loadBook)void loadBook(sourceBook).then(value=>{if(active)setBook(value);}).catch(()=>{if(active)setBookError('책을 불러오지 못했어요. 닫고 다시 열어 주세요.');}).finally(()=>{if(active)setBookPending(false);});return()=>{active=false;};},[sourceBook,loadBook]);
  const [customTitle,setCustomTitle]=useState<string|undefined>(cardTitle);
- const cardBook=useMemo(()=>customTitle!==undefined?{...book,title:customTitle}:book,[book,customTitle]);
+ const cardBook=useMemo(()=>({...book,title:customTitle??shelfTitle??book.seriesTitle??book.title}),[book,customTitle,shelfTitle]);
  const dialog=useRef<HTMLDialogElement>(null),title=useId();
  const [closing,setClosing]=useState(false);
  const closeTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
