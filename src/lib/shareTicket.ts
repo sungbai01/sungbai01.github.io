@@ -49,7 +49,7 @@ export async function makeTicketCard(book:Book,quote='',quotePages?:QuotePageRan
   if(rows.length>max){rows=rows.slice(0,max);let last=rows[max-1];while(ctx.measureText(last+'…').width>width)last=last.slice(0,-1);rows[max-1]=last+'…';}
   return {rows,size};
  };
- ctx.fillStyle='#eeede7';ctx.font='20px sans-serif';ctx.fillText('갈피  /  간직할 이야기',64,62);
+ ctx.fillStyle='#eeede7';ctx.font='20px sans-serif';ctx.fillText('GALPI  /  A STORY TO KEEP',64,62);
  ctx.fillStyle='#fffdf5';
  const title=fit(book.title.replace(/\s*·\s*\d+권\s*$/,''),990,1,48,24);
  title.rows.forEach((line,i)=>ctx.fillText(line,64,133+i*title.size*1.4));
@@ -72,7 +72,9 @@ export async function makeTicketCard(book:Book,quote='',quotePages?:QuotePageRan
  ctx.font='108px Georgia,serif';ctx.fillText(String(book.volumeNumber??1).padStart(2,'0'),1154,254);
  ctx.fillStyle='#263d32';
  const author=fit(bookAuthor(book,'\n✦\n'),236,5,26,20);
- author.rows.forEach((line,i)=>{ctx.font=`${line==='✦'?14:author.size}px \"Gowun Batang\",serif`;if(line==='✦'){ctx.textAlign='center';ctx.fillText(line,1278,380+i*author.size*1.45);ctx.textAlign='left';}else ctx.fillText(line,1160,380+i*author.size*1.45);});
+ ctx.textAlign='center';
+ author.rows.forEach((line,i)=>{ctx.font=`${line==='✦'?14:author.size}px "Gowun Batang",serif`;ctx.fillText(line,1278,380+i*author.size*1.45);});
+ ctx.textAlign='left';
  ctx.fillStyle='#263d32';ctx.font='28px "Gowun Batang",serif';ctx.fillText('책 읽기  ↗',1160,660);
  ctx.strokeStyle='#f1eee666';ctx.lineWidth=2;ctx.setLineDash([4,10]);ctx.beginPath();ctx.moveTo(1120,30);ctx.lineTo(1120,690);ctx.stroke();ctx.setLineDash([]);
  ctx.restore();
@@ -85,7 +87,7 @@ export async function makeTicketCard(book:Book,quote='',quotePages?:QuotePageRan
   // A transparent foreground keeps all fixed typography stationary while the
   // original image moves immediately underneath, without per-frame encoding.
   edit.clearRect(0,0,1120,720);
-  edit.fillStyle='#eeede7';edit.font='20px sans-serif';edit.fillText('갈피  /  간직할 이야기',64,62);
+  edit.fillStyle='#eeede7';edit.font='20px sans-serif';edit.fillText('GALPI  /  A STORY TO KEEP',64,62);
   edit.strokeStyle='#ffffff55';edit.lineWidth=1;edit.beginPath();edit.moveTo(64,638);edit.lineTo(1056,638);edit.stroke();
   edit.fillText(excerpt?'이 이야기의 한 장면':'당신에게 건네는 이야기',64,680);
   if(pageLabel){edit.fillStyle='#eeede7';edit.font='20px sans-serif';edit.textAlign='right';edit.fillText(pageLabel,1030,pageLabelY);}

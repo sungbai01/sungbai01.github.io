@@ -37,7 +37,7 @@ export function downloadBlob(blob:Blob,name:string){const url=URL.createObjectUR
 const escapeHtml=(text:string)=>text.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 export function cardHtml(book:Book,url:string,imageUrl:string){
  const image=new URL(imageUrl);if(image.protocol!=='https:')throw new Error('HTTPS 이미지 주소를 입력해 주세요.');
- return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer"><img src="${escapeHtml(image.href)}" alt="${escapeHtml(book.title)} · 책 읽기" width="720" style="max-width:100%;height:auto;"></a>`;
+ return `<p align="center" style="text-align:center;margin:0;"><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;max-width:100%;"><img src="${escapeHtml(image.href)}" alt="${escapeHtml(book.title)} · 책 읽기" width="720" style="display:block;margin:0 auto;max-width:100%;height:auto;"></a></p>`;
 }
 
 export {makeTicketCard as makeShareCard} from './shareTicket';
