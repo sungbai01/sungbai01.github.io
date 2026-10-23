@@ -43,7 +43,7 @@ test('simple editing rejects long multiline paste; advanced editing saves it onc
  await expect(page.getByRole('status').filter({hasText:'긴 글과 줄바꿈은 고급 수정'})).toBeVisible();await expect(field).toHaveText(previous);await expect(page.locator('.reader-progress')).toHaveAttribute('max',before!);
  await expect(page.getByRole('button',{name:'빈 페이지 추가',exact:true})).toHaveCount(0);await expect(page.locator('.reader-add-chapter')).toHaveCount(0);
  await page.getByRole('button',{name:'취소',exact:true}).click();
- await page.getByRole('button',{name:'고급 수정',exact:true}).click();
+ await expect(page.getByRole('button',{name:'고급 수정',exact:true})).toHaveCount(0);await page.getByRole('button',{name:'본문 편집',exact:true}).click();await page.getByRole('button',{name:'고급 수정',exact:true}).click();
  const editor=page.getByRole('dialog',{name:'고급 수정',exact:true});await expect(editor).toBeVisible();await editor.getByRole('textbox',{name:'본문',exact:true}).fill(text+book.messages[0].content);
  await editor.getByRole('button',{name:'저장',exact:true}).click();await expect(editor).toHaveCount(0);await expect(page.locator('.reader-stage')).toHaveAttribute('aria-busy','false');
  const content=await page.evaluate(async()=>{const {loadBooks}=await import('/src/lib/library.ts');return (await loadBooks()).find(b=>b.id==='mutation-spec')!.messages.map(m=>m.content).join('');});

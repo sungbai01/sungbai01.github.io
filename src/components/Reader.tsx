@@ -14,7 +14,7 @@ import { createPortal, flushSync } from 'react-dom';
 import { PageFlip } from '../vendor/page-flip/PageFlip';
 import { SizeType } from '../vendor/page-flip/Settings';
 import { FlipCorner } from '../vendor/page-flip/Flip/Flip';
-import { FilePenLine, ArrowRight, BookOpen, Bookmark, Check, ChevronLeft, ChevronRight, List, Maximize, Minus, Pencil, Plus, Search, Share2, Type, X } from 'lucide-react';
+import { ArrowRight, BookOpen, Bookmark, Check, ChevronLeft, ChevronRight, List, Maximize, Minus, Pencil, Plus, Search, Share2, Type, X } from 'lucide-react';
 import type { Book, BookAsset } from '../lib/library';
 import { paginate, cleanText, startsChapter, chapterNumber, pageTextInsets } from '../lib/pagination';
 import type { Anchor, Fragment, PaperPage } from '../lib/pagination';
@@ -954,7 +954,6 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
       <div className="reader-tools">
         {onShare&&<button className="reader-icon-button" aria-label="책 공유" title="공유" disabled={editing||saving||loading||bookmarkBusy} onClick={()=>{setPanel(null);onShare();}}><Share2 size={18}/></button>}
         {onSaveBook&&<button className={`reader-icon-button ${editing?'reader-active':''}`} aria-label="본문 편집" title="간단 수정" aria-pressed={editing} disabled={saving||loading||dataPending} onClick={()=>{if(editing){cancelEditing();return;}setPanel(null);draftsRef.current.clear();setEditError('');setDrawerOpen(false);editingSourceRef.current=bookRef.current;setEditPrompt(normalizeDisplayPrompt(bookRef.current.displayPrompt));editBookmarkRef.current=shelfBookmark?.bookId===book.id?shelfBookmark:null;setEditing(true);}}><Pencil size={18}/></button>}
-        {onSaveBook&&!editing&&<button className="reader-icon-button" aria-label="고급 수정" title="고급 수정" disabled={saving||loading||dataPending} onClick={()=>{setPanel(null);setDrawerOpen(false);setAdvancedEditing(true);}}><FilePenLine size={18}/></button>}
         {onBookmarkChange&&<button className={`reader-icon-button ${activeBookmarked?'reader-active':''}`} aria-label={bookmarkAction} title={bookmarkAction} aria-pressed={activeBookmarked} disabled={editing||saving||bookmarkBusy||loading||(!activeBookmarked&&!bookmarkAnchor(pages,activeLeaf,contentCount,device==='phone'))} onClick={()=>void toggleBookmark(activeLeaf)}><Bookmark size={18} fill={activeBookmarked?'currentColor':'none'}/></button>}
         {device!=='phone'&&<button ref={windowModeButtonRef} className="reader-icon-button" aria-label={fullscreen?'전체창 해제':'전체창'} title={fullscreen?'전체창 해제':'전체창'} disabled={editing} onClick={()=>fullscreen?exitFullwindow():enterFullwindow()}><Maximize size={18}/></button>}
         <button ref={element => { panelButtonRefs.current.contents = element; }} className={`reader-icon-button ${panel === 'contents' ? 'reader-active' : ''}`} aria-label="목차 보기" title="목차" disabled={editing} aria-expanded={panel === 'contents'} aria-controls="reader-contents" onClick={() => togglePanel('contents')}><List size={20} /></button>

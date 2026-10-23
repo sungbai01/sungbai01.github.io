@@ -1,9 +1,9 @@
 import {normalizeDisplayPrompt} from '../../shared/displayPrompt';
 import DisplayPromptControls from './DisplayPromptControls';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { ChevronDown, X } from 'lucide-react';
 import type { Book } from '../lib/library';
-import { applyAdvancedEdits, type AdvancedMessageDraft } from '../lib/advancedEditing';
+import { createManuscript,updateManuscript,applyManuscript } from '../lib/advancedEditing';
 import { startsChapter } from '../lib/pagination';
 import { useToast } from '../lib/useToast';
 import Toast from './Toast';
@@ -35,7 +35,10 @@ function EditorPicker({ label, options, value, onChange }: { label: string; opti
 export default function AdvancedBookEditor({ book, onSave, onClose }: AdvancedBookEditorProps) {
   const [source] = useState(() => book.messages.length ? book : { ...book, messages: [{ role: 'assistant', name: book.author || '서술', content: '' }] });
   const [prompt,setPrompt]=useState(()=>normalizeDisplayPrompt(book.displayPrompt));
-  const [drafts, setDrafts] = useState(new Map<number, AdvancedMessageDraft>());
+  const originalText=useMemo(()=>createManuscript(source).text,[source]);
+  const [manuscript,setManuscript]=useState(()=>createManuscript(source));
+  const [titles,setTitles]=useState(new Map<number,string>());
+  const field=useRef<HTMLTextAreaElement>(null);
   const [selected, setSelected] = useState(0);
   const [saving, setSaving] = useState(false);
   const [closing, setClosing] = useState(false);
@@ -48,8 +51,7 @@ export default function AdvancedBookEditor({ book, onSave, onClose }: AdvancedBo
   const titleId = useId(), confirmId = useId();
   const { toast, notify, dismiss } = useToast();
   const chapters = useMemo(() => source.messages.flatMap((message, index) => startsChapter(source, index) ? [{ index, title: message.chapterTitle }] : []), [source]);
-  const dirty = drafts.size > 0||JSON.stringify(prompt)!==JSON.stringify(normalizeDisplayPrompt(source.displayPrompt));
-  const message = source.messages[selected], draft = drafts.get(selected);
+  const dirty = manuscript.text!==originalText||titles.size>0||JSON.stringify(prompt)!==JSON.stringify(normalizeDisplayPrompt(source.displayPrompt));
   const chapter = [...chapters].reverse().find(entry => entry.index <= selected);
   const locked = saving || closing || confirmClose;
 
@@ -80,21 +82,26 @@ export default function AdvancedBookEditor({ book, onSave, onClose }: AdvancedBo
     else finishClose();
   }
   function keepEditing() { setConfirmClose(false); requestAnimationFrame(() => { if (alive.current) previousFocus.current?.focus(); }); }
-  function patch(index: number, update: AdvancedMessageDraft) {
-    setDrafts(previous => {
-      const next = new Map(previous), value = { ...previous.get(index), ...update }, original = source.messages[index];
-      if ((value.content ?? original.content) === original.content && (value.chapterTitle ?? original.chapterTitle ?? '') === (original.chapterTitle ?? '')) next.delete(index);
-      else next.set(index, value);
-      return next;
+  function jumpToChapter(index:number){
+    setSelected(index);
+    const offset=manuscript.anchors[index]??manuscript.text.length;
+    requestAnimationFrame(()=>{
+      const element=field.current;if(!element)return;
+      element.focus({preventScroll:true});element.setSelectionRange(offset,offset);
+      // Match textarea wrapping without touching the value or browser undo stack.
+      const style=getComputedStyle(element),mirror=document.createElement('div');
+      Object.assign(mirror.style,{position:'fixed',left:'-100000px',top:'0',width:`${element.clientWidth}px`,font:style.font,lineHeight:style.lineHeight,letterSpacing:style.letterSpacing,padding:style.padding,boxSizing:style.boxSizing,whiteSpace:'pre-wrap',overflowWrap:style.overflowWrap,tabSize:style.tabSize});
+      const prefix=document.createTextNode(manuscript.text.slice(0,offset)),marker=document.createElement('span');marker.textContent='\u200b';mirror.append(prefix,marker);document.body.append(mirror);element.scrollTop=Math.max(0,marker.offsetTop-parseFloat(style.paddingTop)-element.clientHeight*.15);mirror.remove();
     });
   }
+  function titleChanged(index:number,value:string){setTitles(previous=>{const next=new Map(previous);if(value===(source.messages[index].chapterTitle??''))next.delete(index);else next.set(index,value);return next;});}
   async function save() {
     if (busy.current || exiting.current || !dirty) return;
     busy.current = true; setSaving(true); dismiss();
     // Let the disabled state paint before scanning a long pasted manuscript.
     await new Promise(resolve => setTimeout(resolve, 0));
     try {
-      const edited=applyAdvancedEdits(source,drafts);
+      const edited=applyManuscript(source,manuscript,titles);
       await onSave({...edited,displayPrompt:prompt,updatedAt:new Date().toISOString()});
       if (alive.current) finishClose();
     } catch (cause) {
@@ -110,13 +117,11 @@ export default function AdvancedBookEditor({ book, onSave, onClose }: AdvancedBo
       <header><div><h2 id={titleId}>고급 수정</h2><p>{source.title}</p></div><button type="button" className="advanced-editor-close" aria-label="닫기" title="닫기" disabled={locked} onClick={requestClose}><X size={20}/></button></header>
       <fieldset disabled={locked} inert={locked || undefined}>
         <DisplayPromptControls value={prompt} onChange={setPrompt} disabled={locked}/><nav aria-label="본문 이동">
-          <EditorPicker label="챕터" value={chapter?.index} onChange={setSelected} options={chapters.map((entry, number) => ({ value: entry.index, label: `${number + 1}. ${drafts.get(entry.index)?.chapterTitle ?? entry.title ?? '제목 없음'}` }))}/>
-          <EditorPicker label="메시지" value={selected} onChange={setSelected} options={source.messages.map((entry, index) => ({ value: index, label: `${index + 1}. ${entry.name || entry.role}` }))}/>
-          <button type="button" title="이전 메시지" aria-label="이전 메시지" disabled={selected <= 0} onClick={() => setSelected(value => value - 1)}><ChevronLeft size={18}/></button>
-          <button type="button" title="다음 메시지" aria-label="다음 메시지" disabled={selected >= source.messages.length - 1} onClick={() => setSelected(value => value + 1)}><ChevronRight size={18}/></button>
+          <EditorPicker label="챕터" value={chapter?.index} onChange={jumpToChapter} options={chapters.map((entry, number) => ({ value: entry.index, label: `${number + 1}. ${titles.get(entry.index) ?? entry.title ?? '제목 없음'}` }))}/>
+
         </nav>
-        {chapter && <label className="advanced-editor-chapter">챕터 이름<input aria-label="챕터 이름" value={drafts.get(chapter.index)?.chapterTitle ?? chapter.title ?? ''} placeholder="제목 없음" onChange={event => patch(chapter.index, { chapterTitle: event.target.value })}/></label>}
-        <label className="advanced-editor-body">본문<textarea key={selected} aria-label="본문" autoFocus spellCheck={false} disabled={!message} value={draft?.content ?? message?.content ?? ''} placeholder="긴 글을 작성하거나 붙여넣으세요." onChange={event => patch(selected, { content: event.target.value })}/></label>
+        {chapter && <label className="advanced-editor-chapter">챕터 이름<input aria-label="챕터 이름" value={titles.get(chapter.index) ?? chapter.title ?? ''} placeholder="제목 없음" onChange={event => titleChanged(chapter.index,event.target.value)}/></label>}
+        <label className="advanced-editor-body">본문<textarea ref={field} aria-label="본문" autoFocus spellCheck={false} value={manuscript.text} placeholder="긴 글을 작성하거나 붙여넣으세요." onChange={event=>setManuscript(previous=>event.target.value===originalText?createManuscript(source):updateManuscript(previous,event.target.value))} onSelect={event=>{const offset=event.currentTarget.selectionStart;const found=[...chapters].reverse().find(entry=>(manuscript.anchors[entry.index]??0)<=offset);if(found)setSelected(found.index);}}/></label>
       </fieldset>
       <footer><span role="status">{saving ? '저장 중…' : dirty ? '저장하지 않은 변경사항' : '변경사항 없음'}</span><button type="button" disabled={locked} onClick={requestClose}>취소</button><button type="button" className="advanced-editor-save" disabled={locked || !dirty} onClick={() => void save()}>{saving ? '저장 중…' : '저장'}</button></footer>
       {confirmClose && <div className="advanced-editor-confirm-layer"><section className="advanced-editor-confirm" role="alertdialog" aria-modal="true" aria-labelledby={confirmId} onKeyDown={event => {

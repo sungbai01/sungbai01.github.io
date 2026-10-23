@@ -50,3 +50,47 @@ export function applyAdvancedEdits(book: Book, drafts: ReadonlyMap<number, Advan
   });
   return { ...book, messages, ...(bookmarks ? { bookmarks } : {}), updatedAt: now };
 }
+
+export type ManuscriptPiece={text:string;message:number|null};
+export type Manuscript={text:string;pieces:ManuscriptPiece[];anchors:number[];affinity?:{offset:number;message:number}};
+/** One field, with source ownership retained separately from visible text.
+ * Separating blank lines are editor layout and never rewrite untouched logs. */
+export function createManuscript(book:Book):Manuscript{
+ const pieces:ManuscriptPiece[]=[],anchors:number[]=[];let text='';
+ book.messages.forEach((message,index)=>{
+  if(index){pieces.push({text:'\n\n',message:null});text+='\n\n';}
+  anchors.push(text.length);pieces.push({text:message.content,message:index});text+=message.content;
+ });
+ return {text,pieces,anchors};
+}
+export function updateManuscript(document:Manuscript,text:string):Manuscript{
+ if(text===document.text)return document;
+ let start=0,suffix=0;const shared=Math.min(document.text.length,text.length);
+ while(start<shared&&document.text[start]===text[start])start++;
+ while(suffix<shared-start&&document.text[document.text.length-1-suffix]===text[text.length-1-suffix])suffix++;
+ const end=document.text.length-suffix,inserted=text.slice(start,text.length-suffix);
+ let cursor=0,owner=0;
+ for(let index=0;index<document.anchors.length;index++){if(document.anchors[index]<=start)owner=index;else break;}
+ if(document.affinity?.offset===start)owner=document.affinity.message;
+ const before:ManuscriptPiece[]=[],after:ManuscriptPiece[]=[];cursor=0;
+ for(const piece of document.pieces){
+  const next=cursor+piece.text.length;
+  if(cursor<start){const value=piece.text.slice(0,Math.min(piece.text.length,start-cursor));if(value)before.push({...piece,text:value});}
+  if(next>end){const value=piece.text.slice(Math.max(0,end-cursor));if(value)after.push({...piece,text:value});}
+  cursor=next;
+ }
+ const pieces:ManuscriptPiece[]=[];
+ for(const piece of [...before,...(inserted?[{text:inserted,message:owner}]:[]),...after]){
+  const last=pieces.at(-1);if(last&&last.message===piece.message)last.text+=piece.text;else pieces.push({...piece});
+ }
+ const delta=inserted.length-(end-start);
+ return {text,pieces,affinity:{offset:start+inserted.length,message:owner},anchors:document.anchors.map(point=>point<=start?point:point>=end?point+delta:start)};
+}
+export function applyManuscript(book:Book,document:Manuscript,titles:ReadonlyMap<number,string>=new Map()):Book{
+ if(document.text===createManuscript(book).text){const drafts=new Map<number,AdvancedMessageDraft>();for(const [index,chapterTitle] of titles)drafts.set(index,{chapterTitle});return applyAdvancedEdits(book,drafts);}
+ const contents=book.messages.map(()=> '');
+ for(const piece of document.pieces)if(piece.message!==null&&contents[piece.message]!==undefined)contents[piece.message]+=piece.text;
+ const drafts=new Map<number,AdvancedMessageDraft>();
+ book.messages.forEach((message,index)=>{const content=contents[index],chapterTitle=titles.get(index);if(content!==message.content||chapterTitle!==undefined&&chapterTitle!==message.chapterTitle)drafts.set(index,{content,...(chapterTitle!==undefined?{chapterTitle}:{})});});
+ return applyAdvancedEdits(book,drafts);
+}

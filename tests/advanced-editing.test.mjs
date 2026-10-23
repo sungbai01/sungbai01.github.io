@@ -1,7 +1,7 @@
 // Run: node --test tests/advanced-editing.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createOffsetMapper, applyAdvancedEdits } from '../src/lib/advancedEditing.ts';
+import { createOffsetMapper, applyAdvancedEdits, createManuscript, updateManuscript, applyManuscript } from '../src/lib/advancedEditing.ts';
 const fixture = () => ({ id: 'book', title: '책', author: '저자', description: '소개', color: '#123456', createdAt: 'before', updatedAt: 'before',
   userName: '새 이름', seriesId: 'series', volumeNumber: 2, cover: 'cover', displayRules: [{ id: 'rule' }],
   assets: [{ id: 'asset', name: '배경', src: 'data:image/png;base64,AA' }],
@@ -95,3 +95,21 @@ test('invalid draft indexes fail without altering source', () => {
   for (const index of [-1, 10, .5]) assert.throws(() => applyAdvancedEdits(book, new Map([[index, { content: 'lost' }]])));
   assert.deepEqual(book, snapshot);
 });
+
+test('whole manuscript exposes every message and keeps untouched raw boundaries',()=>{
+ const book=fixture(),doc=createManuscript(book);assert.equal(doc.text,book.messages.map(m=>m.content).join('\n\n'));assert.equal(applyManuscript(book,doc),book);
+ const changed=updateManuscript(doc,doc.text.replace('OLD','NEW LONG'));
+ const saved=applyManuscript(book,changed);assert.equal(saved.messages[0].content,book.messages[0].content.replace('OLD','NEW LONG'));assert.equal(saved.messages[1],book.messages[1]);assert.equal(changed.text,changed.pieces.map(p=>p.text).join(''));
+});
+test('whole manuscript tracks later chapter offsets after edits and preserves roles',()=>{
+ const book=fixture(),doc=createManuscript(book),next=updateManuscript(doc,'inserted '+doc.text);assert.equal(next.anchors[1],doc.anchors[1]+9);
+ const second=updateManuscript(next,next.text.replace('본문','바뀐 본문'));const saved=applyManuscript(book,second);assert.equal(saved.messages[1].role,'user');assert.equal(saved.messages[1].content,book.messages[1].content.replace('본문','바뀐 본문'));assert.equal(saved.messages[0].content,'inserted '+book.messages[0].content);
+});
+test('whole manuscript replacement and cross-boundary deletes never duplicate or lose typed text',()=>{
+ const book=fixture(),doc=createManuscript(book),replaced=updateManuscript(doc,'새 책 전체 본문');const saved=applyManuscript(book,replaced);assert.equal(saved.messages.map(m=>m.content).join(''),'새 책 전체 본문');
+ const position=doc.anchors[1],cross=updateManuscript(doc,doc.text.slice(0,position-4)+'insert'+doc.text.slice(position+4));assert.equal(cross.pieces.map(p=>p.text).join(''),cross.text);
+});
+test('reverted manuscript restores exact original messages on setting-only save',()=>{const book=fixture(),doc=createManuscript(book);const changed=updateManuscript(doc,'temporary');const reverted=updateManuscript(changed,doc.text);assert.equal(applyManuscript(book,reverted),book);});
+
+test('clearing and typing a whole chapter retains that chapter ownership',()=>{const book=fixture(),doc=createManuscript(book),offset=doc.anchors[1];let changed=updateManuscript(doc,doc.text.slice(0,offset));for(const char of '새 내용')changed=updateManuscript(changed,changed.text+char);const saved=applyManuscript(book,changed);assert.equal(saved.messages[0],book.messages[0]);assert.equal(saved.messages[1].content,'새 내용');});
+test('clear-all followed by typing belongs to the first source message',()=>{const book=fixture(),doc=createManuscript(book);const cleared=updateManuscript(doc,'');const changed=updateManuscript(cleared,'새 책');const saved=applyManuscript(book,changed);assert.equal(saved.messages[0].content,'새 책');assert.equal(saved.messages[1].content,'');});
