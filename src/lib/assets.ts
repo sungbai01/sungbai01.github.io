@@ -570,7 +570,7 @@ export async function portraitPalette(src: string): Promise<string> {
  * portraits are stripped of text chunks to avoid storing duplicate card data.
  * JSON accepts card data.assets, V2 Risu extensions, BookAsset[] or {assets:[]}.
  */
-export async function importAssetFile(file: File): Promise<AssetImportResult> {
+export async function importAssetFileInProcess(file: File): Promise<AssetImportResult> {
   if (/\.(?:risup|risupreset)$/i.test(file.name)) throw new Error('RISUP은 RisuAI 프리셋 파일입니다. 이미지나 PNG·JSON 캐릭터 카드를 선택해 주세요.');
   if (/\.risupack$/i.test(file.name)) throw new Error('RISUPACK은 지원하지 않습니다. 이미지 또는 PNG·JSON·CHARX 카드를 사용해 주세요.');
   if (/\.risum$/i.test(file.name)) {
@@ -631,4 +631,20 @@ export async function importAssetFile(file: File): Promise<AssetImportResult> {
     return { assets: [{ id: id(), name: file.name, src: portrait, type: 'asset' }], warnings: [] };
   }
   return { assets: [{ id: id(), name: file.name, src: imageData(bytes)!, type: 'asset' }], warnings: [] };
+}
+
+/** Parse untrusted archives off the UI thread; terminate slow imports outright. */
+export async function importAssetFile(file:File):Promise<AssetImportResult>{
+ // Non-browser callers (including bounded parser regression tests) use the same
+ // validation without constructing a browser worker.
+ if(typeof Worker==='undefined')return importAssetFileInProcess(file);
+ return new Promise((resolve,reject)=>{
+  const worker=new Worker(new URL('./assetImport.worker.ts',import.meta.url),{type:'module'});
+  const finish=()=>{clearTimeout(timer);worker.terminate();};
+  const timer=setTimeout(()=>{finish();reject(new Error('에셋을 읽는 시간이 너무 길어 중단했어요. 파일을 확인해 주세요.'));},30000);
+  worker.onmessage=event=>{finish();const result=event.data as {ok:boolean;value?:AssetImportResult;error?:string};if(result.ok&&result.value)resolve(result.value);else reject(new Error(result.error||'에셋을 읽지 못했어요.'));};
+  worker.onerror=()=>{finish();reject(new Error('에셋 작업자를 실행하지 못했어요.'));};
+  worker.onmessageerror=()=>{finish();reject(new Error('에셋 처리 결과를 읽지 못했어요.'));};
+  try{worker.postMessage(file);}catch(error){finish();reject(error);}
+ });
 }

@@ -332,19 +332,13 @@
 .reader-is-editing .reader-flip-host{transform:scale(var(--reader-edit-scale,1));transform-origin:center}
 .reader-is-editing .reader-edit-navigation{width:calc(var(--reader-book-width)*var(--reader-edit-scale,1))}
 .reader-is-editing .reader-inline-actions{position:absolute;bottom:68px;left:50%;transform:translateX(-50%);z-index:15;background:var(--reader-panel-bg);border-radius:var(--radius-control)}
-.reader-page-content-editing{left:calc(var(--reader-page-padding,40px) - 28px);padding-left:28px}
+.reader-page-content-editing{padding-left:0}
 .reader-edit-chunk{position:relative}
-.reader .reader-add-chapter{position:absolute;left:1px;width:24px;height:24px;padding:0;border:0;background:transparent;color:var(--reader-accent);font:600 16px/1 system-ui;opacity:0;pointer-events:none;cursor:pointer;z-index:3}
-.reader .reader-add-chapter-visible,.reader-add-chapter:focus-visible{opacity:1;pointer-events:auto}
-.reader-added-chapter{margin:1em 0;font:inherit}
 .reader-is-editing .reader-inline-asset-open{cursor:default}
-@media(hover:none){.reader-edit-chunk .reader-add-chapter{opacity:.7;pointer-events:auto}}
 
 .reader .reader-bookmark-image strong,.reader .reader-bookmark-character strong{display:block;-webkit-line-clamp:unset;height:50%;max-width:2.8em}
 
-.reader-chapter-gutter{position:absolute;inset:0 auto 0 -28px;width:28px;min-height:24px;z-index:3}
 .reader-live-passage,.reader-live-passage:focus{outline:0;outline-offset:0;background:transparent}
-.reader-edit-part{margin:0;padding:0}
 .reader-bookmark-title{--bookmark-title-one:18;--bookmark-title-two:14}
 .reader-inline-asset-open{overflow:hidden}
 .reader-inline-asset-open img{image-rendering:auto}
@@ -396,10 +390,8 @@
 .reader-colophon-details h2{margin:24px 0 0;font:400 clamp(20px,2.8vw,30px)/1.4 'Gowun Batang',serif;overflow-wrap:anywhere}
 .reader-asset-preview-pinned .reader-asset-preview-expand{cursor:zoom-out}
 
-.reader-chapter-gutter{top:-12px;bottom:-12px}
 .reader-asset-preview-expand{will-change:clip-path}
 
-.reader-edit-navigation button[data-add-page] span{transform:none;font-size:44px}
 
 .reader-bookmark-peek{clip-path:inset(-100dvh -100vw 0 -100vw)}
 .modal-header-actions{display:flex;align-items:center;gap:4px}
@@ -482,3 +474,5 @@
 .reader-fullscreen[data-drawer-closing] .reader-footer-concealed{visibility:visible;animation:reader-chrome-hide-bottom .22s ease-in forwards;pointer-events:none}
 @keyframes reader-chrome-show-bottom{from{transform:translateX(-50%) translateY(100%);opacity:0}to{transform:translateX(-50%) translateY(0);opacity:1}}
 @media(prefers-reduced-motion:reduce){.reader-fullscreen[data-drawer-open] .reader-footer,.reader-fullscreen[data-drawer-closing] .reader-drawer,.reader-fullscreen[data-drawer-closing] .reader-footer-concealed{animation:none}}
+
+@media(max-width:600px){.reader-inline-actions{max-width:calc(100vw - 20px);gap:6px;padding:7px;font-size:11px;white-space:nowrap}.reader-inline-actions>span{margin-right:0}.reader-inline-actions button{padding:8px 10px}}

@@ -27,26 +27,41 @@ test('cloud bookmark changes never restart the reader',async({page})=>{
  await expect.poll(()=>!!saved.bookmarks?.length).toBe(false);finishSave!();
  expect(await page.evaluate(()=>(window as any).rebuilds)).toBe(0);
 });
-test('long paste is saved exactly once after page reflow',async({page})=>{
+test('simple editing rejects long multiline paste; advanced editing saves it once',async({page})=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
  await page.setViewportSize({width:1440,height:1000});
  await page.route('https://fonts.googleapis.com/**',r=>r.abort());await page.route('https://fonts.gstatic.com/**',r=>r.abort());
  await page.goto('http://127.0.0.1:5175/');
- await page.evaluate(async book=>{const {saveBook}=await import('/src/lib/library.ts');await saveBook(book);},book);
+ await page.evaluate(async book=>{const {saveBook}=await import('/src/lib/library.ts');await saveBook(book);localStorage.setItem('galpi.reader.fullwindow.v1','false');},book);
  await page.reload();await page.getByRole('button',{name:'수정 검증 읽기',exact:true}).click();
  await expect(page.locator('.reader-stage')).toHaveAttribute('aria-busy','false');
+ const before=await page.locator('.reader-progress').getAttribute('max');
  await page.getByRole('button',{name:'본문 편집',exact:true}).click();
  const text='붙여넣기시작 '+Array.from({length:180},(_,i)=>`검증단어${i} 이야기가 이어집니다.`).join('\n\n')+'\n붙여넣기끝';
- await page.getByRole('textbox',{name:'페이지 본문 편집'}).first().evaluate((el,text)=>{
-  (el as HTMLElement).focus();const range=document.createRange();range.selectNodeContents(el);range.collapse(true);const selection=window.getSelection()!;selection.removeAllRanges();selection.addRange(range);
-  const data=new DataTransfer();data.setData('text/plain',text);el.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}));
- },text);
- await expect.poll(async()=>Number(await page.locator('.reader-progress').getAttribute('max'))).toBeGreaterThan(10);
- await page.getByRole('button',{name:'저장',exact:true}).click();
- await expect(page.getByRole('button',{name:'저장',exact:true})).toHaveCount(0);
+ const field=page.getByRole('textbox',{name:'페이지 본문 편집'}).first();const previous=await field.innerText();
+ await field.evaluate((el,text)=>{(el as HTMLElement).focus();const range=document.createRange();range.selectNodeContents(el);range.collapse(true);const selection=window.getSelection()!;selection.removeAllRanges();selection.addRange(range);const data=new DataTransfer();data.setData('text/plain',text);el.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}));},text);
+ await expect(page.getByRole('status').filter({hasText:'긴 글과 줄바꿈은 고급 수정'})).toBeVisible();await expect(field).toHaveText(previous);await expect(page.locator('.reader-progress')).toHaveAttribute('max',before!);
+ await expect(page.getByRole('button',{name:'빈 페이지 추가',exact:true})).toHaveCount(0);await expect(page.locator('.reader-add-chapter')).toHaveCount(0);
+ await page.getByRole('button',{name:'취소',exact:true}).click();
+ await page.getByRole('button',{name:'고급 수정',exact:true}).click();
+ const editor=page.getByRole('dialog',{name:'고급 수정',exact:true});await expect(editor).toBeVisible();await editor.getByRole('textbox',{name:'본문',exact:true}).fill(text+book.messages[0].content);
+ await editor.getByRole('button',{name:'저장',exact:true}).click();await expect(editor).toHaveCount(0);await expect(page.locator('.reader-stage')).toHaveAttribute('aria-busy','false');
  const content=await page.evaluate(async()=>{const {loadBooks}=await import('/src/lib/library.ts');return (await loadBooks()).find(b=>b.id==='mutation-spec')!.messages.map(m=>m.content).join('');});
- expect(content.split('붙여넣기시작').length-1).toBe(1);expect(content.split('붙여넣기끝').length-1).toBe(1);
- expect(content===text+book.messages[0].content).toBe(true);expect(errors).toEqual([]);
+ expect(content.split('붙여넣기시작').length-1).toBe(1);expect(content.split('붙여넣기끝').length-1).toBe(1);expect(content).toBe(text+book.messages[0].content);expect(errors).toEqual([]);
+});
+
+test('simple text corrections save and cancel without adding pages',async({page})=>{
+ await page.setViewportSize({width:1440,height:1000});await page.route('https://fonts.googleapis.com/**',r=>r.abort());await page.route('https://fonts.gstatic.com/**',r=>r.abort());
+ await page.goto('http://127.0.0.1:5175/');await page.evaluate(async book=>{const {saveBook}=await import('/src/lib/library.ts');await saveBook(book);localStorage.setItem('galpi.reader.fullwindow.v1','false');},book);await page.reload();await page.getByRole('button',{name:'수정 검증 읽기',exact:true}).click();await expect(page.locator('.reader-stage')).toHaveAttribute('aria-busy','false');
+ await page.getByRole('button',{name:'본문 편집',exact:true}).click();const field=page.getByRole('textbox',{name:'페이지 본문 편집'}).first(),original=await field.innerText();
+ await field.fill(original.replace('처음문장','고친문장'));await page.getByRole('button',{name:'저장',exact:true}).click();await expect(page.getByRole('button',{name:'저장',exact:true})).toHaveCount(0);
+ const read=()=>page.evaluate(async()=>{const {loadBooks}=await import('/src/lib/library.ts');return (await loadBooks()).find(b=>b.id==='mutation-spec')!.messages[0].content;});await expect.poll(read).toBe(book.messages[0].content.replace('처음문장','고친문장'));
+ await page.getByRole('button',{name:'본문 편집',exact:true}).click();const second=page.getByRole('textbox',{name:'페이지 본문 편집'}).first();await second.fill((await second.innerText()).replace('고친문장','취소문장'));await page.getByRole('button',{name:'취소',exact:true}).click();expect(await read()).toBe(book.messages[0].content.replace('처음문장','고친문장'));
+});
+
+test('simple mobile editor stays inside the screen and opens advanced editor',async({page})=>{
+ await page.setViewportSize({width:390,height:844});await page.route('https://fonts.googleapis.com/**',r=>r.abort());await page.route('https://fonts.gstatic.com/**',r=>r.abort());await page.goto('http://127.0.0.1:5175/');await page.evaluate(async book=>{const {saveBook}=await import('/src/lib/library.ts');await saveBook(book);},book);await page.reload();await page.getByRole('button',{name:'수정 검증 읽기',exact:true}).click();await expect(page.locator('.reader-stage')).toHaveAttribute('aria-busy','false');await page.getByRole('button',{name:'독서 메뉴',exact:true}).click();await page.getByRole('button',{name:'본문 편집',exact:true}).click();
+ const bar=page.locator('.reader-inline-actions'),box=(await bar.boundingBox())!;expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(390);await expect(page.getByRole('button',{name:'빈 페이지 추가',exact:true})).toHaveCount(0);await bar.getByRole('button',{name:'고급 수정',exact:true}).click();await expect(page.getByRole('dialog',{name:'고급 수정',exact:true})).toBeVisible();
 });
 
 for(const mobile of [false,true])test(`bookmark drop fades in place and leaves no copy (${mobile?'phone':'desktop'})`,async({browser})=>{
