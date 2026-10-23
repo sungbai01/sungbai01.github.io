@@ -15,16 +15,6 @@ import { jade } from '@radix-ui/colors';
  * that prefix). Archives are read only in memory; card scripts never run.
  */
 const MAX_ASSETS = 2000;
-// Decompressed CHARX budgets, independent of the uploaded file's size.
-const MAX_CHARX_ENTRY_BYTES = 32 * 1024 * 1024;
-const MAX_CHARX_TOTAL_BYTES = 128 * 1024 * 1024;
-const MAX_CHARX_CARD_BYTES = 2 * 1024 * 1024;
-const MAX_CHARX_MODULE_BYTES = 8 * 1024 * 1024;
-
-function charxEntryLimit(name: string): number {
-  return name === 'card.json' ? MAX_CHARX_CARD_BYTES :
-    name === 'module.risum' ? MAX_CHARX_MODULE_BYTES : MAX_CHARX_ENTRY_BYTES;
-}
 type ObjectValue = Record<string, unknown>;
 const object = (value: unknown): value is ObjectValue => typeof value === 'object' && value !== null && !Array.isArray(value);
 const id = () => crypto.randomUUID();
@@ -358,7 +348,6 @@ function zipDirectory(bytes: Uint8Array): { entries: ZipEntry[]; prefix: number 
   const names = new Set<string>();
   let offset = directoryStart;
   let prefix = bytes.length;
-  let totalSize = 0;
   for (let i = 0; i < count; i++) {
     if (offset + 46 > end || view.getUint32(offset, true) !== 0x02014b50) throw new Error('CHARX ZIP 디렉터리가 손상되었습니다.');
     const flags = view.getUint16(offset + 8, true);
@@ -374,10 +363,6 @@ function zipDirectory(bytes: Uint8Array): { entries: ZipEntry[]; prefix: number 
     if (next > end || flags & 0x41 || (method !== 0 && method !== 8) || view.getUint16(offset + 34, true) ||
         ((attributes >>> 16) & 0xf000) === 0xa000) throw new Error('암호화·심볼릭 링크 또는 지원하지 않는 압축 형식의 CHARX입니다.');
     const name = decoder.decode(bytes.subarray(offset + 46, offset + 46 + nameLength));
-    // Validate every declaration before any entry is allocated or inflated,
-    // including unused files and module.risum (whose parse errors are optional).
-    totalSize += size;
-    if (size > charxEntryLimit(name) || totalSize > MAX_CHARX_TOTAL_BYTES) throw new Error('CHARX 압축 해제 크기가 안전 한도를 넘었습니다.');
     if (!name || /[\\:\u0000-\u001f]/.test(name) || name.startsWith('/') || name.split('/').some(part => part === '.' || part === '..') || names.has(name)) throw new Error('CHARX에 중복되거나 안전하지 않은 파일명이 있습니다.');
     names.add(name);
     if (compressed === 0xffffffff || size === 0xffffffff || localOffset < 0 || localOffset + 30 > directoryStart ||
@@ -402,24 +387,21 @@ const crcTable = Uint32Array.from({ length: 256 }, (_, index) => {
   return crc >>> 0;
 });
 
-async function zipFile(bytes: Uint8Array, entry: ZipEntry, budget: { remaining: number }): Promise<Uint8Array> {
-  const limit = Math.min(charxEntryLimit(entry.name), budget.remaining);
-  if (!Number.isSafeInteger(entry.size) || entry.size < 0 || entry.size > limit) throw new Error('CHARX 압축 해제 크기가 안전 한도를 넘었습니다.');
+async function zipFile(bytes: Uint8Array, entry: ZipEntry): Promise<Uint8Array> {
+  if (!Number.isSafeInteger(entry.size) || entry.size < 0) throw new Error('CHARX 파일 크기가 올바르지 않습니다.');
   const compressed = bytes.subarray(entry.offset, entry.offset + entry.compressed);
   let data: Uint8Array;
   if (entry.method === 0) {
     if (entry.size !== entry.compressed) throw new Error('CHARX 파일 크기가 일치하지 않습니다.');
     data = compressed;
-    budget.remaining -= data.length;
   } else {
-    // The declaration is now bounded before allocation. Small input pushes
-    // also bound the inflater's transient output before our callback can check it.
-    data = new Uint8Array(entry.size);
+    // Allocate only output that actually arrives, never the ZIP's untrusted
+    // declaration. Small input pushes keep each transient inflater chunk bounded.
+    const chunks:Uint8Array[]=[];
     let written = 0;
     const stream = new Inflate(chunk => {
-      if (written + chunk.length > entry.size || written + chunk.length > limit || chunk.length > budget.remaining) throw new Error('CHARX 파일의 압축 해제 크기가 한도를 넘었습니다.');
-      budget.remaining -= chunk.length;
-      data.set(chunk, written); written += chunk.length;
+      if (written + chunk.length > entry.size) throw new Error('CHARX 파일의 압축 해제 크기가 선언된 크기를 넘었습니다.');
+      chunks.push(chunk);written += chunk.length;
     });
     for (let offset = 0; offset < compressed.length; offset += 1024) {
       if (offset && offset % (64 * 1024) === 0) await new Promise<void>(resolve => setTimeout(resolve, 0));
@@ -427,6 +409,9 @@ async function zipFile(bytes: Uint8Array, entry: ZipEntry, budget: { remaining: 
     }
     if (!compressed.length) stream.push(compressed, true);
     if (written !== entry.size) throw new Error('CHARX 파일의 압축 데이터가 손상되었습니다.');
+    data=new Uint8Array(written);let cursor=0;
+    for(const chunk of chunks){data.set(chunk,cursor);cursor+=chunk.length;}
+    chunks.length=0;
   }
   let crc = 0xffffffff;
   for (const byte of data) crc = crcTable[(crc ^ byte) & 255]! ^ (crc >>> 8);
@@ -435,13 +420,12 @@ async function zipFile(bytes: Uint8Array, entry: ZipEntry, budget: { remaining: 
 }
 
 async function readCharx(bytes: Uint8Array, directory: { entries: ZipEntry[]; prefix: number }): Promise<AssetImportResult> {
-  const budget = { remaining: MAX_CHARX_TOTAL_BYTES };
   // Give the importing UI a chance to paint before decompression starts.
   await new Promise<void>(resolve => setTimeout(resolve, 0));
   const cardEntry = directory.entries.find(entry => entry.name === 'card.json');
   if (!cardEntry) throw new Error('CHARX ZIP의 최상위 card.json을 찾을 수 없습니다.');
   let card: unknown;
-  try { card = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await zipFile(bytes, cardEntry, budget)).replace(/^\uFEFF/, '')); }
+  try { card = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await zipFile(bytes, cardEntry)).replace(/^\uFEFF/, '')); }
   catch { throw new Error('CHARX의 card.json을 읽지 못했습니다.'); }
   if (!object(card) || card.spec !== 'chara_card_v3' || !object(card.data) || !Array.isArray(card.data.assets)) throw new Error('유효한 v3 CHARX 캐릭터 카드가 아닙니다.');
   const referenced = new Set<string>();
@@ -452,7 +436,7 @@ async function readCharx(bytes: Uint8Array, directory: { entries: ZipEntry[]; pr
   for (const entry of directory.entries) {
     if (!referenced.has(entry.name) || entry.name === 'module.risum' || /\.(?:json|js|ts|lua|html?|css|woff2?|ttf|otf)$/i.test(entry.name)) continue;
     await new Promise<void>(resolve => setTimeout(resolve, 0));
-    const source = imageData(await zipFile(bytes, entry, budget));
+    const source = imageData(await zipFile(bytes, entry));
     if (source) embedded.set(entry.name, source);
   }
   const portrait = directory.prefix ? imageData(bytes.subarray(0, directory.prefix)) : undefined;
@@ -460,7 +444,7 @@ async function readCharx(bytes: Uint8Array, directory: { entries: ZipEntry[]; pr
   const moduleEntry = directory.entries.find(entry => entry.name === 'module.risum');
   if (moduleEntry) {
     try {
-      const module = readModuleData(await zipFile(bytes, moduleEntry, budget));
+      const module = readModuleData(await zipFile(bytes, moduleEntry));
       const moduleRules = extractImageRules(module);
       const displayRules = [...(result.displayRules ?? []), ...extractDisplayRules(module, result.warnings)];
       if (displayRules.length) result.displayRules = displayRules;
@@ -637,7 +621,7 @@ export async function importAssetFileInProcess(file: File): Promise<AssetImportR
 
 /** Parse untrusted archives off the UI thread; terminate slow imports outright. */
 export async function importAssetFile(file:File):Promise<AssetImportResult>{
- // Non-browser callers (including bounded parser regression tests) use the same
+ // Non-browser callers (including parser regression tests) use the same
  // validation without constructing a browser worker.
  if(typeof Worker==='undefined')return importAssetFileInProcess(file);
  return new Promise((resolve,reject)=>{

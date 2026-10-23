@@ -51,7 +51,7 @@ async function rejectsBeforeAllocation(entries) {
     return Reflect.construct(target, args, target);
   } });
   try {
-    await assert.rejects(load(archive), /안전 한도/);
+    await assert.rejects(load(archive), /card.json/);
     assert.deepEqual(requests, [], 'reject declarations before attempting a large allocation');
   } finally { globalThis.Uint8Array = Native; }
 }
@@ -60,15 +60,23 @@ test('tiny 4 GiB card.json declaration is rejected before allocation', async () 
   await rejectsBeforeAllocation([{ name: 'card.json', size: 0xfffffffe }]);
 });
 
-test('card, image and module declarations have separate preallocation limits', async () => {
-  for (const [name, limit] of [['card.json', 2 * MiB], ['portrait.jpg', 32 * MiB], ['module.risum', 8 * MiB]]) {
-    await rejectsBeforeAllocation([...(name === 'card.json' ? [] : [{ name: 'card.json', size: card.length, body: card }]), { name, size: limit + 1 }]);
-  }
+test('valid card metadata and image above the previous fixed limits import unchanged', async () => {
+  const metadata = Buffer.from(JSON.stringify({...JSON.parse(card),padding:'x'.repeat(2 * MiB + 1)}));
+  const image = Buffer.alloc(33 * MiB); image.set(jpeg);
+  const result = await load(zipSync({'card.json':metadata,'portrait.jpg':image}));
+  assert.equal(result.assets.length,1);
+  const decoded=Buffer.from(result.assets[0].src.split(',')[1],'base64');
+  assert.equal(decoded.length,image.length);assert.deepEqual(decoded,image);
 });
 
-test('aggregate declarations are rejected before even the first entry allocation', async () => {
-  await rejectsBeforeAllocation([{ name: 'card.json', size: card.length, body: card },
-    ...Array.from({ length: 4 }, (_, i) => ({ name: `unused-${i}.jpg`, size: 32 * MiB }))]);
+test('unused entries above the former aggregate cap are not decompressed or allocated', async () => {
+  const archive=zipSync({'card.json':card,'portrait.jpg':jpeg,...Object.fromEntries(Array.from({length:5},(_,i)=>[`unused-${i}.jpg`,Buffer.from('unused')]))});
+  const view=new DataView(archive.buffer,archive.byteOffset,archive.byteLength);
+  for(let i=0;i<archive.length-46;i++)if(view.getUint32(i,true)===0x02014b50){
+    const name=new TextDecoder().decode(archive.subarray(i+46,i+46+view.getUint16(i+28,true)));
+    if(name.startsWith('unused-'))view.setUint32(i+24,33 * MiB,true);
+  }
+  const result=await load(archive);assert.equal(result.assets.length,1);
 });
 
 test('actual inflated output cannot exceed a small forged declaration', async () => {
@@ -81,7 +89,7 @@ test('actual inflated output cannot exceed a small forged declaration', async ()
       view.setUint32(i + 24, 1, true); break;
     }
   }
-  await assert.rejects(load(valid), /압축 해제 크기가 한도/);
+  await assert.rejects(load(valid), /압축 해제 크기가 선언된 크기/);
 });
 
 test('module.risum real output is bounded even on the optional warning path', async () => {
