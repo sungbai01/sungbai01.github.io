@@ -502,3 +502,5 @@
 
 /* Keep the cropped page image visible until the original is decoded. */
 .reader-asset-preview-expand:has(>img[data-ready="false"]){visibility:hidden;animation:none}
+
+.reader.reader-fullscreen:is([data-device=phone],[data-device=fold]) .reader-main{padding:0}

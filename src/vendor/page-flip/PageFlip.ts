@@ -400,7 +400,7 @@ export class PageFlip extends EventObject {
                 if (!this.isUserMove) {
                     // On a single visible page, finger direction chooses previous
                     // or next; a tap still uses the existing left/right zones.
-                    const direction = isTouch && this.render.getOrientation() === Orientation.PORTRAIT
+                    const direction = isTouch && (this.render.getOrientation() === Orientation.PORTRAIT || this.setting.swipeByDirection)
                         ? (pos.x > this.mousePosition.x ? FlipDirection.BACK : FlipDirection.FORWARD)
                         : undefined;
                     if (!this.flipController.start(this.mousePosition, true, direction)) {

@@ -46,3 +46,6 @@
 .shelf-loading-book .book-stage::after{display:none}.shelf-loading-cover{width:144px;max-width:100%;height:calc(var(--shelf-book-height) - 17px);border-radius:var(--radius-detail) var(--radius-control) var(--radius-control) var(--radius-detail)}.shelf-loading-spine{width:48px;height:100%}.shelf-loading-details{display:grid;gap:12px;padding:15px 0}.shelf-loading-details>.skeleton-fill{margin:0}
 
 .asset-image-loading{color:transparent}
+
+.reading-skeleton[data-fullwindow=true]:is([data-device=phone],[data-device=fold]) .skeleton-reader-stage{padding:0}
+.reading-skeleton[data-fullwindow=true]:is([data-device=phone],[data-device=fold]) .skeleton-paper-stack{max-width:none}

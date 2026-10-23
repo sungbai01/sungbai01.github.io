@@ -51,6 +51,8 @@ export interface FlipSetting {
     useMouseEvents: boolean;
 
     swipeDistance: number;
+    /** On foldable spreads, touch direction chooses navigation on either page. */
+    swipeByDirection: boolean;
 
     /** Legacy option retained for compatibility. Hover folding is disabled. */
     showPageCorners: boolean;
@@ -78,6 +80,7 @@ export class Settings {
         showCover: false,
         mobileScrollSupport: true,
         swipeDistance: 30,
+        swipeByDirection: false,
         clickEventForward: true,
         useMouseEvents: true,
         showPageCorners: false,

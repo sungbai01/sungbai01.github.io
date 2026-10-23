@@ -48,9 +48,10 @@ export default function ShareQuoteSelection({host,onDone,onPrevious,onNext}:{hos
   };
   const up=(event:PointerEvent)=>{if(pointer!==event.pointerId)return;move(event);if(element.hasPointerCapture(event.pointerId))element.releasePointerCapture(event.pointerId);pointer=null;start=null;read();};
   prepareTurn.current=()=>{read();for(const piece of current)retained.set(piece.key,piece);current=[];if(pointer!==null&&element.hasPointerCapture(pointer))element.releasePointerCapture(pointer);pointer=null;start=null;window.getSelection()?.removeAllRanges();publish();};
+  const beforeTurn=()=>prepareTurn.current();element.addEventListener('reader:prepare-quote-turn',beforeTurn);
   document.addEventListener('selectionchange',read);
   element.addEventListener('pointerdown',down,true);element.addEventListener('pointermove',move,true);element.addEventListener('pointerup',up,true);element.addEventListener('pointercancel',up,true);
-  return()=>{document.removeEventListener('selectionchange',read);element.removeEventListener('pointerdown',down,true);element.removeEventListener('pointermove',move,true);element.removeEventListener('pointerup',up,true);element.removeEventListener('pointercancel',up,true);if(pointer!==null&&element.hasPointerCapture(pointer))element.releasePointerCapture(pointer);window.getSelection()?.removeAllRanges();};
+  return()=>{element.removeEventListener('reader:prepare-quote-turn',beforeTurn);document.removeEventListener('selectionchange',read);element.removeEventListener('pointerdown',down,true);element.removeEventListener('pointermove',move,true);element.removeEventListener('pointerup',up,true);element.removeEventListener('pointercancel',up,true);if(pointer!==null&&element.hasPointerCapture(pointer))element.releasePointerCapture(pointer);window.getSelection()?.removeAllRanges();};
  },[host]);
  const tooLong=text.length>SHARE_QUOTE_LIMIT;
  return <div className="reader-quote-tools" role="region" aria-label="공유할 대사 선택" data-no-flip onPointerDown={event=>event.preventDefault()}>

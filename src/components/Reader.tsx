@@ -328,6 +328,8 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
   const device=classifyReaderViewport(viewport);
   const [windowPreference,setFullscreen]=useState(readFullwindowPreference);
   const fullscreen=device==='phone'||windowPreference;
+  const edgeToEdge=fullscreen&&device!=='desktop';
+  const showPhysicalBookmark=!edgeToEdge;
   const previousDevice=useRef(device);
   useEffect(()=>{if(previousDevice.current!==device){previousDevice.current=device;setFullscreen(readFullwindowPreference());return;}if(device==='phone')return;try{window.localStorage.setItem(device==='fold'?FOLD_FULLWINDOW_KEY:FULLWINDOW_KEY,String(windowPreference));}catch{}},[device,windowPreference]);
   const [drawerOpen,setDrawerOpen]=useState(false);
@@ -351,10 +353,11 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
   const bookmarkMotionRef = useRef<BookmarkMotion|null>(null);
   const reinsertBookmarkRef = useRef<()=>void>(()=>{});
   useEffect(()=>{
+    if(!showPhysicalBookmark)return;
     const motion=new BookmarkMotion(()=>readerRef.current,()=>reinsertBookmarkRef.current());
     bookmarkMotionRef.current=motion;
     return()=>{motion.dispose();bookmarkMotionRef.current=null;};
-  },[book.id]);
+  },[book.id,showPhysicalBookmark]);
   const [leaveConfirm,setLeaveConfirm]=useState(false);
   const [leaveError,setLeaveError]=useState('');
   const requestCloseRef=useRef<()=>void>(()=>{});
@@ -379,13 +382,13 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const pageGeometry=useMemo(()=>{
     const count = readerPageCount(dimensions.width, viewport);
-    const height = Math.max(100, device==='phone'?dimensions.height:fullscreen?dimensions.height-10:Math.min(790, dimensions.height - Math.min(56, dimensions.height * .12)));
+    const height = Math.max(100, edgeToEdge?dimensions.height:fullscreen?dimensions.height-10:Math.min(790, dimensions.height - Math.min(56, dimensions.height * .12)));
     // Editing reuses this pagination and only scales its presentation for rails.
-    const sideSpace=device==='phone'?0:fullscreen?10:16;
+    const sideSpace=edgeToEdge?0:fullscreen?10:16;
     const availablePageWidth=Math.max(1,(dimensions.width-sideSpace)/count);
     // A 120px lower bound could overflow the reserved rails on a narrow
     // window. The actual stage width must always win over a preferred minimum.
-    const width = Math.max(1, device==='phone'?availablePageWidth:fullscreen?Math.min(availablePageWidth,height*MAX_FULLWINDOW_PAGE_RATIO):Math.min(540,Math.floor(availablePageWidth)));
+    const width = Math.max(1, edgeToEdge?availablePageWidth:fullscreen?Math.min(availablePageWidth,height*MAX_FULLWINDOW_PAGE_RATIO):Math.min(540,Math.floor(availablePageWidth)));
     const padding = width < 350 ? 22 : width < 440 ? 32 : 46;
     const {top:contentTop,bottom:contentBottom} = pageTextInsets(height,fontSize);
     return {count,height,width,padding,contentTop,contentBottom};
@@ -654,7 +657,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
           minHeight: height, maxHeight: height, startPage: target,
           usePortrait: count === 1, autoSize: false, showCover: false,
           drawShadow: true, maxShadowOpacity: 0.18, flippingTime: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : 360,
-          mobileScrollSupport: true, swipeDistance: 30, useMouseEvents: true,
+          mobileScrollSupport: true, swipeDistance: 30, swipeByDirection:device==='fold', useMouseEvents: true,
           clickEventForward: true, showPageCorners: false, disableFlipByClick: false,
         });
         // Update only this reader after the curl settles; no persisted reading history.
@@ -747,7 +750,8 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
   };
   const turn = (direction: 'previous' | 'next') => {
     const flip = flipRef.current;
-    if (!flip||blockedRef.current||selectingQuote||!pagesReadyRef.current) return;
+    if (!flip||blockedRef.current||!pagesReadyRef.current) return;
+    if(selectingQuote){mountRef.current?.dispatchEvent(new Event('reader:prepare-quote-turn'));jump(flip.getCurrentPageIndex()+(direction==='next'?spread:-spread));return;}
     // Release a held curl so keyboard and wheel input cannot stay queued forever.
     if(flip.getState()==='user_fold'){
       // Settling may synchronously emit 'read'; enqueue before releasing the gesture.
@@ -953,7 +957,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
   const ribbonIcon=shelfBookmark?.icon??characterIcon??book.characterIcon;
   const ribbonImage=shelfBookmark?.image??bookmarkImage??ribbonIcon;
   const ribbonStyle=displayBookmarkStyle(shelfBookmark ? shelfBookmark.style ?? 'normal' : selectedBookmarkStyle);
-  renderLeafRef.current=(page,index,mobile)=><EditOverflowContext.Provider value={flowEdit}><EditNoticeContext.Provider value={message=>notifyEdit(message)}><PageLeaf page={page} book={editingSourceRef.current??bookRef.current} query={queryRef.current} index={index} mobile={mobile} editing={editing} onEdit={onEdit} drafts={draftsRef.current} onPreview={previewAsset} onNext={nextVolumeRef.current?()=>requestNextRef.current():undefined} onClose={()=>requestCloseRef.current()} bookmark={device!=='phone'&&shelfBookmark?.bookId===bookRef.current.id&&bookmarkPage(pagesRef.current,shelfBookmark)===index?{...bookmarkInteraction,style:ribbonStyle,icon:ribbonIcon,image:ribbonImage,title:shelfBookmark.title,color:bookRef.current.color,side:index<(selectedLeaf??pageIndex)?'before':'after'}:undefined}/></EditNoticeContext.Provider></EditOverflowContext.Provider>;
+  renderLeafRef.current=(page,index,mobile)=><EditOverflowContext.Provider value={flowEdit}><EditNoticeContext.Provider value={message=>notifyEdit(message)}><PageLeaf page={page} book={editingSourceRef.current??bookRef.current} query={queryRef.current} index={index} mobile={mobile} editing={editing} onEdit={onEdit} drafts={draftsRef.current} onPreview={previewAsset} onNext={nextVolumeRef.current?()=>requestNextRef.current():undefined} onClose={()=>requestCloseRef.current()} bookmark={showPhysicalBookmark&&shelfBookmark?.bookId===bookRef.current.id&&bookmarkPage(pagesRef.current,shelfBookmark)===index?{...bookmarkInteraction,style:ribbonStyle,icon:ribbonIcon,image:ribbonImage,title:shelfBookmark.title,color:bookRef.current.color,side:index<(selectedLeaf??pageIndex)?'before':'after'}:undefined}/></EditNoticeContext.Provider></EditOverflowContext.Provider>;
   useEffect(()=>{if(!onSaveBook&&editing){draftsRef.current.clear();editingSourceRef.current=null;setEditing(false);setLeafRevision(value=>value+1);}},[onSaveBook,editing]);
   function cancelEditing(){editingSourceRef.current=null;draftsRef.current.clear();setEditing(false);setEditError('');setLeafRevision(value=>value+1);}
   async function saveEditing(){
@@ -1017,8 +1021,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
       <div className="reader-stage" ref={stageRef} aria-busy={loading} data-book-closed={pages.slice(pageIndex,pageIndex+spread).some(page=>page.kind==='back-cover'||page.kind==='front-cover')}>
         {!loading&&device!=='phone'&&<div className="reader-cover-boards" aria-hidden="true" inert><span className="reader-cover-board-left"/><span className="reader-cover-board-right"/></div>}
         <div className="reader-book-mount" ref={mountRef} onPointerDownCapture={event=>{const page=(event.target as HTMLElement).closest<HTMLElement>('[data-reader-page-index]');if(page&&!page.dataset.flipCopy)setSelectedLeaf(Number(page.dataset.readerPageIndex));}}/>
-        {!loading&&device!=='phone'&&peekBookmark&&shelfBookmark&&<div className={`reader-bookmark-peek reader-bookmark-peek-${markedPage<pageIndex?'before':'after'}`} aria-label="페이지 사이 책갈피"><BookmarkSlip {...bookmarkInteraction} style={ribbonStyle} icon={ribbonIcon} image={ribbonImage} title={shelfBookmark.title} color={book.color} side={markedPage<pageIndex?'before':'after'}/></div>}
-        {!loading&&device==='phone'&&markedPage>=0&&shelfBookmark&&<div className="reader-phone-bookmark" data-current={markedPage===pageIndex} aria-label="책갈피"><BookmarkSlip {...bookmarkInteraction} style={ribbonStyle} icon={ribbonIcon} image={ribbonImage} title={shelfBookmark.title} color={book.color} side="after"/></div>}
+        {!loading&&showPhysicalBookmark&&peekBookmark&&shelfBookmark&&<div className={`reader-bookmark-peek reader-bookmark-peek-${markedPage<pageIndex?'before':'after'}`} aria-label="페이지 사이 책갈피"><BookmarkSlip {...bookmarkInteraction} style={ribbonStyle} icon={ribbonIcon} image={ribbonImage} title={shelfBookmark.title} color={book.color} side={markedPage<pageIndex?'before':'after'}/></div>}
       {selectingQuote&&onQuoteSelected&&<ShareQuoteSelection host={mountRef} onDone={onQuoteSelected} onPrevious={()=>jump(Math.max(0,pageIndex-spread))} onNext={()=>jump(Math.min(pages.length-1,pageIndex+spread))}/>}
       {editing&&<div className="reader-edit-navigation" data-no-flip><button type="button" aria-label="편집 이전 페이지" disabled={saving||loading||pageIndex===0} onClick={()=>jump(Math.max(0,pageIndex-spread))}><span aria-hidden="true">&lt;</span></button><button type="button" aria-label="편집 다음 페이지" disabled={saving||loading||pageIndex+spread>=pages.length} onPointerDown={event=>event.preventDefault()} onClick={()=>jump(Math.min(pages.length-1,pageIndex+spread))}><span aria-hidden="true">&gt;</span></button></div>}
         {(loading||dataPending) && <ReadingSkeleton embedded pages={readerPageCount(dimensions.width||viewport.width,viewport)} fullwindow={fullscreen}/>}
