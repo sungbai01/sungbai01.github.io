@@ -1,3 +1,4 @@
+import {imageExtension,shareMediaUrl} from './shareImageUrl';
 import type {TextDatabase} from './cloud';
 import {allowPublicRead} from './requestLimits';
 import {allowShareAction} from './shareLimits';
@@ -22,11 +23,11 @@ function signature(bytes:Uint8Array){
  if(bytes.length>16&&new TextDecoder().decode(bytes.slice(0,4))==='RIFF'&&new TextDecoder().decode(bytes.slice(8,12))==='WEBP')return 'image/webp';
  return null;
 }
-const imageUrl=(request:Request,share:string,image:string)=>`${new URL(request.url).origin}/share-media/${share}/${image}`;
+const imageUrl=(request:Request,share:string,image:string,mime:string)=>shareMediaUrl(new URL(request.url).origin,share,image,mime);
 function validImageIdentity(name:unknown,role:unknown,hash:unknown){return typeof name==='string'&&!!name.trim()&&name.length<=500&&!/[\u0000-\u001f]/.test(name)&&['asset','icon','card'].includes(role as string)&&typeof hash==='string'&&/^[a-f0-9]{64}$/.test(hash);}
 async function reuseImage(request:Request,db:TextDatabase,owner:string,share:string,name:string,role:string,hash:string):Promise<string|null>{
- const old=await db.prepare(`SELECT m.image_id,m.object_key FROM share_media m JOIN share_object_info i ON i.object_key=m.object_key WHERE m.share_id=?1 AND m.name=?2 AND m.role=?3 AND i.owner_id=?4 AND i.content_hash=?5 AND i.deleting=0`).bind(share,name,role,owner,hash).first<{image_id:string;object_key:string}>();
- if(old)return imageUrl(request,share,old.image_id);
+ const old=await db.prepare(`SELECT m.image_id,m.object_key,m.mime FROM share_media m JOIN share_object_info i ON i.object_key=m.object_key WHERE m.share_id=?1 AND m.name=?2 AND m.role=?3 AND i.owner_id=?4 AND i.content_hash=?5 AND i.deleting=0`).bind(share,name,role,owner,hash).first<{image_id:string;object_key:string;mime:string}>();
+ if(old)return imageUrl(request,share,old.image_id,old.mime);
  const object=await db.prepare(`SELECT o.object_key,o.bytes,m.mime FROM share_object_info i JOIN share_objects o ON o.object_key=i.object_key JOIN share_media m ON m.object_key=o.object_key JOIN book_shares s ON s.share_id=m.share_id WHERE i.owner_id=?1 AND s.owner_id=?1 AND i.content_hash=?2 AND i.deleting=0 AND s.last_access_at>?3 LIMIT 1`).bind(owner,hash,Date.now()-SHARE_IDLE_MS).first<{object_key:string;bytes:number;mime:string}>();
  if(!object)return null;
  const image=crypto.randomUUID();
@@ -37,7 +38,7 @@ async function reuseImage(request:Request,db:TextDatabase,owner:string,share:str
  AND (SELECT COALESCE(SUM(bytes),0) FROM share_media WHERE share_id=?1 AND NOT(name=?3 AND role=?4))+?7<=50000000
  AND ((SELECT COUNT(*) FROM share_media WHERE share_id=?1)<64 OR EXISTS(SELECT 1 FROM share_media WHERE share_id=?1 AND name=?3 AND role=?4))
  ON CONFLICT(share_id,name,role) DO UPDATE SET image_id=excluded.image_id,object_key=excluded.object_key,mime=excluded.mime,bytes=excluded.bytes`).bind(share,image,name,role,object.object_key,object.mime,object.bytes,owner,Date.now()-SHARE_IDLE_MS).run();
- return result.meta.changes?imageUrl(request,share,image):null;
+ return result.meta.changes?imageUrl(request,share,image,object.mime):null;
 }
 /** Hash manifests can reuse only server-verified objects belonging to this owner. */
 export async function prepareShareImages(request:Request,db:TextDatabase,owner:string,bookId:string,origin:string,reply:Reply,bucket?:ShareBucket){
@@ -100,14 +101,14 @@ export async function uploadShareImage(request:Request,db:TextDatabase,bucket:Sh
   // Keep the reservation until scheduled cleanup confirms R2 deletion.
   return reply({error:'이미지를 저장하지 못했어요. 잠시 후 다시 시도해 주세요.'},503,origin);
  }
- return reply({url:`${new URL(request.url).origin}/share-media/${share.share_id}/${imageId}`},200,origin);
+ return reply({url:imageUrl(request,share.share_id,imageId,mime)},200,origin);
 }
 export async function publicShareImage(request:Request,db:TextDatabase,bucket:ShareBucket|undefined){
  const headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; sandbox",'Referrer-Policy':'no-referrer','Access-Control-Allow-Origin':'*'};
- const match=/^\/share-media\/([A-Za-z0-9_-]{43})\/([a-f0-9-]{36})$/.exec(new URL(request.url).pathname);
+ const match=/^\/share-media\/([A-Za-z0-9_-]{43})\/([a-f0-9-]{36})(?:\.(png|jpe?g|webp))?$/.exec(new URL(request.url).pathname);
  if(!match||request.method!=='GET'||!bucket)return new Response(null,{status:404,headers});
  const image=await db.prepare('SELECT object_key,mime FROM share_media WHERE share_id=?1 AND image_id=?2 AND EXISTS(SELECT 1 FROM book_shares WHERE share_id=?1 AND last_access_at>?3)').bind(match[1],match[2],Date.now()-SHARE_IDLE_MS).first<{object_key:string;mime:string}>();
- if(!image)return new Response(null,{status:404,headers});
+ if(!image||(match[3]&&(match[3]==='jpeg'?'jpg':match[3])!==imageExtension(image.mime)))return new Response(null,{status:404,headers});
  // Validate current publication before any cache hit: expiry/deletion stays immediate.
  const cache=(globalThis as unknown as {caches?:{default?:Cache}}).caches?.default;
  const cacheKey=new Request(`https://galpi-share-cache.invalid/${image.object_key}`);

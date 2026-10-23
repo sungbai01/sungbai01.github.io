@@ -1,3 +1,4 @@
+import {shareMediaUrl} from './shareImageUrl';
 import {snapshotHash,shareSnapshot} from '../../shared/shareSnapshot';
 import {cloudBook} from '../../shared/cloudBook';
 import type {Book} from '../../src/lib/library';
@@ -45,9 +46,9 @@ export async function publicShare(request:Request,db:TextDatabase,origin:string,
  if(!row)return reply({error:'공유가 종료되었거나 존재하지 않는 책이에요.'},404,origin);
  const book=JSON.parse(row.body) as Book;
  delete book.bookmarks;
- const {results}=await db.prepare("SELECT image_id,name,role FROM share_media WHERE share_id=?1 AND role!='card' ORDER BY image_id DESC").bind(id).all<{image_id:string;name:string;role:string}>();
+ const {results}=await db.prepare("SELECT image_id,name,role,mime FROM share_media WHERE share_id=?1 AND role!='card' ORDER BY image_id DESC").bind(id).all<{image_id:string;name:string;role:string;mime:string}>();
  const unique=[...new Map(results.map(image=>[image.name,image])).values()];
- book.assets=unique.map(image=>({id:image.image_id,name:image.name,type:image.role==='icon'?'icon':'asset',src:`${new URL(request.url).origin}/share-media/${id}/${image.image_id}`}));
+ book.assets=unique.map(image=>({id:image.image_id,name:image.name,type:image.role==='icon'?'icon':'asset',src:shareMediaUrl(new URL(request.url).origin,id,image.image_id,image.mime)}));
  book.characterIcon=book.assets.find(image=>image.type==='icon')?.src;
  book.bookmarkAssetId=book.assets.find(image=>image.name==='__galpi_bookmark__')?.id;
  return reply({book},200,origin);
@@ -59,9 +60,9 @@ export async function manageShare(request:Request,db:TextDatabase,owner:string,b
   const row=await db.prepare('SELECT share_id, updated_at,body FROM book_shares WHERE owner_id = ?1 AND book_id = ?2 AND last_access_at>?3').bind(owner,bookId,Date.now()-SHARE_IDLE_MS).first<{share_id:string;updated_at:number;body:string}>();
   if(!row)return reply({share:null},200,origin);
   const saved=await db.prepare('SELECT title,quote,page_start AS pageStart,page_end AS pageEnd,image_position AS imagePosition,background_name AS backgroundName FROM share_card_layout WHERE share_id=?1').bind(row.share_id).first<{title:string;quote:string;pageStart:number|null;pageEnd:number|null;imagePosition:number;backgroundName:string|null}>();
-  const media=await db.prepare('SELECT m.name,m.role,m.image_id AS imageId,i.content_hash AS hash FROM share_media m LEFT JOIN share_object_info i ON i.object_key=m.object_key WHERE m.share_id=?1').bind(row.share_id).all<{name:string;role:string;imageId:string;hash:string|null}>();
+  const media=await db.prepare('SELECT m.name,m.role,m.mime,m.image_id AS imageId,i.content_hash AS hash FROM share_media m LEFT JOIN share_object_info i ON i.object_key=m.object_key WHERE m.share_id=?1').bind(row.share_id).all<{name:string;role:string;imageId:string;mime:string;hash:string|null}>();
   const snapshot=JSON.parse(row.body) as Book;
-  return reply({share:{...metadata(row),contentHash:await snapshotHash(shareSnapshot(snapshot)),card:{title:saved?.title??snapshot.seriesTitle??snapshot.title,quote:saved?.quote??'',imagePosition:saved?.imagePosition??0,...(saved?.backgroundName?{backgroundName:saved.backgroundName}:{}),...(saved?.pageStart?{quotePages:{start:saved.pageStart,end:saved.pageEnd}}:{})},credit:{author:snapshot.author,aiModel:snapshot.aiModel,color:snapshot.color,volumeNumber:snapshot.volumeNumber,displayPrompt:snapshot.displayPrompt},images:media.results.map(image=>({...image,url:`${new URL(request.url).origin}/share-media/${row.share_id}/${image.imageId}`}))}},200,origin);
+  return reply({share:{...metadata(row),contentHash:await snapshotHash(shareSnapshot(snapshot)),card:{title:saved?.title??snapshot.seriesTitle??snapshot.title,quote:saved?.quote??'',imagePosition:saved?.imagePosition??0,...(saved?.backgroundName?{backgroundName:saved.backgroundName}:{}),...(saved?.pageStart?{quotePages:{start:saved.pageStart,end:saved.pageEnd}}:{})},credit:{author:snapshot.author,aiModel:snapshot.aiModel,color:snapshot.color,volumeNumber:snapshot.volumeNumber,displayPrompt:snapshot.displayPrompt},images:media.results.map(image=>({...image,url:shareMediaUrl(new URL(request.url).origin,row.share_id,image.imageId,image.mime)}))}},200,origin);
  }
  if(request.method==='DELETE'){
   await db.prepare('DELETE FROM book_shares WHERE owner_id = ?1 AND book_id = ?2').bind(owner,bookId).run();
