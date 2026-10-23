@@ -8,3 +8,7 @@
 .intake-prompt-picker summary[aria-disabled=true]{cursor:default;opacity:.6}
 .intake-prompt-picker [role=listbox]{margin-top:6px}
 .intake-prompt-picker [role=option]:disabled{opacity:1;color:var(--jade-11);cursor:default}
+
+.intake-prompt-picker [role=option]+[role=option]{margin-top:4px}
+.intake-prompt-picker [role=option][aria-selected=true]{color:var(--jade-11);border-color:var(--jade-7)}
+.intake-prompt-picker [role=option]:not(:disabled){cursor:pointer}

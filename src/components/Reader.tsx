@@ -443,7 +443,13 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
 
   useEffect(()=>{const sync=(event:Event)=>{const value=(event as CustomEvent<Theme>).detail;setTheme(value==='paper'||value==='warm'||value==='dark'?value:readTheme());};window.addEventListener(THEME_EVENT,sync);return()=>window.removeEventListener(THEME_EVENT,sync);},[]);
 
-  const chapterEntries=useMemo(()=>{let number=0;return book.messages.flatMap((message,index)=>startsChapter(book,index)?[{message,index,number:++number}]:[]);},[book.messages]);
+  const chapterEntries=useMemo(()=>{
+    if(book.displayPrompt?.id==='soakma'){
+      const entries=pages.flatMap(page=>page.chapter!==undefined&&page.chapterMessage!==undefined?[{message:{...book.messages[page.chapterMessage],chapterTitle:page.chapterTitle},index:page.chapterMessage,char:page.fragments.find(fragment=>!fragment.hidden)?.char??0,number:page.chapter}]:[]);
+      if(entries.length)return entries;
+    }
+    let number=0;return book.messages.flatMap((message,index)=>startsChapter(book,index)?[{message,index,char:0,number:++number}]:[]);
+  },[book.messages,book.displayPrompt,pages]);
 
   const hits = useMemo(() => {
     const results: SearchHit[] = [];
@@ -457,13 +463,14 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
         const char = match.index ?? 0;
         if(hidden.some(range=>char<range.end&&char+match[0].length>range.start))continue;
         const before=visibleSlice(entry.content,0,char,book.displayPrompt),after=visibleSlice(entry.content,char+match[0].length,entry.content.length,book.displayPrompt);
-        results.push({ message, char, length: match[0].length, name: `CHAPTER ${String(chapterNumber(book,message)).padStart(2,'0')}`,
+        const chapter=[...chapterEntries].reverse().find(entry=>entry.index<message||entry.index===message&&entry.char<=char)?.number??chapterNumber(book,message);
+        results.push({ message, char, length: match[0].length, name: `CHAPTER ${String(chapter).padStart(2,'0')}`,
           excerpt: `${before.length>35?'…':''}${before.slice(-35)}${match[0]}${after.slice(0,80)}${after.length>80?'…':''}` });
         if (results.length >= 200) return results;
       }
     }
     return results;
-  }, [contentKey, deferredQuery]);
+  }, [contentKey, deferredQuery,chapterEntries]);
 
   useEffect(() => {
     const previous=document.body.style.overflow;
@@ -997,10 +1004,10 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
           <p className="reader-panel-description">챕터 {chapterEntries.length}개 · 전체 {contentCount}쪽</p>
           <nav className="reader-contents-list" aria-label="이야기 목차">
             <button className="reader-contents-item" onClick={() => { jump(0); setPanel(null); }}><span className="reader-contents-number"><BookOpen size={16} /></span><span><strong>{book.title}</strong><small>책의 처음으로</small></span><span className="reader-contents-page">1</span></button>
-            {chapterEntries.map(({message,index,number},chapterIndex) => {
-              const page = pageForAnchor(pages, { message: index, char: 0 });
-              return <button className={`reader-contents-item ${page <= pageIndex && pageIndex < (chapterIndex+1<chapterEntries.length?pageForAnchor(pages,{message:chapterEntries[chapterIndex+1].index,char:0}):pages.length) ? 'reader-current-passage' : ''}`} key={index} onClick={() => goToAnchor({ message: index, char: 0 })}>
-                <span className="reader-contents-number">{String(number).padStart(2, '0')}</span><span><strong>{chapterLabel(number,message.chapterTitle)}</strong><small>{visibleProse(message.content,book.displayPrompt).slice(0, 95) || '아직 내용이 없어요'}</small></span><span className="reader-contents-page">{Math.max(1,page-proseStart+1)}</span>
+            {chapterEntries.map(({message,index,char,number},chapterIndex) => {
+              const page = pageForAnchor(pages, { message: index, char });
+              return <button className={`reader-contents-item ${page <= pageIndex && pageIndex < (chapterIndex+1<chapterEntries.length?pageForAnchor(pages,{message:chapterEntries[chapterIndex+1].index,char:chapterEntries[chapterIndex+1].char}):pages.length) ? 'reader-current-passage' : ''}`} key={`${index}:${char}`} onClick={() => goToAnchor({ message: index, char })}>
+                <span className="reader-contents-number">{String(number).padStart(2, '0')}</span><span><strong>{chapterLabel(number,message.chapterTitle)}</strong><small>{visibleProse(message.content.slice(char),book.displayPrompt).slice(0, 95) || '아직 내용이 없어요'}</small></span><span className="reader-contents-page">{Math.max(1,page-proseStart+1)}</span>
               </button>;
             })}
           </nav>

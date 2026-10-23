@@ -197,7 +197,7 @@ function EditBook({book,onSave,onClose,scope='book'}:{book:Book;onSave:(book:Boo
     <div className="edit-layout"><div className="cover-previews"><Cover book={draft}/></div><div className="space-y-4">
       <label className="field">책 제목<input required maxLength={100} value={draft.title} onChange={e=>setDraft({...draft,title:e.target.value})}/></label>
       <AuthorPicker value={draft.author} disabled={busy} onChange={author=>setDraft({...draft,author})}/>
-      <PromptPicker disabled={busy}/>
+      <PromptPicker value={draft.displayPrompt} onChange={displayPrompt=>setDraft({...draft,displayPrompt})} disabled={busy}/>
       <div className="field">표지 색<div className="cover-swatches">{colors.map(color=><button key={color} type="button" className="swatch" aria-label={`${color} 표지`} aria-pressed={draft.color===color} style={{background:color}} onClick={()=>setDraft({...draft,color})}>{draft.color===color&&<Check size={15}/>}</button>)}<label className="swatch custom-color-swatch" title="사용자 지정 색" style={{background:draft.customColor??draft.color}}><input type="color" aria-label="사용자 지정 표지 색" value={draft.customColor??draft.color} onChange={e=>setDraft({...draft,color:e.target.value,customColor:e.target.value})}/>{draft.color===draft.customColor?<Check size={15}/>:<Plus size={13}/>}</label></div></div>
       
     </div></div>
@@ -205,7 +205,7 @@ function EditBook({book,onSave,onClose,scope='book'}:{book:Book;onSave:(book:Boo
   </form></Modal>;
 }
 function styleBook(book:Book,draft:Book,reset:boolean):Book{
-  return {...book,author:draft.author.trim(),aiModel:undefined,color:draft.color,customColor:draft.customColor,
+  return {...book,author:draft.author.trim(),aiModel:undefined,displayPrompt:normalizeDisplayPrompt(draft.displayPrompt),color:draft.color,customColor:draft.customColor,
     ...(reset?{cover:undefined,backCover:undefined,characterIcon:undefined,assets:book.assets?.some(asset=>asset.type==='icon')?book.assets.map(asset=>asset.type==='icon'?{...asset,type:'asset' as const}:asset):book.assets}:{})};
 }
 

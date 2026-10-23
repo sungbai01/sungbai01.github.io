@@ -20,3 +20,14 @@ test('common dollar-only line hiding preserves dollar prose and original offsets
  assert.equal(visibleProse(source,prompt),'first\n$keep\nprice $5\n$$\nlast\n');
  for(const range of displayHiddenRanges(source,prompt))assert.equal(source.slice(range.start,range.end).trim(),'$');
 });
+
+
+test('soakma hides heading lines emoji and section blocks without changing original offsets',()=>{
+ const prompt={id:'soakma',hideCurly:false,hideSquare:false};
+ assert.equal(validDisplayPrompt(prompt),true);assert.deepEqual(normalizeDisplayPrompt(prompt),prompt);
+ const source='# hidden\n## hidden\r\n### 챕터 1: 침대 밑의 잡동사니\n#### hidden\n##### kept\nvisible 👩🏽‍💻🇰🇷1️⃣ text §secret§ rest §§more\nsecret§§ end';
+ assert.equal(visibleProse(source,prompt),'##### kept\nvisible  text  rest  end');
+ assert.equal(visibleProse('visible §§unfinished',prompt),'visible ');
+ const base={id:'default',hideCurly:false,hideSquare:false};assert.equal(visibleProse(source,base),source);
+ const book={id:'s',title:'s',author:'',description:'',color:'#123456',createdAt:'',updatedAt:'',messages:[{role:'assistant',name:'bot',content:source}],displayPrompt:prompt};assert.deepEqual(cloudBook(book).displayPrompt,prompt);assert.equal(cloudBook(book).messages[0].content,source);
+});

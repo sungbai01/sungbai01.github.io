@@ -1,13 +1,13 @@
 import type { Book, BookAsset } from './library';
 import { extractAssetSegments, imageReferenceRanges, type AssetSegment } from './assets';
-import { displayHiddenRanges,hiddenUserInput } from './prose';
+import { displayHiddenRanges,hiddenUserInput,promptChapterHeadings } from './prose';
 
 export type Anchor = { message: number; char: number };
 export type Fragment = Anchor & { end: number; name: string; text: string; hidden?: boolean; chapter?: number; asset?: BookAsset; assetSize?: number };
 export type PaperPage = { fragments: Fragment[]; intro: boolean; asset?: BookAsset; chapter?: number; chapterTitle?: string; chapterMessage?: number; pageNumber?:number; draftPage?:string; kind?: 'paper' | 'asset' | 'padding' | 'endpaper' | 'opening-endpaper' | 'back-cover' | 'end' | 'front-cover' | 'front-endpaper' | 'colophon' };
 
 export const CHAPTER_HEADER_RATIO = .25;
-export const PAGE_LAYOUT_VERSION = 7;
+export const PAGE_LAYOUT_VERSION = 8;
 
 export function inlineAssetSize(contentWidth: number, availableHeight: number): number {
   // Scale with the prose area; keep square images within the page's text height.
@@ -100,6 +100,9 @@ export function paginate(book: Book, measure: HTMLDivElement, options: Paginatio
   try {
   const imageReferences=new Map<number,NonNullable<Book['imageReferences']>>();
   for(const reference of book.imageReferences??[]){const list=imageReferences.get(reference.message)??[];list.push(reference);imageReferences.set(reference.message,list);}
+  const promptHeadings=new Map<number,ReturnType<typeof promptChapterHeadings>>();
+  if(book.displayPrompt?.id==='soakma')book.messages.forEach((message,index)=>{if(!hiddenUserInput(message))promptHeadings.set(index,promptChapterHeadings(message.content));});
+  const explicitPromptChapters=[...promptHeadings.values()].some(entries=>entries.length);
   const chapterTails=new Set<number>();
   let tail=-1;
   book.messages.forEach((message,index)=>{
@@ -114,13 +117,18 @@ export function paginate(book: Book, measure: HTMLDivElement, options: Paginatio
       return;
     }
     if(message.pageBreakBefore&&current.fragments.some(fragment=>!fragment.hidden))nextPage();
-    if (startsChapter(book, messageIndex)) {
+    if (!explicitPromptChapters&&startsChapter(book, messageIndex)) {
       number++; pendingHeading = true; pendingOpening = true;
       pendingChapterMessage = messageIndex; pendingChapterTitle = message.chapterTitle;
       if (current.fragments.some(fragment=>!fragment.hidden)) nextPage();
     }
     const content = message.content || '', name = speakerName(message);
-    const extracted = extractAssetSegments(content, book.assets ?? [],book.imageRules??[],imageReferences.get(messageIndex));
+    const headings=promptHeadings.get(messageIndex)??[];
+    const extracted = extractAssetSegments(content, book.assets ?? [],book.imageRules??[],imageReferences.get(messageIndex)).flatMap<AssetSegment>(segment=>{
+      if(segment.type==='asset')return [segment];
+      const points=[segment.start,...headings.map(heading=>heading.start).filter(point=>point>segment.start&&point<segment.end),segment.end];
+      return points.slice(0,-1).map((start,index)=>({type:'text',text:content.slice(start,points[index+1]),start,end:points[index+1]}));
+    });
     const references = imageReferenceRanges(content);
     const unresolved = references.filter(range => !extracted.some(segment => segment.type === 'asset' && segment.start === range.start && segment.end === range.end));
     const hiddenRanges: { start: number; end: number }[] = [];
@@ -151,7 +159,14 @@ export function paginate(book: Book, measure: HTMLDivElement, options: Paginatio
       return pieces;
     });
     if(!content.length){if(pendingHeading){current.chapter=number;current.chapterMessage=pendingChapterMessage;current.chapterTitle=pendingChapterTitle;pendingHeading=false;}current.fragments.push({message:messageIndex,char:0,end:0,name,text:'',hidden:!(message.pageBreakBefore||message.pageBreakAfter||current.chapter!==undefined)});if(message.pageBreakAfter&&messageIndex+1<book.messages.length)nextPage();return;}
+    const begunHeadings=new Set<number>();
     for (const segment of segments) {
+      const heading=headings.find(entry=>entry.start===segment.start);
+      if(heading&&!begunHeadings.has(heading.start)){
+        begunHeadings.add(heading.start);
+        if(current.fragments.some(fragment=>!fragment.hidden))nextPage();
+        number++;pendingHeading=true;pendingOpening=true;pendingChapterMessage=messageIndex;pendingChapterTitle=heading.title;
+      }
       if (segment.type === 'text' && 'hidden' in segment && segment.hidden) {
         current.fragments.push({ message: messageIndex, char: segment.start, end: segment.end, name,
           text: content.slice(segment.start, segment.end), hidden: true });

@@ -107,3 +107,12 @@ test('D1 prompt validation and shared image references never rewrite raw message
  assert.equal(snapshot.messages[0].content,text);assert.deepEqual(snapshot.displayPrompt,book.displayPrompt);assert.deepEqual(snapshot.imageReferences,[{message:0,start:0,end:16,name:'happy'}]);
  const stored=JSON.parse(sql.prepare('SELECT body FROM books WHERE owner_id=? AND book_id=?').get(owner,'audit').body);assert.equal(stored.messages[0].content,text);
 });
+
+
+test('D1 accepts soakma prompt and rejects unsupported prompt ids',async()=>{
+ const {db}=fixture();
+ const book={id:'audit',title:'audit',author:'model',description:'',color:'#123456',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),messages:[{role:'assistant',name:'bot',content:'### 챕터 1: 제목\n😀 §§secret§§'}],displayPrompt:{id:'soakma',hideCurly:true,hideSquare:true}};
+ const request=value=>new Request('https://audit/library/books/audit',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({book:value,baseRevision:0})});
+ assert.equal((await api.libraryApi(request({...book,displayPrompt:{...book.displayPrompt,id:'unknown'}}),db,owner,origin,reply)).status,400);
+ assert.equal((await api.libraryApi(request(book),db,owner,origin,reply)).status,200);
+});

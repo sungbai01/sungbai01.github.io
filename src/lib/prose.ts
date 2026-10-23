@@ -9,6 +9,18 @@ export function dollarOnlyRanges(text:string):ProseRange[]{
  return Array.from(text.matchAll(/^[^\S\r\n]*\$[^\S\r\n]*(?:\r\n?|\n|$)/gm),match=>({start:match.index!,end:match.index!+match[0].length}));
 }
 
+export function promptChapterHeadings(text:string):{start:number;title:string}[]{
+ return Array.from(text.matchAll(/^[\t ]*###[\t ]+챕터[\t ]*\d+[\t ]*[:：][\t ]*([^\r\n]*)/gm),match=>({start:match.index!,title:match[1].trim()}));
+}
+export function soakmaHiddenRanges(text:string):ProseRange[]{
+ const headings=Array.from(text.matchAll(/^[\t ]*#{1,4}(?!#)[^\r\n]*(?:\r\n?|\n|$)/gm),match=>({start:match.index!,end:match.index!+match[0].length}));
+ const sections:ProseRange[]=[];let start=-1;
+ for(const match of text.matchAll(/§{1,2}/g)){if(start<0)start=match.index!;else{sections.push({start,end:match.index!+match[0].length});start=-1;}}
+ if(start>=0)sections.push({start,end:text.length});
+ const emoji=Array.from(text.matchAll(/[#*0-9]\uFE0F?\u20E3|[\u{1F1E6}-\u{1F1FF}]{2}|\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?)*(?:[\u{E0020}-\u{E007E}]+\u{E007F})?|\p{Emoji_Modifier}/gu),match=>({start:match.index!,end:match.index!+match[0].length}));
+ return [...headings,...sections,...emoji];
+}
+
 /** Quotes delimit an attribute only immediately after '='. Apostrophes in
  * unquoted prose (Hyuna's apartment) must not consume the closing bracket. */
 export function angleRanges(text: string, protectedRanges: ProseRange[] = []): ProseRange[] {
@@ -72,7 +84,7 @@ export function squareRanges(text:string,protectedRanges:ProseRange[]=[]):ProseR
  * remain protected even inside hidden blocks and while assets are unresolved. */
 export function displayHiddenRanges(text:string,prompt?:DisplayPrompt,images=imageReferenceRanges(text)):ProseRange[]{
  const settings=normalizeDisplayPrompt(prompt);
- return [...dollarOnlyRanges(text),...(settings.hideCurly?systemRanges(text,images,false):[]),...(settings.hideSquare?squareRanges(text,images):[])].sort((a,b)=>a.start-b.start||b.end-a.end);
+ return [...dollarOnlyRanges(text),...(settings.id==='soakma'?soakmaHiddenRanges(text):[]),...(settings.hideCurly?systemRanges(text,images,false):[]),...(settings.hideSquare?squareRanges(text,images):[])].sort((a,b)=>a.start-b.start||b.end-a.end);
 }
 export function visibleSlice(text:string,start:number,end:number,prompt?:DisplayPrompt):string{
  const images=imageReferenceRanges(text),ranges=[...displayHiddenRanges(text,prompt,images),...images].sort((a,b)=>a.start-b.start||b.end-a.end);
