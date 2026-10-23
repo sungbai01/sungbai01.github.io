@@ -70,12 +70,15 @@ for(const mobile of [false,true])test(`bookmark drop fades in place and leaves n
   await expect(page.locator('.reader-phone-bookmark')).toHaveAttribute('data-current','true');
   expect(await page.locator('.reader-phone-bookmark').evaluate(el=>el.clientHeight)).toBeGreaterThan(100);
  }
- await page.evaluate(()=>{const animate=Element.prototype.animate;(window as any).dropFrames=[];Element.prototype.animate=function(frames,options){if(this.classList.contains('reader-bookmark-loose'))(window as any).dropFrames.push(frames);return animate.call(this,frames,options);};});
+ await page.evaluate(()=>{const animate=Element.prototype.animate;(window as any).dropFrames=[];(window as any).coastSamples=[];Element.prototype.animate=function(frames,options){if(this.classList.contains('reader-bookmark-loose')){(window as any).dropFrames.push(frames);if((frames as any[])[0]?.opacity===1){const el=this as HTMLElement;const sample=()=>({x:parseFloat(el.style.left),y:parseFloat(el.style.top),opacity:Number(getComputedStyle(el).opacity)});(window as any).coastSamples.push(sample());setTimeout(()=>(window as any).coastSamples.push(sample()),150);setTimeout(()=>(window as any).coastSamples.push(sample()),400);}}return animate.call(this,frames,options);};});
  const ribbon=mobile?page.locator('.reader-phone-bookmark .reader-bookmark-slip'):page.locator('.reader-page-right .reader-bookmark-slip');
  const box=(await ribbon.boundingBox())!;await page.mouse.move(box.x+box.width/2,box.y+30);await page.mouse.down();await page.mouse.move(box.x+box.width+160,box.y+200,{steps:12});await page.mouse.up();
  await expect(page.locator('.reader-bookmark-motion-plane')).toHaveCount(0);
  await expect(page.locator('.reader-phone-bookmark,.reader-bookmark-peek,.reader-page .reader-bookmark-slip')).toHaveCount(0);
  expect(await page.evaluate(()=>(window as any).dropFrames)).toContainEqual([{opacity:1},{opacity:0}]);
+ const samples=await page.evaluate(()=>(window as any).coastSamples);
+ expect(samples.length).toBe(3);expect(samples[1].opacity).toBeGreaterThan(samples[2].opacity);
+ expect(Math.hypot(samples[1].x-samples[0].x,samples[1].y-samples[0].y)).toBeGreaterThan(1);
  if(mobile)await page.getByRole('button',{name:'독서 메뉴',exact:true}).click();
  for(let i=0;i<2;i++){
   await page.evaluate(()=>(window as any).dropFrames=[]);
@@ -87,4 +90,14 @@ for(const mobile of [false,true])test(`bookmark drop fades in place and leaves n
  }
 
  await context.close();
+});
+
+test('bookmark save failure uses a toast instead of page error',async({page})=>{
+ await page.setViewportSize({width:1440,height:1000});
+ await page.route('https://fonts.googleapis.com/**',r=>r.abort());await page.route('https://fonts.gstatic.com/**',r=>r.abort());
+ await page.goto('http://127.0.0.1:5175/');await page.evaluate(async()=>{const {mountFailure}=await import('/tests/bookmark-failure-harness.tsx');mountFailure();});
+ await expect(page.locator('.reader-stage')).toHaveAttribute('aria-busy','false');
+ await page.getByRole('button',{name:'현재 위치에 책갈피',exact:true}).click();
+ await expect(page.locator('.reader .toast')).toHaveText('책갈피를 저장하지 못했어요.');
+ await expect(page.locator('.reader-error')).toHaveCount(0);
 });

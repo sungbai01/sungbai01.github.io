@@ -166,9 +166,9 @@ export class BookmarkMotion {
     };
   }
 
-  private async animate(frames: Keyframe[]) {
+  private async animate(frames: Keyframe[], milliseconds=340) {
     if (!this.floating || this.destroyed) return;
-    const duration = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 340;
+    const duration = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : milliseconds;
     const animation = this.floating.animate(frames, {duration, easing: 'cubic-bezier(.22,.7,.25,1)', fill: 'forwards'});
     this.animation = animation;
     try {await animation.finished;} catch { /* Reader closed or movement replaced. */ }
@@ -177,20 +177,22 @@ export class BookmarkMotion {
   async change(save: () => Promise<boolean>, inserting: boolean, dragged?: HTMLElement) {
     if (this.busy || this.destroyed) return;
     this.busy = true;this.stopFlight();
+    const velocity=dragged?releaseVelocity(dragged):{x:0,y:0};
     const wasDetached = this.detached;
     this.capture(dragged ?? this.source());
     this.root()?.setAttribute('data-bookmark-motion', 'true');
     const removeOnPhone = !inserting && this.root()?.dataset.device === 'phone';
     const dragRemoval = !!dragged && !inserting;
+    if(dragRemoval){this.detached=true;if(this.plane)this.plane.style.clipPath='none';this.coast(velocity);}
     const leaving = dragRemoval && this.floating
-      ? this.animate([{opacity:1},{opacity:0}])
+      ? this.animate([{opacity:1},{opacity:0}],850)
       : (removeOnPhone || (!dragged && !wasDetached)) && this.floating
         ? this.animate([{transform: this.floating.style.transform}, {transform: `translateY(-${parseFloat(this.floating.style.top) + this.floating.offsetHeight + 60}px) rotate(0deg)`}])
         : Promise.resolve();
     const [saved] = await Promise.all([save(), leaving]);
     if (this.destroyed) return;
     if (!saved) {
-      this.animation?.cancel();
+      this.stopFlight();this.animation?.cancel();
       if (!wasDetached) this.clear();
     } else if (removeOnPhone || dragRemoval) {
       // A drop fades at the release point. No detached copy survives removal.

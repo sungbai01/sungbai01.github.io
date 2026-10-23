@@ -91,9 +91,9 @@ for(const mobile of [false,true])test(`reader readiness and duplicate font event
    await page.getByRole('button',{name:'독서 메뉴',exact:true}).click();
    const exit=await page.getByRole('button',{name:'전체창 해제',exact:true}).evaluate(button=>{
     (button as HTMLButtonElement).click();
-    return {skeleton:!!document.querySelector('.reading-skeleton-embedded'),full:!!document.querySelector('.reader-fullscreen')};
+    return {skeleton:!!document.querySelector('.reading-skeleton-embedded'),full:!!document.querySelector('.reader-fullscreen'),animated:document.querySelector('.reader-stage')!.getAnimations().length>0};
    });
-   expect(exit).toEqual({skeleton:true,full:false});
+   expect(exit).toEqual({skeleton:true,full:false,animated:true});
    await expect(page.locator('.reader-stage')).toHaveAttribute('aria-busy','false');
    await expect(page.locator('.reader-progress')).toBeEnabled();
    await expect(page.locator('.reader-loading')).toHaveCount(0);

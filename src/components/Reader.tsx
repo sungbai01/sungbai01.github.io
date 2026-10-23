@@ -341,6 +341,8 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
   });
   const [saving,setSaving]=useState(false);
   const [editError,setEditError]=useState('');
+  const [bookmarkToast,setBookmarkToast]=useState('');
+  useEffect(()=>{if(!bookmarkToast)return;const timer=setTimeout(()=>setBookmarkToast(''),3600);return()=>clearTimeout(timer);},[bookmarkToast]);
   const [leafRevision,setLeafRevision]=useState(0);
   const draftsRef=useRef(new Map<string,string>());
   const chapterDraftsRef=useRef(new Map<number,ChapterDraft>());
@@ -916,11 +918,11 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
   }, [panel]);
 
   function closeDrawer(){setDrawerClosing(!matchMedia('(prefers-reduced-motion: reduce)').matches);setWindowEntering(false);setPanel(null);setDrawerOpen(false);requestAnimationFrame(()=>drawerHandleRef.current?.focus({preventScroll:true}));}
-  function enterFullwindow(){
+  function transitionFullwindow(next:boolean){
     const stage=stageRef.current, before=stage?.getBoundingClientRect();
     const oldWidth=pageGeometry.width*pageGeometry.count,oldHeight=pageGeometry.height;
     zoomAnimation.current?.cancel();setDrawerClosing(false);
-    flushSync(()=>{setWindowEntering(!matchMedia('(prefers-reduced-motion: reduce)').matches);setLoading(true);setFullscreen(true);setDrawerOpen(false);setPanel(null);});
+    flushSync(()=>{setWindowEntering(next&&!matchMedia('(prefers-reduced-motion: reduce)').matches);setLoading(true);setFullscreen(next);setDrawerOpen(false);setPanel(null);});
     if(stage&&before&&!matchMedia('(prefers-reduced-motion: reduce)').matches){
       const after=stage.getBoundingClientRect(),style=getComputedStyle(readerRef.current!);
       const width=parseFloat(style.getPropertyValue('--reader-book-width')),height=parseFloat(style.getPropertyValue('--paper-height'));
@@ -930,7 +932,8 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
       ],{duration:320,easing:'cubic-bezier(.22,.7,.25,1)'});
     }
   }
-  function exitFullwindow(){if(device==='phone')return;zoomAnimation.current?.cancel();setDrawerClosing(false);flushSync(()=>{setWindowEntering(false);setLoading(true);setPanel(null);setDrawerOpen(false);setFullscreen(false);});}
+  function enterFullwindow(){transitionFullwindow(true);}
+  function exitFullwindow(){if(device!=='phone')transitionFullwindow(false);}
   function startDrawerDrag(event:ReactPointerEvent<HTMLButtonElement>){
     if(!event.isPrimary||event.button!==0)return;
     event.stopPropagation();suppressHandleClick.current=false;
@@ -1007,7 +1010,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
   async function changeBookmark(anchor:(Anchor & {label?:string;progress?:number})|null,dragged?:HTMLElement){
     if(!onBookmarkChange||bookmarkBusyRef.current||editing)return;
     bookmarkBusyRef.current=true;setBookmarkBusy(true);setEditError('');
-    const save=async()=>{try{await onBookmarkChange(anchor,selectedBookmarkStyle);return true;}catch{setEditError('책갈피를 저장하지 못했어요.');return false;}};
+    const save=async()=>{try{await onBookmarkChange(anchor,selectedBookmarkStyle);return true;}catch{setBookmarkToast('책갈피를 저장하지 못했어요.');return false;}};
     try{if(bookmarkMotionRef.current)await bookmarkMotionRef.current.change(save,!!anchor,dragged);else await save();}
     finally{bookmarkBusyRef.current=false;setBookmarkBusy(false);}
   }
@@ -1018,7 +1021,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
     const update=onBookmarkStyleChange?()=>onBookmarkStyleChange(next):shelfBookmark?.bookId===book.id&&onBookmarkChange?()=>onBookmarkChange({message:shelfBookmark.message,char:shelfBookmark.char,label:shelfBookmark.label,progress:shelfBookmark.progress},next):null;
     if(!update)return;
     bookmarkBusyRef.current=true;setBookmarkBusy(true);setEditError('');
-    try{await update();}catch{setSelectedBookmarkStyle(previous);setEditError('책갈피 모양을 저장하지 못했어요.');}
+    try{await update();}catch{setSelectedBookmarkStyle(previous);setBookmarkToast('책갈피 모양을 저장하지 못했어요.');}
     finally{bookmarkBusyRef.current=false;setBookmarkBusy(false);}
   }
   function toggleBookmark(index:number){
@@ -1191,6 +1194,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
     </>}
     {assetPreview&&createPortal(<div className={`reader-asset-preview${assetPreview.pinned?' reader-asset-preview-pinned':''}${assetPreview.closing?' reader-asset-preview-closing':''}`} role="region" aria-label="이미지 미리보기"><button type="button" data-flip-asset key={assetPreview.owner} className="reader-asset-preview-expand" tabIndex={assetPreview.pinned?0:-1} aria-label="이미지 미리보기 접기" onClick={event=>{event.stopPropagation();hoverSuppressedRef.current.add(assetPreview.owner);setAssetPreview(null);}} style={{left:assetPreview.left,top:assetPreview.top,width:assetPreview.width,height:assetPreview.height,'--preview-clip-x':`${Math.max(0,(assetPreview.width-assetPreview.size)/2)}px`,'--preview-clip-bottom':`${Math.max(0,assetPreview.height-assetPreview.size)}px`} as CSSProperties}><img src={assetPreview.asset.src} alt={assetPreview.asset.name} draggable={false}/></button></div>,assetPreview.container)}
     <div ref={measureRef} className="reader-measure reader-page-content" aria-hidden="true" />
+    {bookmarkToast&&<div className="toast" role="status">{bookmarkToast}</div>}
     {leaveConfirm&&<LeaveDialog moving={!!shelfBookmark} busy={bookmarkBusy} error={leaveError} onCancel={()=>{setLeaveConfirm(false);setLeaveError('');}} onLeave={()=>closeRef.current()} onSave={()=>void saveBeforeLeaving()}/>}
     {nextConfirm&&onNextVolume&&<NextVolumeDialog title={nextVolumeTitle} onClose={()=>setNextConfirm(false)} onConfirm={()=>{setNextConfirm(false);onNextVolume();}}/>}
   </div>;

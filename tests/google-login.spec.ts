@@ -157,3 +157,13 @@ test('DOM Google button becomes ready without any iframe load',async({page})=>{
  await expect(page.locator('.google-account-provider')).toHaveAttribute('data-ready','true');
  await expect(page.locator('.google-login-progress')).toHaveCount(0);
 });
+
+test('keeps the temporary DOM-to-iframe handoff hidden',async({page})=>{
+ await setup(page);
+ await page.evaluate(()=>{const host=(window as any).renders[0].host;const node=document.createElement('div');node.setAttribute('role','button');node.style.cssText='width:300px;height:40px';host.replaceChildren(node);});
+ await pending(page);
+ await page.waitForTimeout(250);
+ await pending(page);
+ await page.evaluate(()=>{const state=window as any;state.addFrame(0);state.loadFrame(0);state.renders[0].host.querySelector('[role=button]')?.remove();});
+ await expect(page.locator('.google-account-provider')).toHaveAttribute('data-ready','true');
+});

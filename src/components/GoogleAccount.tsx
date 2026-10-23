@@ -64,19 +64,33 @@ function renderGoogleButton(host: HTMLElement, signal: AbortSignal, render: () =
   return new Promise((resolve, reject) => {
     let timer:ReturnType<typeof setTimeout>;
     let settled=false;
+    let domSince=0,frameSince=0;
+    let lastFrameBox="";
     const finish=(error?:Error)=>{if(settled)return;settled=true;clearTimeout(timer);observer.disconnect();signal.removeEventListener('abort',abort);error?reject(error):resolve();};
     const abort=()=>finish(new Error('Google button cancelled'));
-    // GIS may render a DOM button or an iframe; iframe load is not a readiness
-    // contract. Cached frames and DOM buttons must not wait for that event.
+    // GIS may hand a temporary DOM button over to an iframe. Observe stable
+    // layout without requiring iframe load, which DOM-only clients never emit.
     const check=()=>{
       clearTimeout(timer);
       if(settled)return;
-      const ready=[...host.querySelectorAll<HTMLElement>('[role="button"],iframe')].some(node=>{
-        const box=node.getBoundingClientRect();
-        if(node instanceof HTMLIFrameElement&&(!node.src||node.src==='about:blank'))return false;
-        return box.width>0&&box.height>0&&getComputedStyle(node).display!=='none';
-      });
-      if(ready)finish();else timer=setTimeout(check,100);
+      const nodes=[...host.querySelectorAll<HTMLElement>('[role="button"],iframe')];
+      const visible=nodes.filter(node=>{const box=node.getBoundingClientRect();return box.width>0&&box.height>0&&getComputedStyle(node).display!=='none';});
+      const frame=visible.find(node=>node instanceof HTMLIFrameElement&&node.src&&node.src!=='about:blank');
+      const now=performance.now();
+      if(frame){
+        const box=frame.getBoundingClientRect(),signature=[box.x,box.y,box.width,box.height].join(':');
+        if(signature!==lastFrameBox){lastFrameBox=signature;frameSince=now;}
+        if(now-frameSince>=150){finish();return;}
+      }else{
+        frameSince=0;lastFrameBox='';
+        // GIS briefly exposes a DOM fallback before replacing it with its
+        // iframe. Keep that handoff hidden; DOM-only implementations still work.
+        if(visible.some(node=>node.getAttribute('role')==='button')){
+          if(!domSince)domSince=now;
+          if(now-domSince>=700){finish();return;}
+        }else domSince=0;
+      }
+      timer=setTimeout(check,75);
     };
     const observer=new MutationObserver(()=>{clearTimeout(timer);timer=setTimeout(check,100);});
     observer.observe(host,{childList:true,subtree:true,attributes:true});
