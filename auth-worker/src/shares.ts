@@ -87,12 +87,12 @@ export async function manageShare(request:Request,db:TextDatabase,owner:string,b
  // Quotas checked inside the write, including concurrent create requests.
  const result=await db.prepare(`INSERT INTO book_shares(share_id,owner_id,book_id,body,bytes,created_at,updated_at,last_access_at,title)
  SELECT ?1,?2,?3,?4,?5,?6,?6,?6,?7
- WHERE ((SELECT COUNT(*) FROM book_shares WHERE owner_id=?2)<20 OR EXISTS(SELECT 1 FROM book_shares WHERE owner_id=?2 AND book_id=?3))
+ WHERE ((SELECT COUNT(*) FROM book_shares WHERE owner_id=?2 AND last_access_at>?6-604800000)<10 OR EXISTS(SELECT 1 FROM book_shares WHERE owner_id=?2 AND book_id=?3))
  AND (SELECT COALESCE(SUM(bytes),0) FROM book_shares WHERE owner_id=?2 AND book_id!=?3)+?5<=20000000
  AND (SELECT COALESCE(SUM(bytes),0) FROM book_shares WHERE NOT(owner_id=?2 AND book_id=?3))+?5<=100000000
  ON CONFLICT(owner_id,book_id) DO UPDATE SET body=excluded.body,bytes=excluded.bytes,updated_at=excluded.updated_at,title=excluded.title`).bind(shareId,owner,bookId,body,bytes,now,book.title.slice(0,200)).run();
- if(!result.meta.changes)return reply({error:'공유 보관 한도에 도달했어요. 기존 공유를 종료해 주세요.'},413,origin);
+ if(!result.meta.changes)return reply({error:'공유 URL은 계정당 10개까지 만들 수 있어요. 기존 공유를 삭제하거나 보관 용량을 확인해 주세요.'},413,origin);
  const row=await db.prepare('SELECT share_id, updated_at FROM book_shares WHERE owner_id = ?1 AND book_id = ?2').bind(owner,bookId).first<{share_id:string;updated_at:number}>();
- if(row)await db.prepare("DELETE FROM share_media WHERE share_id=?1 AND role!='card'").bind(row.share_id).run();
+
  return reply({share:metadata(row)},200,origin);
 }

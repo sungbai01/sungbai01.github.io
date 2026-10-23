@@ -22,6 +22,34 @@ function signature(bytes:Uint8Array){
  if(bytes.length>16&&new TextDecoder().decode(bytes.slice(0,4))==='RIFF'&&new TextDecoder().decode(bytes.slice(8,12))==='WEBP')return 'image/webp';
  return null;
 }
+const imageUrl=(request:Request,share:string,image:string)=>`${new URL(request.url).origin}/share-media/${share}/${image}`;
+function validImageIdentity(name:unknown,role:unknown,hash:unknown){return typeof name==='string'&&!!name.trim()&&name.length<=500&&!/[\u0000-\u001f]/.test(name)&&['asset','icon','card'].includes(role as string)&&typeof hash==='string'&&/^[a-f0-9]{64}$/.test(hash);}
+async function reuseImage(request:Request,db:TextDatabase,owner:string,share:string,name:string,role:string,hash:string):Promise<string|null>{
+ const old=await db.prepare(`SELECT m.image_id,m.object_key FROM share_media m JOIN share_object_info i ON i.object_key=m.object_key WHERE m.share_id=?1 AND m.name=?2 AND m.role=?3 AND i.owner_id=?4 AND i.content_hash=?5 AND i.deleting=0`).bind(share,name,role,owner,hash).first<{image_id:string;object_key:string}>();
+ if(old)return imageUrl(request,share,old.image_id);
+ const object=await db.prepare(`SELECT o.object_key,o.bytes,m.mime FROM share_object_info i JOIN share_objects o ON o.object_key=i.object_key JOIN share_media m ON m.object_key=o.object_key JOIN book_shares s ON s.share_id=m.share_id WHERE i.owner_id=?1 AND s.owner_id=?1 AND i.content_hash=?2 AND i.deleting=0 AND s.last_access_at>?3 LIMIT 1`).bind(owner,hash,Date.now()-SHARE_IDLE_MS).first<{object_key:string;bytes:number;mime:string}>();
+ if(!object)return null;
+ const image=crypto.randomUUID();
+ const result=await db.prepare(`INSERT INTO share_media(share_id,image_id,name,role,object_key,mime,bytes)
+ SELECT ?1,?2,?3,?4,?5,?6,?7
+ WHERE EXISTS(SELECT 1 FROM share_object_info WHERE object_key=?5 AND owner_id=?8 AND deleting=0)
+ AND EXISTS(SELECT 1 FROM book_shares WHERE share_id=?1 AND owner_id=?8 AND last_access_at>?9)
+ AND (SELECT COALESCE(SUM(bytes),0) FROM share_media WHERE share_id=?1 AND NOT(name=?3 AND role=?4))+?7<=50000000
+ AND ((SELECT COUNT(*) FROM share_media WHERE share_id=?1)<64 OR EXISTS(SELECT 1 FROM share_media WHERE share_id=?1 AND name=?3 AND role=?4))
+ ON CONFLICT(share_id,name,role) DO UPDATE SET image_id=excluded.image_id,object_key=excluded.object_key,mime=excluded.mime,bytes=excluded.bytes`).bind(share,image,name,role,object.object_key,object.mime,object.bytes,owner,Date.now()-SHARE_IDLE_MS).run();
+ return result.meta.changes?imageUrl(request,share,image):null;
+}
+/** Hash manifests can reuse only server-verified objects belonging to this owner. */
+export async function prepareShareImages(request:Request,db:TextDatabase,owner:string,bookId:string,origin:string,reply:Reply){
+ const share=await db.prepare('SELECT share_id FROM book_shares WHERE owner_id=?1 AND book_id=?2 AND last_access_at>?3').bind(owner,bookId,Date.now()-SHARE_IDLE_MS).first<{share_id:string}>();if(!share)return reply({error:'공유 링크를 먼저 만들어 주세요.'},404,origin);
+ const reader=request.body?.getReader();if(!reader)return reply({error:'이미지 목록이 없어요.'},400,origin);let size=0;const chunks:Uint8Array[]=[];
+ try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>100000){await reader.cancel();return reply({error:'이미지 목록이 너무 커요.'},413,origin);}chunks.push(value);}}finally{reader.releaseLock();}
+ const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
+ let input:{images:{name:string;role:string;hash:string}[]};try{input=JSON.parse(new TextDecoder().decode(bytes));if(!Array.isArray(input.images)||input.images.length>44||input.images.some(item=>!validImageIdentity(item?.name,item?.role,item?.hash)))throw Error();}catch{return reply({error:'이미지 목록이 올바르지 않아요.'},400,origin);}
+ if(!await allowShareAction(db,owner,'image'))return reply({error:'잠시 후 다시 시도해 주세요.'},429,origin);
+ const images=[];for(const item of input.images)images.push({...item,url:await reuseImage(request,db,owner,share.share_id,item.name,item.role,item.hash)});
+ return reply({images},200,origin);
+}
 export async function uploadShareImage(request:Request,db:TextDatabase,bucket:ShareBucket|undefined,owner:string,bookId:string,origin:string,reply:Reply){
  if(request.method!=='POST')return reply({error:'허용되지 않는 요청이에요.'},405,origin);
  if(!bucket)return reply({error:'R2 이미지 저장소 활성화가 필요해요.'},503,origin);
@@ -30,7 +58,7 @@ export async function uploadShareImage(request:Request,db:TextDatabase,bucket:Sh
  const role=request.headers.get('X-Image-Role')??'';
  let name='';try{name=decodeURIComponent(request.headers.get('X-Image-Name')??'');}catch{return reply({error:'이미지 이름이 올바르지 않아요.'},400,origin);}
  if(!['asset','icon','card'].includes(role)||!name.trim()||name.length>500||/[\u0000-\u001f]/.test(name))return reply({error:'이미지 형식이 올바르지 않아요.'},400,origin);
- if(!await allowShareAction(db,owner,role==='card'?'card':'image'))return reply({error:role==='card'?'카드 업로드는 1분에 한 번, 하루 30회까지 가능해요.':'이미지를 너무 빠르게 올리고 있어요. 잠시 후 다시 시도해 주세요.'},429,origin);
+
  const declaredSize=Number(request.headers.get('Content-Length'));
  if(Number.isFinite(declaredSize)&&declaredSize>maxImage)return reply({error:'공유 이미지는 한 장당 2MB 이하여야 해요.'},413,origin);
  const reader=request.body?.getReader();if(!reader)return reply({error:'이미지가 없어요.'},400,origin);
@@ -38,15 +66,19 @@ export async function uploadShareImage(request:Request,db:TextDatabase,bucket:Sh
  try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>maxImage){await reader.cancel();return reply({error:'공유 이미지는 2MB 이하여야 해요.'},413,origin);}chunks.push(value);}}finally{reader.releaseLock();}
  const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
  const mime=signature(bytes);if(!mime)return reply({error:'PNG · JPEG · WEBP 이미지만 공유할 수 있어요.'},415,origin);
+ const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),byte=>byte.toString(16).padStart(2,'0')).join('');
+ const reused=await reuseImage(request,db,owner,share.share_id,name,role,hash);if(reused)return reply({url:reused,reused:true},200,origin);
+ if(!await allowShareAction(db,owner,role==='card'?'card':'image'))return reply({error:role==='card'?'카드 업로드는 1분에 한 번, 하루 30회까지 가능해요.':'이미지를 너무 빠르게 올리고 있어요. 잠시 후 다시 시도해 주세요.'},429,origin);
  const imageId=crypto.randomUUID(),key=`${share.share_id}/${imageId}`;
  // The trigger reserves operations, global bytes and per-share in-flight bytes
  // atomically. A failed reservation changes none of those counters.
- try{await db.prepare('INSERT INTO share_upload_reservations(object_key,share_id,bytes,created_at) VALUES(?1,?2,?3,?4)').bind(key,share.share_id,size,Date.now()).run();}
- catch(error){const reason=String(error);if(reason.includes('UPLOAD_OPERATION_LIMIT'))return reply({error:'이번 달 이미지 업로드 한도에 도달했어요.'},429,origin);if(reason.includes('UPLOAD_'))return reply({error:'공유 이미지 저장 한도에 도달했어요.'},413,origin);throw error;}
+ try{await db.prepare('INSERT INTO share_upload_reservations(object_key,share_id,bytes,created_at,owner_id) VALUES(?1,?2,?3,?4,?5)').bind(key,share.share_id,size,Date.now(),owner).run();}
+ catch(error){const reason=String(error);if(reason.includes('UPLOAD_OPERATION_LIMIT'))return reply({error:'이번 달 이미지 업로드 한도에 도달했어요.'},429,origin);if(reason.includes('UPLOAD_ACCOUNT_LIMIT'))return reply({error:'계정의 공유 이미지 한도 100MB에 도달했어요. 기존 공유를 삭제해 주세요.'},413,origin);if(reason.includes('UPLOAD_'))return reply({error:'공유 이미지 저장 한도에 도달했어요.'},413,origin);throw error;}
  try{
   await bucket.put(key,bytes.buffer,{httpMetadata:{contentType:mime},customMetadata:{share:share.share_id}});
   await db.batch([
    db.prepare('INSERT INTO share_objects(object_key,share_id,bytes,created_at) SELECT object_key,share_id,bytes,created_at FROM share_upload_reservations WHERE object_key=?1').bind(key),
+   db.prepare('INSERT INTO share_object_info(object_key,owner_id,content_hash) SELECT ?1,?2,?3 WHERE EXISTS(SELECT 1 FROM share_objects WHERE object_key=?1)').bind(key,owner,hash),
    db.prepare('INSERT INTO share_media(share_id,image_id,name,role,object_key,mime,bytes) SELECT ?1,?2,?3,?4,?5,?6,?7 WHERE EXISTS(SELECT 1 FROM book_shares WHERE share_id=?1 AND owner_id=?8 AND last_access_at>?9) AND EXISTS(SELECT 1 FROM share_objects WHERE object_key=?5) ON CONFLICT(share_id,name,role) DO UPDATE SET image_id=excluded.image_id,object_key=excluded.object_key,mime=excluded.mime,bytes=excluded.bytes').bind(share.share_id,imageId,name,role,key,mime,size,owner,Date.now()-SHARE_IDLE_MS),
    db.prepare('DELETE FROM share_upload_reservations WHERE object_key=?1 AND EXISTS(SELECT 1 FROM share_objects WHERE object_key=?1)').bind(key),
   ]);

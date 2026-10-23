@@ -1,6 +1,7 @@
+import {saveShareCardLayout} from './shareCard';
 import {libraryApi,type TextDatabase} from './cloud';
 import {manageShare,publicShare} from './shares';
-import {uploadShareImage,publicShareImage,type ShareBucket} from './shareMedia';
+import {uploadShareImage,prepareShareImages,publicShareImage,type ShareBucket} from './shareMedia';
 import {cleanExpiredShares} from './shareExpiry';
 import {shareManagement} from './shareManagement';
 import {verifySession,issueSession,revokeSession,Unauthorized} from './sessions';
@@ -48,7 +49,8 @@ async function handle(request:Request,env:Env):Promise<Response>{
    if(!env.DB)return reply({error:'저장소 연결 준비 중이에요.'},503,origin);
    if(path==='/library/shares'||path.startsWith('/library/shares/'))return shareManagement(request,env.DB,user.id,origin,reply);
    const image=/^\/library\/books\/([^/]+)\/share\/images$/.exec(path);
-   if(image){let bookId:string;try{bookId=decodeURIComponent(image[1]);}catch{return reply({error:'책을 찾을 수 없어요.'},404,origin);}return uploadShareImage(request,env.DB,env.SHARE_IMAGES,user.id,bookId,origin,reply);}
+   if(image){let bookId:string;try{bookId=decodeURIComponent(image[1]);}catch{return reply({error:'책을 찾을 수 없어요.'},404,origin);}return request.method==='PUT'?prepareShareImages(request,env.DB,user.id,bookId,origin,reply):uploadShareImage(request,env.DB,env.SHARE_IMAGES,user.id,bookId,origin,reply);}
+   const card=/^\/library\/books\/([^/]+)\/share\/card$/.exec(path);if(card){let bookId:string;try{bookId=decodeURIComponent(card[1]);}catch{return reply({error:'책을 찾을 수 없어요.'},404,origin);}return saveShareCardLayout(request,env.DB,user.id,bookId,origin,reply);}
    const share=/^\/library\/books\/([^/]+)\/share$/.exec(path);
    if(share){let bookId:string;try{bookId=decodeURIComponent(share[1]);}catch{return reply({error:'책을 찾을 수 없어요.'},404,origin);}return manageShare(request,env.DB,user.id,bookId,origin,reply);}
    return libraryApi(request,env.DB,user.id,origin,reply);

@@ -1,0 +1,16 @@
+import type {TextDatabase} from './cloud';
+import {SHARE_IDLE_MS} from './shareExpiry';
+import {allowShareAction} from './shareLimits';
+type Reply=(body:unknown,status:number,origin:string)=>Response;
+export async function saveShareCardLayout(request:Request,db:TextDatabase,owner:string,bookId:string,origin:string,reply:Reply){
+ if(request.method!=='PUT')return reply({error:'허용되지 않는 요청이에요.'},405,origin);
+ const share=await db.prepare('SELECT share_id FROM book_shares WHERE owner_id=?1 AND book_id=?2 AND last_access_at>?3').bind(owner,bookId,Date.now()-SHARE_IDLE_MS).first<{share_id:string}>();if(!share)return reply({error:'공유 링크를 찾을 수 없어요.'},404,origin);
+ const reader=request.body?.getReader();if(!reader)return reply({error:'카드 정보가 없어요.'},400,origin);let size=0;const chunks:Uint8Array[]=[];
+ try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>10000){await reader.cancel();return reply({error:'카드 정보가 너무 커요.'},413,origin);}chunks.push(value);}}finally{reader.releaseLock();}
+ const bytes=new Uint8Array(size);let cursor=0;for(const chunk of chunks){bytes.set(chunk,cursor);cursor+=chunk.length;}
+ let value:{title:string;quote:string;quotePages?:{start:number;end:number};imagePosition:number;backgroundUrl?:string};
+ try{value=JSON.parse(new TextDecoder().decode(bytes));if(typeof value.title!=='string'||!value.title.trim()||value.title.length>160||typeof value.quote!=='string'||value.quote.length>240||!Number.isFinite(value.imagePosition)||value.imagePosition<0||value.imagePosition>1)throw Error();if(value.backgroundUrl!==undefined&&value.backgroundUrl!==''){const url=new URL(value.backgroundUrl);if(url.protocol!=='https:'||url.username||url.password||value.backgroundUrl.length>2048)throw Error();value.backgroundUrl=url.href;}if(value.quotePages&&(!Number.isInteger(value.quotePages.start)||!Number.isInteger(value.quotePages.end)||value.quotePages.start<1||value.quotePages.end<value.quotePages.start||value.quotePages.end>100000))throw Error();}catch{return reply({error:'카드 정보가 올바르지 않아요.'},400,origin);}
+ if(!await allowShareAction(db,owner,'image'))return reply({error:'잠시 후 다시 시도해 주세요.'},429,origin);
+ await db.prepare(`INSERT INTO share_card_layout(share_id,title,quote,page_start,page_end,image_position,background_url) SELECT ?1,?2,?3,?4,?5,?6,?9 WHERE EXISTS(SELECT 1 FROM book_shares WHERE share_id=?1 AND owner_id=?7 AND last_access_at>?8) ON CONFLICT(share_id) DO UPDATE SET title=excluded.title,quote=excluded.quote,page_start=excluded.page_start,page_end=excluded.page_end,image_position=excluded.image_position,background_url=excluded.background_url`).bind(share.share_id,value.title.trim(),value.quote,value.quotePages?.start??null,value.quotePages?.end??null,value.imagePosition,owner,Date.now()-SHARE_IDLE_MS,value.backgroundUrl||null).run();
+ return reply({saved:true},200,origin);
+}

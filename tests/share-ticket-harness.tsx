@@ -1,3 +1,4 @@
+import ShareManager from '../src/components/ShareManager';
 import React,{useRef,useState} from 'react';
 import ShareQuoteSelection from '../src/components/ShareQuoteSelection';
 import {createRoot} from 'react-dom/client';
@@ -20,3 +21,5 @@ export function mountRangeSelection(){
  function Harness(){const ref=useRef<HTMLDivElement>(null);return <div ref={ref}><article className="reader-page"><p className="reader-prose">앞쪽 대사</p><span className="reader-page-number">17</span></article><article className="reader-page"><p className="reader-prose">뒷쪽 대사</p><span className="reader-page-number">18</span></article><ShareQuoteSelection host={ref} onDone={(text,pages)=>{(window as any).selectedRange={text,pages};}} onPrevious={()=>{}} onNext={()=>{}}/></div>;}
  const host=document.createElement('div');document.body.append(host);createRoot(host).render(<Harness/>);
 }
+
+export function mountShareManager(){const host=document.createElement('div');document.body.append(host);const root=createRoot(host);root.render(<ShareManager onClose={()=>root.unmount()}/>);}

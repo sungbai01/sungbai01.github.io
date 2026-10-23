@@ -79,13 +79,15 @@ for(const format of ['HTML','URL'])test(`${format} share creates its link and in
  await page.route('**/library/books/ticket-test/share**',async route=>{
   const request=route.request(),path=new URL(request.url()).pathname;
   calls.push({method:request.method(),path,role:request.headers()['x-image-role']??null});
-  if(path.endsWith('/images'))await route.fulfill({json:{url:'https://example.com/card.webp'}});
+  if(path.endsWith('/images')&&request.method()==='PUT')await route.fulfill({json:{images:request.postDataJSON().images.map((image:any)=>({...image,url:null}))}});
+  else if(path.endsWith('/card'))await route.fulfill({json:{saved:true}});
+  else if(path.endsWith('/images'))await route.fulfill({json:{url:'https://example.com/card.webp'}});
   else await route.fulfill({json:{share:request.method()==='GET'?null:{id:'a'.repeat(43),updatedAt:Date.now()}}});
  });
  await page.goto('http://127.0.0.1:5175/');
  await page.evaluate(async()=>{
   const auth=await import('/src/lib/auth.ts');auth.setAuthSession({token:'mock',expiresAt:Date.now()+3600000,user:{id:'u_'+'a'.repeat(43)}});
-  Object.defineProperty(navigator,'clipboard',{value:{writeText:async(text:string)=>{(window as any).copied=text;}}});
+  Object.defineProperty(navigator,'clipboard',{value:{writeText:async(text:string)=>{(window as any).copied=text;},write:async(items:ClipboardItem[])=>{(window as any).clipboardTypes=items[0].types;(window as any).copied=await (await items[0].getType('text/html')).text();}}});
   const {mountTicket}=await import('/tests/share-ticket-harness.tsx');mountTicket(true);
  });
  await expect(page.getByRole('dialog',{name:'책 공유'})).toBeVisible();await page.evaluate(()=>(window as any).finishBook());
@@ -99,11 +101,14 @@ for(const format of ['HTML','URL'])test(`${format} share creates its link and in
  const flyoutFits=await page.locator('.share-ticket-actions').evaluate(el=>{const r=el.getBoundingClientRect(),button=el.parentElement!.querySelector('button')!.getBoundingClientRect();return r.left>=button.right&&r.right<=innerWidth;});expect(flyoutFits).toBe(true);
  expect(calls).toEqual([]);
  await page.getByRole('button',{name:format+'로 공유',exact:true}).click();
+ if(format==='HTML')await page.getByRole('button',{name:'HTML 복사',exact:true}).click();
  await expect(page.getByRole('status').filter({hasText:'복사했어요.'})).toBeVisible();
- expect(calls.map(call=>[call.method,call.role])).toEqual([['GET',null],['POST',null],['POST','asset'],...(format==='HTML'?[['POST','card']]:[])]);
+ expect(calls.map(call=>[call.method,call.role])).toEqual([['GET',null],['POST',null],['PUT',null],['POST','asset'],['PUT',null]]);
  expect(await page.evaluate(()=>(window as any).copied)).toContain('#/share/'+'a'.repeat(43));
- await page.getByRole('button',{name:format+'로 공유',exact:true}).click();
- expect(calls.length).toBe(format==='HTML'?4:3);
+ if(format==='HTML')expect(await page.evaluate(()=>(window as any).clipboardTypes)).toEqual(['text/html','text/plain']);
+ if(format==='URL')await page.getByRole('button',{name:'URL로 공유',exact:true}).click();
+ else await page.getByRole('button',{name:'HTML 복사',exact:true}).click();
+ await expect.poll(()=>calls.length).toBe(6);
 });
 test('empty quote draws no quotation mark and selection can confirm empty',async({page})=>{
  await page.route('https://fonts.googleapis.com/**',r=>r.abort());await page.route('https://fonts.gstatic.com/**',r=>r.abort());

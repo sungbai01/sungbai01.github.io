@@ -23,14 +23,17 @@ export async function cleanExpiredShares(db:TextDatabase,bucket:ShareBucket){
   ]);
  }
  await db.batch([
+  db.prepare('DELETE FROM share_card_layout WHERE share_id IN (SELECT share_id FROM share_card_layout WHERE NOT EXISTS(SELECT 1 FROM book_shares WHERE book_shares.share_id=share_card_layout.share_id) LIMIT 100)'),
   db.prepare('DELETE FROM auth_sessions WHERE session_id IN (SELECT session_id FROM auth_sessions WHERE expires_at<?1 LIMIT 100)').bind(now-86400000),
   db.prepare('DELETE FROM public_read_budget WHERE day<?1').bind(new Date(now-7*86400000).toISOString().slice(0,10)),
  ]);
  const {results}=await db.prepare(`SELECT object_key,bytes FROM share_objects WHERE created_at<?1 AND
- (NOT EXISTS(SELECT 1 FROM book_shares WHERE book_shares.share_id=share_objects.share_id)
- OR NOT EXISTS(SELECT 1 FROM share_media WHERE share_media.object_key=share_objects.object_key))
- ORDER BY created_at LIMIT 5`).bind(now-60*60*1000).all<{object_key:string;bytes:number}>();
+ NOT EXISTS(SELECT 1 FROM share_media m JOIN book_shares s ON s.share_id=m.share_id WHERE m.object_key=share_objects.object_key AND s.last_access_at>?2)
+ ORDER BY created_at LIMIT 5`).bind(now-60*60*1000,now-SHARE_IDLE_MS).all<{object_key:string;bytes:number}>();
  for(const object of results){
+  await db.prepare("INSERT OR IGNORE INTO share_object_info(object_key,owner_id) VALUES(?1,'')").bind(object.object_key).run();
+  const claim=await db.prepare(`UPDATE share_object_info SET deleting=1 WHERE object_key=?1 AND NOT EXISTS(SELECT 1 FROM share_media m JOIN book_shares s ON s.share_id=m.share_id WHERE m.object_key=?1 AND s.last_access_at>?2)`).bind(object.object_key,now-SHARE_IDLE_MS).run();
+  if(!claim.meta.changes)continue;
   // Deletion must finish before space can be credited. Failed deletes leave the
   // ledger intact, and an atomic batch prevents overlapping cron refunds.
   await bucket.delete(object.object_key);
@@ -38,6 +41,7 @@ export async function cleanExpiredShares(db:TextDatabase,bucket:ShareBucket){
    db.prepare('UPDATE share_storage_budget SET reserved_bytes=MAX(0,reserved_bytes-?1) WHERE id=1 AND EXISTS(SELECT 1 FROM share_objects WHERE object_key=?2)').bind(object.bytes,object.object_key),
    db.prepare('DELETE FROM share_media WHERE object_key=?1').bind(object.object_key),
    db.prepare('DELETE FROM share_objects WHERE object_key=?1').bind(object.object_key),
+   db.prepare('DELETE FROM share_object_info WHERE object_key=?1').bind(object.object_key),
   ]);
  }
 }

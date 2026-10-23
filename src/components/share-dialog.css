@@ -87,3 +87,5 @@
 .share-image-drag-hint:focus-visible{outline:2px solid var(--brand-primary);outline-offset:4px;border-radius:var(--radius-control)}
 @media(min-width:601px){.share-ticket-frame{padding-left:40px}}
 @media(max-width:600px){.share-ticket-frame{padding-left:38px}.share-image-drag-hint{right:calc(100% + 8px);width:22px;gap:4px}.share-image-drag-hint>span{height:8px}}
+
+.share-html-panel{position:absolute;right:58px;top:0;z-index:5;width:300px;max-width:calc(100vw - 64px);padding:16px;display:grid;gap:14px;background:var(--brand-surface);color:var(--brand-text);border:1px solid var(--brand-border);border-radius:var(--radius-panel)}.share-html-panel>div{display:flex;align-items:center;justify-content:space-between}.share-html-panel strong{font-size:13px}.share-html-panel .field{font-size:11px}.share-html-panel button{justify-content:center}
