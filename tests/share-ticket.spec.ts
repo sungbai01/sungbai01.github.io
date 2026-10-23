@@ -13,11 +13,17 @@ for(const width of [390,1440])test(`share ticket opens before book fetch (${widt
  await expect(page.getByRole('button',{name:'공유할 대사 선택',exact:true})).toBeDisabled();
  expect(await page.locator('.share-ticket-workspace').evaluate(el=>getComputedStyle(el).animationName)).toBe('share-dialog-enter');
  await page.evaluate(()=>document.querySelector('.share-ticket-workspace')!.getAnimations().forEach(animation=>animation.finish()));
+ await expect(page.locator('.share-ticket-placeholder')).toHaveCSS('mask-mode','luminance');
  const before=await page.locator('.share-interactive-ticket').boundingBox();
  const fits=await page.locator('.share-ticket-dialog').evaluate(el=>el.scrollWidth<=el.clientWidth);
  expect(fits).toBe(true);
  await page.evaluate(()=>(window as any).finishBook());
  await expect(page.getByRole('button',{name:'공유할 대사 선택',exact:true})).toBeEnabled();
+ await expect(page.locator('.share-ticket-quote-target')).toContainText('대사 선택');
+ await expect(page.locator('.share-ticket-quote-target')).toHaveCSS('border-color','rgba(0, 0, 0, 0)');
+ await page.locator('.share-ticket-quote-target').hover();
+ await expect(page.locator('.share-ticket-quote-target')).not.toHaveCSS('border-color','rgba(0, 0, 0, 0)');
+ await page.mouse.move(0,0);
  await expect(page.getByRole('button',{name:'카드 이미지 저장',exact:true})).toBeEnabled();
  await expect(page.locator('.share-ticket-render')).toBeVisible();
  expect(await page.locator('.share-interactive-ticket').boundingBox()).toEqual(before);
@@ -37,7 +43,16 @@ for(const width of [390,1440])test(`share ticket opens before book fetch (${widt
  expect(file.suggestedFilename()).toMatch(/\.(webp|png)$/);
  const stream=await file.createReadStream();const chunks=[];for await(const chunk of stream!)chunks.push(chunk);
  expect(Array.from(Buffer.concat(chunks))).toEqual(preview);
+ await page.getByRole('button',{name:'공유',exact:true}).click();
+ await expect(page.getByRole('group',{name:'공유 형식',exact:true})).toBeVisible();
+ await page.keyboard.press('Escape');
+ await expect(page.locator('.share-ticket-actions')).toHaveAttribute('data-closing','true');
+ expect(await page.locator('.share-ticket-actions').evaluate(el=>getComputedStyle(el).animationName)).toBe('share-actions-exit');
+ await expect(page.locator('.share-ticket-actions')).toHaveCount(0);
+ await expect(page.getByRole('button',{name:'공유',exact:true})).toBeEnabled();
  await page.getByRole('button',{name:'닫기',exact:true}).click();
+ await expect(page.getByRole('dialog',{name:'책 공유'})).toHaveAttribute('data-closing','true');
+ expect(await page.locator('.share-ticket-workspace').evaluate(el=>getComputedStyle(el).animationName)).toBe('share-dialog-exit');
  await expect(page.getByRole('dialog',{name:'책 공유'})).toHaveCount(0);
  expect(errors).toEqual([]);
 });
@@ -64,7 +79,9 @@ for(const format of ['HTML','URL'])test(`${format} share creates its link and in
  await expect(page.getByRole('button',{name:'공유',exact:true})).toBeDisabled();
  await expect(page.getByRole('button',{name:'URL로 공유',exact:true})).toBeVisible();
  await expect(page.getByRole('button',{name:'HTML로 공유',exact:true})).toBeVisible();
- const flyoutFits=await page.locator('.share-ticket-actions').evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth;});expect(flyoutFits).toBe(true);
+ expect(await page.getByRole('button',{name:'URL로 공유',exact:true}).innerText()).toBe('');
+ expect(await page.getByRole('button',{name:'HTML로 공유',exact:true}).innerText()).toBe('');
+ const flyoutFits=await page.locator('.share-ticket-actions').evaluate(el=>{const r=el.getBoundingClientRect(),button=el.parentElement!.querySelector('button')!.getBoundingClientRect();return r.left>=button.right&&r.right<=innerWidth;});expect(flyoutFits).toBe(true);
  expect(calls).toEqual([]);
  await page.getByRole('button',{name:format+'로 공유',exact:true}).click();
  await expect(page.getByRole('status').filter({hasText:'복사했어요.'})).toBeVisible();
@@ -111,4 +128,18 @@ test('shared toast expires and repeated notifications restart its lifetime',asyn
  await expect(page.locator('.toast')).toBeVisible();await page.clock.fastForward(3000);
  await page.getByRole('button',{name:'URL로 공유',exact:true}).click();await page.clock.fastForward(1000);await expect(page.locator('.toast')).toBeVisible();
  await page.clock.fastForward(2700);await expect(page.locator('.toast')).toHaveCount(0);
+});
+
+test('card render has a bounded font wait and ignores unrelated font readiness',async({page})=>{
+ await page.goto('http://127.0.0.1:5175/');
+ const result=await page.evaluate(async()=>{
+  const {makeTicketCard}=await import('/src/lib/shareTicket.ts');
+  const original=document.fonts.load;
+  Object.defineProperty(document.fonts,'ready',{configurable:true,get:()=>new Promise(()=>{})});
+  document.fonts.load=()=>new Promise(()=>{});
+  const start=performance.now();
+  try{const card=await makeTicketCard({id:'font',title:'느린 폰트',author:'',description:'',color:'#1d3b31',createdAt:'',updatedAt:'',messages:[]});return {elapsed:performance.now()-start,size:card.size};}
+  finally{document.fonts.load=original;}
+ });
+ expect(result.elapsed).toBeLessThan(1600);expect(result.size).toBeGreaterThan(0);
 });

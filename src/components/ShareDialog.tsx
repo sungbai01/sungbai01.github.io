@@ -10,11 +10,19 @@ export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAs
  const [book,setBook]=useState(sourceBook),[bookPending,setBookPending]=useState(!!loadBook),[bookError,setBookError]=useState('');
  useEffect(()=>{let active=true;setBook(sourceBook);setBookPending(!!loadBook);setBookError('');if(loadBook)void loadBook(sourceBook).then(value=>{if(active)setBook(value);}).catch(()=>{if(active)setBookError('책을 불러오지 못했어요. 닫고 다시 열어 주세요.');}).finally(()=>{if(active)setBookPending(false);});return()=>{active=false;};},[sourceBook,loadBook]);
  const dialog=useRef<HTMLDialogElement>(null),title=useId();
- const [busy,setBusy]=useState(false),[expanded,setExpanded]=useState(false),[manualCopy,setManualCopy]=useState('');
+ const [closing,setClosing]=useState(false);
+ const closeTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
+ const closeCallback=useRef(onClose);closeCallback.current=onClose;
+ useEffect(()=>()=>clearTimeout(closeTimer.current),[]);
+ function requestClose(){if(busy||closing)return;if(matchMedia('(prefers-reduced-motion: reduce)').matches){closeCallback.current();return;}setClosing(true);closeTimer.current=setTimeout(()=>closeCallback.current(),260);}
+ const [busy,setBusy]=useState(false),[expanded,setExpanded]=useState(false),[shareClosing,setShareClosing]=useState(false),[manualCopy,setManualCopy]=useState('');
+ const shareExitTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
+ useEffect(()=>()=>clearTimeout(shareExitTimer.current),[]);
+ function closeShare(){if(shareExitTimer.current)return;if(matchMedia('(prefers-reduced-motion: reduce)').matches){setExpanded(false);return;}setShareClosing(true);shareExitTimer.current=setTimeout(()=>{setExpanded(false);setShareClosing(false);shareExitTimer.current=undefined;},190);}
  const {toast,notify,dismiss}=useToast();
  const shareTools=useRef<HTMLDivElement>(null);
  useEffect(()=>{if(!bookError)return;notify(bookError,'error');},[bookError,notify]);
- useEffect(()=>{if(!expanded)return;const close=(event:PointerEvent)=>{if(!shareTools.current?.contains(event.target as Node))setExpanded(false);};document.addEventListener('pointerdown',close);return()=>document.removeEventListener('pointerdown',close);},[expanded]);
+ useEffect(()=>{if(!expanded)return;const close=(event:PointerEvent)=>{if(!shareTools.current?.contains(event.target as Node))closeShare();};document.addEventListener('pointerdown',close);return()=>document.removeEventListener('pointerdown',close);},[expanded]);
  const requestBusy=useRef(false),published=useRef<ShareInfo|null>(null),assetsUploaded=useRef(false),hostedCard=useRef('');
  const [card,setCard]=useState<Blob>(),[preview,setPreview]=useState('');const alive=useRef(true);
  useEffect(()=>{alive.current=true;const element=dialog.current!;element.showModal();return()=>{alive.current=false;element.close();};},[]);
@@ -36,24 +44,24 @@ export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAs
   }catch(cause){if(alive.current)notify(cause instanceof Error?cause.message:'카드를 공유하지 못했어요.','error');}
   finally{requestBusy.current=false;if(alive.current)setBusy(false);}
  }
- const locked=busy||bookPending||!!bookError;
- return <dialog ref={dialog} className="share-ticket-dialog" aria-labelledby={title} onCancel={event=>{event.preventDefault();if(expanded)setExpanded(false);else if(!busy)onClose();}}>
+ const locked=busy||closing||bookPending||!!bookError;
+ return <dialog ref={dialog} className="share-ticket-dialog" data-closing={closing||undefined} aria-labelledby={title} onCancel={event=>{event.preventDefault();if(expanded)closeShare();else requestClose();}}>
   <h2 id={title} className="sr-only">책 공유</h2>
   <div className="share-ticket-workspace">
    <article className="share-interactive-ticket" aria-label="저장될 공유 카드">
     <h3 className="sr-only">{book.title}</h3>
     {preview?<img className="share-ticket-render" src={preview} alt={`${book.title} 공유 카드 미리보기`}/>:<div className="share-ticket-placeholder" style={{backgroundColor:book.color}} aria-busy="true"><div><small>GALPI / A STORY TO KEEP</small><strong>{book.title}</strong><span className="skeleton-fill"/></div><aside><small>갈피 / SHARED BOOK</small><strong>{String(book.volumeNumber??1).padStart(2,'0')}</strong><small>{book.author||'저자 모델 미상'}</small></aside></div>}
-    {onSelectQuote&&<button className="share-ticket-quote-target" data-empty={!quote.trim()} aria-label="공유할 대사 선택" title="본문에서 드래그해 대사 선택 · 선택 없이도 공유 가능" disabled={locked} onClick={onSelectQuote}>{!quote.trim()&&<span>공유할 대사 선택<small>선택 사항</small></span>}</button>}
+    {onSelectQuote&&<button className="share-ticket-quote-target" data-empty={!quote.trim()} aria-label="공유할 대사 선택" title="본문에서 드래그해 대사 선택 · 선택 없이도 공유 가능" disabled={locked} onClick={onSelectQuote}>{!quote.trim()&&<span><span className="share-ticket-quote-mark" aria-hidden="true">“</span>대사 선택</span>}</button>}
    </article>
    <nav className="share-ticket-tools" aria-label="공유 도구">
-    <button className="share-ticket-close" aria-label="닫기" title="닫기" disabled={busy} onClick={onClose}><X size={20}/></button>
+    <button className="share-ticket-close" aria-label="닫기" title="닫기" disabled={busy||closing} onClick={requestClose}><X size={20}/></button>
     {onManageAssets&&<button disabled={busy} onClick={onManageAssets} title="공유 카드 이미지 선택" aria-label="공유 카드 이미지 선택"><Images size={20}/></button>}
     <button aria-label="카드 이미지 저장" title="카드 이미지 저장" disabled={!card||locked} onClick={()=>{if(card)downloadBlob(card,`갈피-공유카드.${card.type==='image/webp'?'webp':'png'}`);}}><Download size={20}/></button>
     <div className="share-ticket-share" ref={shareTools}>
      <button aria-label="공유" title="공유" aria-expanded={expanded} aria-controls={`${title}-share-actions`} disabled={!card||locked||expanded} onClick={()=>setExpanded(true)}>{busy?<LoaderCircle className="animate-spin" size={20}/>:<Share2 size={20}/>}</button>
-     {expanded&&<div className="share-ticket-actions" id={`${title}-share-actions`} role="group" aria-label="공유 형식">
-      <button aria-label="URL로 공유" title="URL로 공유" disabled={locked} onClick={()=>void shareCard('url')}><Link size={18}/><span>URL로 공유</span></button>
-      <button aria-label="HTML로 공유" title="HTML로 공유" disabled={locked} onClick={()=>void shareCard('html')}><Code2 size={18}/><span>HTML로 공유</span></button>
+     {expanded&&<div className="share-ticket-actions" data-closing={shareClosing||undefined} inert={shareClosing||undefined} id={`${title}-share-actions`} role="group" aria-label="공유 형식">
+      <button aria-label="URL로 공유" title="URL로 공유" disabled={locked} onClick={()=>void shareCard('url')}><Link size={18}/></button>
+      <button aria-label="HTML로 공유" title="HTML로 공유" disabled={locked} onClick={()=>void shareCard('html')}><Code2 size={18}/></button>
      </div>}
     </div>
    </nav>

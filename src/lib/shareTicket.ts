@@ -6,19 +6,25 @@ export const SHARE_QUOTE_LIMIT=240;
 // Dribbble /26570471 (typographic hierarchy and whitespace).
 // Book details replace travel/cinema fields; the user's artwork remains the backdrop.
 export async function makeTicketCard(book:Book,quote=''):Promise<Blob>{
- await document.fonts.ready;
- const canvas=document.createElement('canvas');canvas.width=1440;canvas.height=720;
- const ctx=canvas.getContext('2d');if(!ctx)throw new Error('카드를 만들지 못했어요.');
  const source=book.assets?.find(asset=>asset.id===book.shareCardAssetId)?.src
    ??book.characterIcon??book.assets?.find(asset=>asset.type==='icon')?.src;
+ // Card text and artwork prepare concurrently. Unrelated UI fonts must not
+ // block this canvas indefinitely on a cold or unreliable connection.
+ const fonts=new Promise<void>(resolve=>{
+  const timer=setTimeout(resolve,700);
+  void document.fonts.load('400 48px "Gowun Batang"',(book.title+(book.author??'')+quote).slice(0,512)).then(()=>{clearTimeout(timer);resolve();},()=>{clearTimeout(timer);resolve();});
+ });
+ const artwork=source?new Promise<HTMLImageElement>((resolve,reject)=>{
+  const image=new Image();image.crossOrigin='anonymous';image.referrerPolicy='no-referrer';
+  const timer=setTimeout(()=>{image.src='';reject(new Error('공유 카드 이미지를 불러오지 못했어요.'));},10000);
+  image.onload=()=>{clearTimeout(timer);resolve(image);};image.onerror=()=>{clearTimeout(timer);reject(new Error('공유 카드 이미지를 불러오지 못했어요.'));};image.src=source;
+ }):Promise.resolve(null);
+ const [,image]=await Promise.all([fonts,artwork]);
+ const canvas=document.createElement('canvas');canvas.width=1440;canvas.height=720;
+ const ctx=canvas.getContext('2d');if(!ctx)throw new Error('카드를 만들지 못했어요.');
  ctx.save();ctx.beginPath();ctx.roundRect(0,0,1440,720,24);ctx.clip();
  ctx.fillStyle=book.color;ctx.fillRect(0,0,1440,720);
- if(source){
-  const image=new Image();image.crossOrigin='anonymous';image.referrerPolicy='no-referrer';
-  await new Promise<void>((resolve,reject)=>{const timer=setTimeout(()=>{image.src='';reject(new Error('공유 카드 이미지를 불러오지 못했어요.'));},10000);image.onload=()=>{clearTimeout(timer);resolve();};image.onerror=()=>{clearTimeout(timer);reject(new Error('공유 카드 이미지를 불러오지 못했어요.'));};image.src=source;});
-  const scale=Math.max(1440/image.naturalWidth,720/image.naturalHeight);
-  ctx.drawImage(image,(1440-image.naturalWidth*scale)/2,0,image.naturalWidth*scale,image.naturalHeight*scale);
- }
+ if(image){const scale=Math.max(1440/image.naturalWidth,720/image.naturalHeight);ctx.drawImage(image,(1440-image.naturalWidth*scale)/2,0,image.naturalWidth*scale,image.naturalHeight*scale);}
  const shade=ctx.createLinearGradient(0,720,1050,0);
  shade.addColorStop(0,'#101813ed');shade.addColorStop(.6,'#101813b8');shade.addColorStop(1,'#10181344');
  ctx.fillStyle=shade;ctx.fillRect(0,0,1440,720);
