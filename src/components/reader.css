@@ -475,3 +475,10 @@
 /* Off-page mobile bookmarks expose only their tab, never the full ribbon. */
 .reader-phone-bookmark[data-current="false"]{height:14px;clip-path:inset(-24px -2px 0 -2px)}
 .reader[data-device=phone] .reader-phone-bookmark[data-current="false"]>.reader-bookmark-slip{height:calc(var(--paper-height)*.24)}
+
+/* Keep chrome mounted until its exit finishes; only animate composited layers. */
+.reader-fullscreen[data-drawer-open] .reader-footer{animation:reader-chrome-show-bottom .22s ease-out}
+.reader-fullscreen[data-drawer-closing] .reader-drawer{animation:reader-chrome-hide-top .22s ease-in forwards;pointer-events:none}
+.reader-fullscreen[data-drawer-closing] .reader-footer-concealed{visibility:visible;animation:reader-chrome-hide-bottom .22s ease-in forwards;pointer-events:none}
+@keyframes reader-chrome-show-bottom{from{transform:translateX(-50%) translateY(100%);opacity:0}to{transform:translateX(-50%) translateY(0);opacity:1}}
+@media(prefers-reduced-motion:reduce){.reader-fullscreen[data-drawer-open] .reader-footer,.reader-fullscreen[data-drawer-closing] .reader-drawer,.reader-fullscreen[data-drawer-closing] .reader-footer-concealed{animation:none}}

@@ -150,3 +150,10 @@ test('render exception can retry and only the ready button verifies', async ({ p
   await expect.poll(() => verifications).toBe(1);
   await expect(page.getByRole('button', { name: '다시 시도' })).toBeVisible();
 });
+
+test('DOM Google button becomes ready without any iframe load',async({page})=>{
+ await setup(page);
+ await page.evaluate(()=>{const host=(window as any).renders[0].host;host.replaceChildren();const button=document.createElement('div');button.setAttribute('role','button');button.textContent='Sign in with Google';button.style.cssText='width:300px;height:40px';host.append(button);});
+ await expect(page.locator('.google-account-provider')).toHaveAttribute('data-ready','true');
+ await expect(page.locator('.google-login-progress')).toHaveCount(0);
+});

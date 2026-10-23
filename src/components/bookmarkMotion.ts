@@ -197,9 +197,15 @@ export class BookmarkMotion {
       this.clear();
     } else if (inserting) {
       // Let the saved anchor reach the independently mounted page roots.
-      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-      if (this.destroyed) return;
-      const target = this.source();
+      // Page roots commit independently from the reader. Wait for the new
+      // ribbon instead of assuming two frames always include its commit.
+      let target:HTMLElement|null=null;
+      const deadline=performance.now()+1200;
+      do {
+        await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));
+        if(this.destroyed)return;
+        target=this.source();
+      } while(!target&&performance.now()<deadline);
       if (target) {
         const destination = this.geometry(target);
         this.capture(target);

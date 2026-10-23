@@ -106,16 +106,17 @@ function pageForAnchor(pages: PaperPage[], anchor: Anchor) {
 }
 
 function bodyStart(pages:PaperPage[]){const first=pages.findIndex(page=>!page.kind||page.kind==='paper'||page.kind==='asset');return Math.max(0,first);}
-// Physical page numbers start at one; bookmark leaves are always 2, 4, 6…
-function evenBookmarkLeaf(pages:PaperPage[],index:number){
+// Spread bookmarks use even leaves; phones keep the exact visible leaf.
+function bookmarkLeaf(pages:PaperPage[],index:number,singlePage=false){
  const start=bodyStart(pages);if(index<start)return -1;
+ if(singlePage)return index<pages.length?index:-1;
  const next=(index-start)%2===0?index+1:index;
  return next<pages.length?next:Math.max(start+1,index-1);
 }
-function bookmarkPage(pages:PaperPage[],anchor:Anchor){return evenBookmarkLeaf(pages,pageForAnchor(pages,anchor));}
-function bookmarkAnchor(pages:PaperPage[],index:number,contentCount:number){
+function bookmarkPage(pages:PaperPage[],anchor:Anchor,singlePage=false){return bookmarkLeaf(pages,pageForAnchor(pages,anchor),singlePage);}
+function bookmarkAnchor(pages:PaperPage[],index:number,contentCount:number,singlePage=false){
  if(!pages.length)return null;
- const target=evenBookmarkLeaf(pages,index),page=pages[target];if(target<0)return null;
+ const target=bookmarkLeaf(pages,index,singlePage),page=pages[target];if(target<0)return null;
  const start=bodyStart(pages);
  const fragment=page?.fragments.find(fragment=>!fragment.hidden)??page?.fragments[0];
  if(fragment)return {message:fragment.message,char:fragment.char,progress:Math.min(1,(target-start)/Math.max(1,contentCount-1)),label:page.asset?.name??fragment.asset?.name??visibleProse(fragment.text).slice(0,60)};
@@ -360,6 +361,10 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
   const previousDevice=useRef(device);
   useEffect(()=>{if(previousDevice.current!==device){previousDevice.current=device;setFullscreen(readFullwindowPreference());return;}if(device==='phone')return;try{window.localStorage.setItem(device==='fold'?FOLD_FULLWINDOW_KEY:FULLWINDOW_KEY,String(windowPreference));}catch{}},[device,windowPreference]);
   const [drawerOpen,setDrawerOpen]=useState(false);
+  const [drawerClosing,setDrawerClosing]=useState(false);
+  useEffect(()=>{if(!drawerClosing)return;const timer=setTimeout(()=>setDrawerClosing(false),240);return()=>clearTimeout(timer);},[drawerClosing]);
+  const zoomAnimation=useRef<Animation|null>(null);
+  useEffect(()=>()=>zoomAnimation.current?.cancel(),[]);
   const [windowEntering,setWindowEntering]=useState(false);
   useEffect(()=>{if(!windowEntering)return;const timer=setTimeout(()=>setWindowEntering(false),240);return()=>clearTimeout(timer);},[windowEntering]);
   const drawerRef=useRef(false);drawerRef.current=drawerOpen;
@@ -607,7 +612,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
       const nextPages=assemblePages(body);
       pagesRef.current = nextPages;
       const target = frontRequestedRef.current?0:anchorRef.current ? pageForAnchor(nextPages, anchorRef.current)
-        : initialBookmarkRef.current ? bookmarkPage(nextPages,initialBookmarkRef.current) : prefix.length;
+        : initialBookmarkRef.current ? bookmarkPage(nextPages,initialBookmarkRef.current,device==='phone') : prefix.length;
       host = document.createElement('div');
       host.className = 'reader-flip-host';
       host.style.width = `${width * count}px`;
@@ -867,7 +872,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
       if (event.key === 'Escape') {
         if (panel) { setPanel(null); panelButtonRefs.current[panel]?.focus(); }
         else if(drawerRef.current){closeDrawer();}
-        else if(fullscreenRef.current){setDrawerOpen(true);}
+        else if(fullscreenRef.current){setDrawerClosing(false);setDrawerOpen(true);}
         else requestCloseRef.current();
         return;
       }
@@ -910,9 +915,22 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
     else if (panel) panelRef.current?.focus();
   }, [panel]);
 
-  function closeDrawer(){setWindowEntering(false);setPanel(null);setDrawerOpen(false);requestAnimationFrame(()=>drawerHandleRef.current?.focus({preventScroll:true}));}
-  function enterFullwindow(){flushSync(()=>{setWindowEntering(!matchMedia('(prefers-reduced-motion: reduce)').matches);setLoading(true);setFullscreen(true);setDrawerOpen(false);setPanel(null);});}
-  function exitFullwindow(){if(device==='phone')return;flushSync(()=>{setWindowEntering(false);setLoading(true);setPanel(null);setDrawerOpen(false);setFullscreen(false);});}
+  function closeDrawer(){setDrawerClosing(!matchMedia('(prefers-reduced-motion: reduce)').matches);setWindowEntering(false);setPanel(null);setDrawerOpen(false);requestAnimationFrame(()=>drawerHandleRef.current?.focus({preventScroll:true}));}
+  function enterFullwindow(){
+    const stage=stageRef.current, before=stage?.getBoundingClientRect();
+    const oldWidth=pageGeometry.width*pageGeometry.count,oldHeight=pageGeometry.height;
+    zoomAnimation.current?.cancel();setDrawerClosing(false);
+    flushSync(()=>{setWindowEntering(!matchMedia('(prefers-reduced-motion: reduce)').matches);setLoading(true);setFullscreen(true);setDrawerOpen(false);setPanel(null);});
+    if(stage&&before&&!matchMedia('(prefers-reduced-motion: reduce)').matches){
+      const after=stage.getBoundingClientRect(),style=getComputedStyle(readerRef.current!);
+      const width=parseFloat(style.getPropertyValue('--reader-book-width')),height=parseFloat(style.getPropertyValue('--paper-height'));
+      if(width>0&&height>0)zoomAnimation.current=stage.animate([
+        {transform:`translate(${before.x+before.width/2-after.x-after.width/2}px,${before.y+before.height/2-after.y-after.height/2}px) scale(${oldWidth/width},${oldHeight/height})`},
+        {transform:'none'}
+      ],{duration:320,easing:'cubic-bezier(.22,.7,.25,1)'});
+    }
+  }
+  function exitFullwindow(){if(device==='phone')return;zoomAnimation.current?.cancel();setDrawerClosing(false);flushSync(()=>{setWindowEntering(false);setLoading(true);setPanel(null);setDrawerOpen(false);setFullscreen(false);});}
   function startDrawerDrag(event:ReactPointerEvent<HTMLButtonElement>){
     if(!event.isPrimary||event.button!==0)return;
     event.stopPropagation();suppressHandleClick.current=false;
@@ -923,7 +941,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
     const drag=drawerDrag.current;if(!drag||drag.id!==event.pointerId)return;
     event.stopPropagation();
     if(event.clientY-drag.y>=24&&event.clientY-drag.y>Math.abs(event.clientX-drag.x)){
-      drag.opened=true;suppressHandleClick.current=true;setDrawerOpen(true);
+      drag.opened=true;suppressHandleClick.current=true;setDrawerClosing(false);setDrawerOpen(true);
     }
   }
   function endDrawerDrag(event:ReactPointerEvent<HTMLButtonElement>){
@@ -1004,22 +1022,22 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
     finally{bookmarkBusyRef.current=false;setBookmarkBusy(false);}
   }
   function toggleBookmark(index:number){
-    const target=evenBookmarkLeaf(pagesRef.current,index);
-    if(shelfBookmark?.bookId===book.id&&bookmarkPage(pagesRef.current,shelfBookmark)===target){void changeBookmark(null);return;}
-    const anchor=bookmarkAnchor(pagesRef.current,index,contentCount);if(anchor)void changeBookmark(anchor);
+    const target=bookmarkLeaf(pagesRef.current,index,device==='phone');
+    if(shelfBookmark?.bookId===book.id&&bookmarkPage(pagesRef.current,shelfBookmark,device==='phone')===target){void changeBookmark(null);return;}
+    const anchor=bookmarkAnchor(pagesRef.current,index,contentCount,device==='phone');if(anchor)void changeBookmark(anchor);
   }
   reinsertBookmarkRef.current=()=>{
     if(editing||saving||bookmarkBusyRef.current||loading||drawerOpen||panel||flipRef.current?.getState()!=='read')return;
-    const anchor=bookmarkAnchor(pagesRef.current,selectedLeaf??pageIndex,contentCount);
+    const anchor=bookmarkAnchor(pagesRef.current,selectedLeaf??pageIndex,contentCount,device==='phone');
     if(anchor)void changeBookmark(anchor);
   };
   const bookmarkActionsRef=useRef<{activate:()=>void;remove:(source:HTMLElement)=>void;allowed:()=>boolean}>({activate:()=>{},remove:()=>{},allowed:()=>false});
   bookmarkActionsRef.current.allowed=()=>!selectingQuote&&!editing&&!saving&&!bookmarkBusyRef.current&&!blockedRef.current&&!drawerRef.current&&!panel&&pagesReadyRef.current&&shelfBookmark?.bookId===bookRef.current.id&&flipRef.current?.getState()==='read';
   bookmarkActionsRef.current.activate=()=>{
     if(!bookmarkActionsRef.current.allowed()||!shelfBookmark)return;
-    const saved=bookmarkPage(pagesRef.current,shelfBookmark);
+    const saved=bookmarkPage(pagesRef.current,shelfBookmark,device==='phone');
     const flip=flipRef.current;if(saved<0||!flip)return;
-    const target=evenBookmarkLeaf(pagesRef.current,saved);
+    const target=bookmarkLeaf(pagesRef.current,saved,device==='phone');
     if(flip.getPageCollection().getSpreadIndexByPage(target)===flip.getPageCollection().getCurrentSpreadIndex())return;
     navigationRevisionRef.current++;queuedTurnRef.current=null;
     renderWindowRef.current(target,flip.getCurrentPageIndex());
@@ -1056,7 +1074,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
   const firstMessagePage=new Map<number,number>();pagesRef.current.forEach((page,index)=>page.fragments.forEach(fragment=>{if(!firstMessagePage.has(fragment.message))firstMessagePage.set(fragment.message,index);}));
   const chapterEvents=[...editingBook.messages.flatMap((message,index)=>(chapterDraftsRef.current.get(index)?.chapterStart??startsChapter(editingBook,index))?[{message:index,char:0,offset:-1,page:firstMessagePage.get(index)??index,title:chapterDraftsRef.current.get(index)?.chapterTitle??message.chapterTitle,id:undefined as string|undefined}]:[]),...chapterTools.insertions.map(entry=>({message:entry.fragment.message,char:entry.fragment.char,offset:entry.offset,page:fragmentPositions.get(fragmentKey(entry.fragment))??0,title:entry.chapterTitle,id:entry.id}))].sort((a,b)=>a.page-b.page||a.char-b.char||a.offset-b.offset);
   chapterEvents.forEach((entry,index)=>{if(entry.id)chapterTools.numbers.set(entry.id,index+1);else chapterTools.headings.set(entry.message,{number:index+1,title:entry.title});});
-  renderLeafRef.current=(page,index,mobile)=><ChapterToolsContext.Provider value={chapterTools}><PageLeaf page={page} book={editingSourceRef.current??bookRef.current} query={queryRef.current} index={index} mobile={mobile} editing={editing} onEdit={onEdit} drafts={draftsRef.current} chapterDrafts={chapterDraftsRef.current} onPreview={previewAsset} onChapterEdit={(message,patch)=>{chapterDraftsRef.current.set(message,{...chapterDraftsRef.current.get(message),...patch});if(patch.chapterStart===false)setLeafRevision(value=>value+1);}} onNext={nextVolumeRef.current?()=>requestNextRef.current():undefined} onClose={()=>requestCloseRef.current()} bookmark={device!=='phone'&&shelfBookmark?.bookId===bookRef.current.id&&bookmarkPage(pagesRef.current,shelfBookmark)===index?{...bookmarkInteraction,style:ribbonStyle,icon:ribbonIcon,image:ribbonImage,title:shelfBookmark.title,color:bookRef.current.color,side:index<(selectedLeaf??pageIndex)?'before':'after'}:undefined}/></ChapterToolsContext.Provider>;
+  renderLeafRef.current=(page,index,mobile)=><ChapterToolsContext.Provider value={chapterTools}><PageLeaf page={page} book={editingSourceRef.current??bookRef.current} query={queryRef.current} index={index} mobile={mobile} editing={editing} onEdit={onEdit} drafts={draftsRef.current} chapterDrafts={chapterDraftsRef.current} onPreview={previewAsset} onChapterEdit={(message,patch)=>{chapterDraftsRef.current.set(message,{...chapterDraftsRef.current.get(message),...patch});if(patch.chapterStart===false)setLeafRevision(value=>value+1);}} onNext={nextVolumeRef.current?()=>requestNextRef.current():undefined} onClose={()=>requestCloseRef.current()} bookmark={device!=='phone'&&shelfBookmark?.bookId===bookRef.current.id&&bookmarkPage(pagesRef.current,shelfBookmark,device==='phone')===index?{...bookmarkInteraction,style:ribbonStyle,icon:ribbonIcon,image:ribbonImage,title:shelfBookmark.title,color:bookRef.current.color,side:index<(selectedLeaf??pageIndex)?'before':'after'}:undefined}/></ChapterToolsContext.Provider>;
   useEffect(()=>{if(!onSaveBook&&editing){draftsRef.current.clear();chapterDraftsRef.current.clear();chapterInsertionsRef.current.clear();draftPagesRef.current.clear();editingSourceRef.current=null;editingReflowedRef.current=false;setEditing(false);setLeafRevision(value=>value+1);}},[onSaveBook,editing]);
   function cancelEditing(){restoreDraftPagesRef.current();editingSourceRef.current=null;editingReflowedRef.current=false;draftsRef.current.clear();chapterDraftsRef.current.clear();chapterInsertionsRef.current.clear();draftPagesRef.current.clear();setEditing(false);setEditError('');setLeafRevision(value=>value+1);}
   async function saveEditing(){
@@ -1067,11 +1085,11 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
     const nextAnchor=anchorRef.current?mapAnchor(anchorRef.current):null;
     setSaving(true);setEditError('');try{await onSaveBook({...source,messages,...(adjustedMark?{bookmarks:[adjustedMark]}:{}),updatedAt:new Date().toISOString()});anchorRef.current=nextAnchor;activeMessagesRef.current=messages;if(adjustedMark&&onBookmarkChange)await onBookmarkChange(adjustedMark,shelfBookmark?.style??selectedBookmarkStyle);draftsRef.current.clear();chapterDraftsRef.current.clear();chapterInsertionsRef.current.clear();draftPagesRef.current.clear();editingSourceRef.current=null;editingReflowedRef.current=false;setEditing(false);setLeafRevision(value=>value+1);}catch{setEditError('저장하지 못했어요. 다시 시도하세요.');}finally{setSaving(false);}
   }
-  function currentAnchor(){return bookmarkAnchor(pagesRef.current,Math.min(selectedLeaf??pageIndex,pagesRef.current.length-1),contentCount);}
+  function currentAnchor(){return bookmarkAnchor(pagesRef.current,Math.min(selectedLeaf??pageIndex,pagesRef.current.length-1),contentCount,device==='phone');}
   requestCloseRef.current=()=>{
     if(dataPending){closeRef.current();return;}
     if(editing||saving||bookmarkBusy)return;
-    const marked=shelfBookmark?.bookId===bookRef.current.id?bookmarkPage(pagesRef.current,shelfBookmark):-1;
+    const marked=shelfBookmark?.bookId===bookRef.current.id?bookmarkPage(pagesRef.current,shelfBookmark,device==='phone'):-1;
     if(pagesRef.current.slice(pageIndex,pageIndex+spread).some(page=>page.kind==='back-cover'||page.kind==='end'||page.kind==='front-cover'||page.kind==='front-endpaper')||!onBookmarkChange||!currentAnchor()||(marked>=pageIndex&&marked<pageIndex+spread)){closeRef.current();return;}
     flipRef.current?.cancelUserTouch();queuedTurnRef.current=null;setLeaveError('');setLeaveConfirm(true);
   };
@@ -1081,8 +1099,8 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
     try{await onBookmarkChange(anchor,selectedBookmarkStyle);closeRef.current();}catch{setLeaveError('책갈피를 저장하지 못했어요. 다시 시도하세요.');}finally{bookmarkBusyRef.current=false;setBookmarkBusy(false);}
   }
   const activeLeaf=selectedLeaf??pageIndex;
-  const activeBookmarked=shelfBookmark?.bookId===book.id&&bookmarkPage(pages,shelfBookmark)===evenBookmarkLeaf(pages,activeLeaf);
-  const markedPage=shelfBookmark?.bookId===book.id?bookmarkPage(pages,shelfBookmark):-1;
+  const activeBookmarked=shelfBookmark?.bookId===book.id&&bookmarkPage(pages,shelfBookmark,device==='phone')===bookmarkLeaf(pages,activeLeaf,device==='phone');
+  const markedPage=shelfBookmark?.bookId===book.id?bookmarkPage(pages,shelfBookmark,device==='phone'):-1;
   const peekBookmark=markedPage>=0&&(markedPage<pageIndex||markedPage>=pageIndex+spread);
   const bookmarkAction=activeBookmarked?'책갈피 제거':shelfBookmark?'현재 위치로 책갈피 옮기기':'현재 위치에 책갈피';
   const togglePanel = (next: Exclude<Panel, null>) => setPanel(value => value === next ? null : next);
@@ -1094,17 +1112,17 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
   const positionLabel=!pages.length?'책장을 준비하고 있어요':atFront?'표지':atEnd?'끝':`전체 ${contentCount}쪽 중 ${bodyPosition+1}${visibleEnd>bodyPosition+1?`–${visibleEnd}`:''}쪽`;
   const style = { '--reader-font-size': `${fontSize}px`, '--book-cover':book.color, '--reader-book-width':`${pageGeometry.width*pageGeometry.count}px`, '--paper-width':`${pageGeometry.width}px`, '--paper-height':`${pageGeometry.height}px`, '--reader-page-padding':`${pageGeometry.padding}px`, '--reader-content-top':`${pageGeometry.contentTop}px`, '--reader-content-bottom':`${pageGeometry.contentBottom}px` } as CSSProperties;
 
-  return <div ref={readerRef} className={`reader reader-theme-${theme}${theme === 'dark' ? ' dark' : ''}${fullscreen?' reader-fullscreen':''}${editing?' reader-is-editing':''}`} data-device={device} data-window-entering={windowEntering||undefined} data-flush-covers={fullscreen&&device!=='desktop'||undefined} data-selecting-quote={selectingQuote||undefined} data-page-layout={spread===2?'spread':'single'} data-bookmark-current={markedPage>=pageIndex&&markedPage<pageIndex+spread||undefined} style={style} lang="ko">
-    {fullscreen&&<button ref={drawerHandleRef} className="reader-drawer-handle" data-no-flip aria-label="독서 메뉴" aria-expanded={drawerOpen} aria-controls="reader-drawer" onPointerDown={startDrawerDrag} onPointerMove={moveDrawerDrag} onPointerUp={endDrawerDrag} onPointerCancel={event=>{suppressHandleClick.current=true;endDrawerDrag(event);}} onLostPointerCapture={()=>{drawerDrag.current=null;}} onClick={()=>{if(suppressHandleClick.current){suppressHandleClick.current=false;return;}if(drawerOpen)closeDrawer();else {setWindowEntering(false);setDrawerOpen(true);}}}><span/></button>}
+  return <div ref={readerRef} className={`reader reader-theme-${theme}${theme === 'dark' ? ' dark' : ''}${fullscreen?' reader-fullscreen':''}${editing?' reader-is-editing':''}`} data-device={device} data-window-entering={windowEntering||undefined} data-drawer-closing={drawerClosing||undefined} data-drawer-open={drawerOpen||undefined} data-flush-covers={fullscreen&&device!=='desktop'||undefined} data-selecting-quote={selectingQuote||undefined} data-page-layout={spread===2?'spread':'single'} data-bookmark-current={markedPage>=pageIndex&&markedPage<pageIndex+spread||undefined} style={style} lang="ko">
+    {fullscreen&&<button ref={drawerHandleRef} className="reader-drawer-handle" data-no-flip aria-label="독서 메뉴" aria-expanded={drawerOpen} aria-controls="reader-drawer" onPointerDown={startDrawerDrag} onPointerMove={moveDrawerDrag} onPointerUp={endDrawerDrag} onPointerCancel={event=>{suppressHandleClick.current=true;endDrawerDrag(event);}} onLostPointerCapture={()=>{drawerDrag.current=null;}} onClick={()=>{if(suppressHandleClick.current){suppressHandleClick.current=false;return;}if(drawerOpen)closeDrawer();else {setWindowEntering(false);setDrawerClosing(false);setDrawerOpen(true);}}}><span/></button>}
     {fullscreen&&drawerOpen&&<button className="reader-drawer-backdrop" aria-label="독서 메뉴 닫기" onClick={closeDrawer} tabIndex={-1}/>}
-    <div id="reader-drawer" className="reader-drawer" hidden={fullscreen&&!drawerOpen&&!windowEntering} inert={fullscreen&&!drawerOpen} aria-hidden={fullscreen&&!drawerOpen||undefined}>
+    <div id="reader-drawer" className="reader-drawer" hidden={fullscreen&&!drawerOpen&&!windowEntering&&!drawerClosing} inert={fullscreen&&!drawerOpen} aria-hidden={fullscreen&&!drawerOpen||undefined}>
     <header className="reader-toolbar">
       <button className="reader-icon-button reader-navigation-back" onClick={()=>requestCloseRef.current()} aria-label="책을 닫고 서재로 돌아가기" title="서재로 돌아가기" disabled={editing||saving}><ChevronLeft size={19} /></button>
       <div className="reader-toolbar-title"><span>{book.title||<span className="skeleton-fill reader-title-loading" aria-label="책 제목을 불러오는 중"/>}</span><small>{book.title?(book.author || readerCopy.unknownAuthor):''}</small></div>
       <div className="reader-tools">
         {onShare&&<button className="reader-icon-button" aria-label="책 공유" title="공유" disabled={editing||saving||loading||bookmarkBusy} onClick={()=>{setPanel(null);onShare();}}><Share2 size={18}/></button>}
         {onSaveBook&&<button className={`reader-icon-button ${editing?'reader-active':''}`} aria-label="본문 편집" title="페이지에서 편집" aria-pressed={editing} disabled={saving||loading||dataPending} onClick={()=>{if(editing){cancelEditing();return;}setPanel(null);draftsRef.current.clear();chapterDraftsRef.current.clear();chapterInsertionsRef.current.clear();setEditError('');setDrawerOpen(false);editingSourceRef.current=bookRef.current;editingReflowedRef.current=false;editBookmarkRef.current=shelfBookmark?.bookId===book.id?shelfBookmark:null;setEditing(true);}}><Pencil size={18}/></button>}
-        {onBookmarkChange&&<button className={`reader-icon-button ${activeBookmarked?'reader-active':''}`} aria-label={bookmarkAction} title={bookmarkAction} aria-pressed={activeBookmarked} disabled={editing||saving||bookmarkBusy||loading||(!activeBookmarked&&!bookmarkAnchor(pages,activeLeaf,contentCount))} onClick={()=>void toggleBookmark(activeLeaf)}><Bookmark size={18} fill={activeBookmarked?'currentColor':'none'}/></button>}
+        {onBookmarkChange&&<button className={`reader-icon-button ${activeBookmarked?'reader-active':''}`} aria-label={bookmarkAction} title={bookmarkAction} aria-pressed={activeBookmarked} disabled={editing||saving||bookmarkBusy||loading||(!activeBookmarked&&!bookmarkAnchor(pages,activeLeaf,contentCount,device==='phone'))} onClick={()=>void toggleBookmark(activeLeaf)}><Bookmark size={18} fill={activeBookmarked?'currentColor':'none'}/></button>}
         {device!=='phone'&&<button ref={windowModeButtonRef} className="reader-icon-button" aria-label={fullscreen?'전체창 해제':'전체창'} title={fullscreen?'전체창 해제':'전체창'} disabled={editing} onClick={()=>fullscreen?exitFullwindow():enterFullwindow()}><Maximize size={18}/></button>}
         <button ref={element => { panelButtonRefs.current.contents = element; }} className={`reader-icon-button ${panel === 'contents' ? 'reader-active' : ''}`} aria-label="목차 보기" title="목차" disabled={editing} aria-expanded={panel === 'contents'} aria-controls="reader-contents" onClick={() => togglePanel('contents')}><List size={20} /></button>
         <button ref={element => { panelButtonRefs.current.search = element; }} className={`reader-icon-button ${panel === 'search' ? 'reader-active' : ''}`} aria-label="책 속에서 검색" title="책 속 검색" disabled={editing} aria-expanded={panel === 'search'} aria-controls="reader-search" onClick={() => togglePanel('search')}><Search size={19} /></button>

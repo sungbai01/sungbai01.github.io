@@ -59,6 +59,11 @@ for(const mobile of [false,true])test(`bookmark drop fades in place and leaves n
  await page.getByRole('button',{name:'현재 위치에 책갈피',exact:true}).click();await expect(page.getByRole('button',{name:'책갈피 제거',exact:true})).toBeEnabled();
  if(mobile){
   await page.getByRole('button',{name:'메뉴 닫기',exact:true}).click();
+  // The initial phone leaf is page 1: inserting here must remain visible.
+  await expect(page.locator('.reader-phone-bookmark')).toHaveAttribute('data-current','true');
+  const markedPosition=await page.locator('.reader-progress').inputValue();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('.reader-progress')).not.toHaveValue(markedPosition);
   await expect(page.locator('.reader-phone-bookmark')).toHaveAttribute('data-current','false');
   expect(await page.locator('.reader-phone-bookmark').evaluate(el=>el.clientHeight)).toBeLessThan(20);
   await page.getByRole('button',{name:'책갈피로 이동',exact:true}).click({position:{x:10,y:5}});
@@ -71,5 +76,15 @@ for(const mobile of [false,true])test(`bookmark drop fades in place and leaves n
  await expect(page.locator('.reader-bookmark-motion-plane')).toHaveCount(0);
  await expect(page.locator('.reader-phone-bookmark,.reader-bookmark-peek,.reader-page .reader-bookmark-slip')).toHaveCount(0);
  expect(await page.evaluate(()=>(window as any).dropFrames)).toContainEqual([{opacity:1},{opacity:0}]);
+ if(mobile)await page.getByRole('button',{name:'독서 메뉴',exact:true}).click();
+ for(let i=0;i<2;i++){
+  await page.evaluate(()=>(window as any).dropFrames=[]);
+  await page.getByRole('button',{name:'현재 위치에 책갈피',exact:true}).click();
+  await expect(page.getByRole('button',{name:'책갈피 제거',exact:true})).toBeEnabled();
+  expect(await page.evaluate(()=>(window as any).dropFrames.some((frames:any[])=>frames[0]?.top?.startsWith('-')&&parseFloat(frames[1]?.top)>=0))).toBe(true);
+  await page.getByRole('button',{name:'책갈피 제거',exact:true}).click();
+  await expect(page.getByRole('button',{name:'현재 위치에 책갈피',exact:true})).toBeEnabled();
+ }
+
  await context.close();
 });

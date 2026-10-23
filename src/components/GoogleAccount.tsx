@@ -62,37 +62,27 @@ function loadGoogleIdentity(): Promise<GoogleIdentity> {
 const apiBase = (import.meta.env.VITE_AUTH_API_URL as string | undefined)?.trim().replace(/\/+$/, '');
 function renderGoogleButton(host: HTMLElement, signal: AbortSignal, render: () => void): Promise<void> {
   return new Promise((resolve, reject) => {
-    let animation = 0;
-    let settled = false;
-    const finish = (error?: unknown) => {
-      if (settled) return;
-      settled = true;
-      cancelAnimationFrame(animation);
-      host.removeEventListener('load', onLoad, true);
-      signal.removeEventListener('abort', onAbort);
-      if (error) reject(error);
-      else resolve();
-    };
-    const onAbort = () => finish(new Error('Google button cancelled'));
-    const onLoad = (event: Event) => {
-      const frame = event.target;
-      if (!(frame instanceof HTMLIFrameElement) || !host.contains(frame)
-        || !frame.src || frame.src === 'about:blank') return;
-      cancelAnimationFrame(animation);
-      const checkLayout = () => {
-        if (!host.contains(frame)) return;
-        const bounds = frame.getBoundingClientRect();
-        if (bounds.width > 0 && bounds.height > 0 && getComputedStyle(frame).display !== 'none') finish();
-        else animation = requestAnimationFrame(checkLayout);
-      };
-      animation = requestAnimationFrame(() => {
-        animation = requestAnimationFrame(checkLayout);
+    let timer:ReturnType<typeof setTimeout>;
+    let settled=false;
+    const finish=(error?:Error)=>{if(settled)return;settled=true;clearTimeout(timer);observer.disconnect();signal.removeEventListener('abort',abort);error?reject(error):resolve();};
+    const abort=()=>finish(new Error('Google button cancelled'));
+    // GIS may render a DOM button or an iframe; iframe load is not a readiness
+    // contract. Cached frames and DOM buttons must not wait for that event.
+    const check=()=>{
+      clearTimeout(timer);
+      if(settled)return;
+      const ready=[...host.querySelectorAll<HTMLElement>('[role="button"],iframe')].some(node=>{
+        const box=node.getBoundingClientRect();
+        if(node instanceof HTMLIFrameElement&&(!node.src||node.src==='about:blank'))return false;
+        return box.width>0&&box.height>0&&getComputedStyle(node).display!=='none';
       });
+      if(ready)finish();else timer=setTimeout(check,100);
     };
-    host.addEventListener('load', onLoad, true);
-    signal.addEventListener('abort', onAbort, { once: true });
-    if (signal.aborted) { onAbort(); return; }
-    try { render(); } catch (error) { finish(error); }
+    const observer=new MutationObserver(()=>{clearTimeout(timer);timer=setTimeout(check,100);});
+    observer.observe(host,{childList:true,subtree:true,attributes:true});
+    signal.addEventListener('abort',abort,{once:true});
+    if(signal.aborted){abort();return;}
+    try{render();timer=setTimeout(check,100);}catch{finish(new Error('Google button unavailable'));}
   });
 }
 
