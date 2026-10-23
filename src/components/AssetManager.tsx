@@ -1,6 +1,8 @@
-import AssetPicker from './AssetPicker';
+import AssetPicker,{AssetThumbnail} from './AssetPicker';
 import { useEffect, useId, useRef, useState } from 'react';
-import { ImagePlus, LoaderCircle, RotateCcw, Trash2, X } from 'lucide-react';
+import { Bookmark, BookImage, Check, ImagePlus, Images, LoaderCircle, RotateCcw, Ticket, Trash2, X } from 'lucide-react';
+import Toast from './Toast';
+import {useToast} from '../lib/useToast';
 import type { BookAsset } from '../lib/library';
 import { importAssetFile, normalizeAssets, numberAssetNames, safeAssetSource, uniqueAssetName } from '../lib/assets';
 import {normalizeImageRules,type ImageRule} from '../lib/imageRules';
@@ -32,15 +34,27 @@ export default function AssetManager({ assets,imageRules=[],displayRules=[],book
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [selectedId,setSelectedId]=useState(assets[0]?.id);
+  const [filter,setFilter]=useState<'all'|'cover'|'bookmark'|'card'>('all');
+  const [closing,setClosing]=useState(false);
+  const closeTimer=useRef<ReturnType<typeof setTimeout>>(undefined);
+  const {toast,notify,dismiss}=useToast();
+  useEffect(()=>{if(error||notice)notify([error,notice].filter(Boolean).join('\n'),error?'error':'info',0);},[error,notice,notify]);
+  const beginClose=()=>{if(closing)return;if(matchMedia('(prefers-reduced-motion: reduce)').matches){onClose();return;}setClosing(true);closeTimer.current=setTimeout(onClose,160);};
+  const close=()=>{if(!locked.current)beginClose();};
+  const filteredAssets=draft.filter(asset=>filter==='all'||filter==='cover'&&asset.type==='icon'||filter==='bookmark'&&asset.id===bookmarkImageId||filter==='card'&&asset.id===cardImageId);
+  const selected=filteredAssets.find(asset=>asset.id===selectedId)??filteredAssets[0];
+  const coverId=draft.find(asset=>asset.type==='icon')?.id;
 
   useEffect(() => {
     const element = dialog.current!;
     element.showModal();
-    return () => element.close();
+    element.querySelector<HTMLInputElement>('.asset-picker-search input')?.focus({preventScroll:true});
+    return () => {clearTimeout(closeTimer.current);element.close();};
   }, []);
 
   async function addFiles(files: File[]) {
-    if (!files.length || locked.current) return;
+    if (!files.length || locked.current || closing) return;
     locked.current = true; setBusy(true); setError(''); setNotice('');
     const incoming: BookAsset[] = [];
     const incomingRules:ImageRule[]=[];const incomingDisplayRules:DisplayRule[]=[];
@@ -78,7 +92,7 @@ export default function AssetManager({ assets,imageRules=[],displayRules=[],book
   }
 
   async function save() {
-    if (locked.current) return;
+    if (locked.current || closing) return;
     const numbered = numberAssetNames(draft);
     for (const asset of numbered) {
       const name = asset.name.trim();
@@ -90,33 +104,35 @@ export default function AssetManager({ assets,imageRules=[],displayRules=[],book
     try {
       setDraft(numbered);
       await onSave(normalizeAssets(numbered),normalizeImageRules(rules),normalizeDisplayRules(displayDraft),numbered.some(asset=>asset.id===bookmarkImageId)?bookmarkImageId:undefined,numbered.some(asset=>asset.id===cardImageId)?cardImageId:undefined);
-      onClose();
+      beginClose();
     } catch (cause) { setError(cause instanceof Error ? cause.message : '저장하지 못했습니다. 다시 시도해 주세요.'); }
     finally { locked.current = false; setBusy(false); }
   }
 
-  return <dialog ref={dialog} className="shelf-assets-dialog" aria-labelledby={titleId}
-    aria-busy={busy} onCancel={event => { event.preventDefault(); if (event.target === event.currentTarget && !locked.current) onClose(); }}
+  return <dialog ref={dialog} className="shelf-assets-dialog" aria-labelledby={titleId} data-closing={closing||undefined} inert={closing||undefined}
+    aria-busy={busy} onCancel={event => { event.preventDefault(); if (event.target === event.currentTarget) close(); }}
     onClick={event => { if (event.target === event.currentTarget && !locked.current) {
       const rect = event.currentTarget.getBoundingClientRect();
-      if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) onClose();
+      if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) close();
     } }}>
-    <header className="shelf-assets-heading"><h2 id={titleId}>에셋 이미지 관리</h2><div className="shelf-assets-heading-actions"><button type="button" className="shelf-assets-icon" aria-label="기본값으로 되돌리기" disabled={busy} title="기본값으로 되돌리기 — 이 책장의 이미지와 초상 비우기" onClick={()=>{setDraft([]);setRules([]);setDisplayDraft([]);setBookmarkImageId(undefined);setCardImageId(undefined);setError('');setNotice('');}}><RotateCcw size={18}/></button><button type="button" className="shelf-assets-icon" aria-label="닫기" disabled={busy} onClick={onClose}><X size={20}/></button></div></header>
-    <p className="shelf-assets-description">표지 · 책갈피 · 공유 카드</p>
-    <div className="shelf-assets-toolbar"><button type="button" className="shelf-assets-add" disabled={busy} onClick={() => input.current?.click()}><ImagePlus size={19}/> 에셋 업로드</button></div>
+    <header className="shelf-assets-heading"><div className="shelf-assets-title"><span className="shelf-assets-title-icon"><Images size={21}/></span><div><h2 id={titleId}>에셋 이미지 관리</h2><p>{draft.length.toLocaleString()}개 이미지 <span>· 로컬 보관</span></p></div></div><div className="shelf-assets-heading-actions"><button type="button" className="shelf-assets-icon" aria-label="기본값으로 되돌리기" disabled={busy} title="기본값으로 되돌리기 — 이 책장의 이미지와 초상 비우기" onClick={()=>{setDraft([]);setRules([]);setDisplayDraft([]);setBookmarkImageId(undefined);setCardImageId(undefined);setError('');setNotice('');}}><RotateCcw size={17}/></button><button type="button" className="shelf-assets-icon shelf-assets-close" aria-label="닫기" disabled={busy} onClick={close}><X size={20}/></button></div></header>
+    <div className="shelf-assets-toolbar"><div className="shelf-assets-filters" role="group" aria-label="에셋 용도 필터">{([{id:'all',label:'전체',icon:Images},{id:'cover',label:'표지',icon:BookImage},{id:'bookmark',label:'책갈피',icon:Bookmark},{id:'card',label:'공유 카드',icon:Ticket}] as const).map(({id,label,icon:Icon})=><button key={id} type="button" aria-pressed={filter===id} disabled={busy} onClick={()=>setFilter(id)}><Icon size={14}/><span>{label}</span></button>)}</div><button type="button" className="shelf-assets-add" aria-label="에셋 업로드" disabled={busy} title="PNG · JPEG · WEBP · GIF · AVIF · JSON · CHARX · RISUM · ZIP" onClick={() => input.current?.click()}><ImagePlus size={17}/><span>업로드</span></button></div>
     <input ref={input} type="file" className="shelf-assets-input" multiple accept=".png,.jpg,.jpeg,.webp,.gif,.avif,.json,.charx,.risum,.zip,image/png,image/jpeg,image/webp,image/gif,image/avif,application/json,application/zip,application/charx"
       aria-label="이미지 또는 캐릭터 카드 파일" disabled={busy} onChange={event => { const files = Array.from(event.target.files ?? []); event.target.value = ''; void addFiles(files); }}/>
-    <p className="shelf-assets-hint">이미지, PNG·JSON·CHARX 카드, 카드 ZIP</p>
-    <AssetPicker assets={draft} label="책장 이미지 목록" layout="list" disabled={busy} renderDetails={(asset,index)=>(
-<div className="shelf-assets-name"><span>이미지 이름</span><input aria-label={`${index + 1}번째 이미지 이름`} value={asset.name} disabled={busy} onChange={event => {
-          const name = event.target.value; setDraft(previous => previous.map(entry => entry.id === asset.id ? { ...entry, name } : entry));
-        }} onBlur={()=>setDraft(previous=>previous.map(entry=>entry.id===asset.id?{...entry,name:uniqueAssetName(entry.name,previous.filter(other=>other.id!==entry.id).map(other=>other.name.trim()))}:entry))}/><small>{`{{img::${asset.name}}}`}</small>
-        <span className="shelf-assets-portrait"><input type="radio" name={`${titleId}-portrait`} aria-label={`${asset.name || '이미지'} 표지 초상으로 사용`} checked={draft.find(entry => entry.type === 'icon')?.id === asset.id} disabled={busy} onChange={() => setDraft(previous => previous.map(entry => ({ ...entry, type: entry.id === asset.id ? 'icon' : 'asset' })))}/> 표지 초상</span><span className="shelf-assets-portrait"><input type="checkbox" aria-label={`${asset.name || '이미지'} 책갈피로 사용`} checked={bookmarkImageId===asset.id} disabled={busy} onChange={()=>setBookmarkImageId(previous=>previous===asset.id?undefined:asset.id)}/> 책갈피</span><span className="shelf-assets-portrait"><input type="checkbox" aria-label={`${asset.name || '이미지'} 공유 카드로 사용`} checked={cardImageId===asset.id} disabled={busy} onChange={()=>setCardImageId(previous=>previous===asset.id?undefined:asset.id)}/> 공유 카드</span></div>
-    )} renderActions={asset=>(
-<button type="button" className="shelf-assets-icon shelf-assets-remove" aria-label={`${asset.name || '이미지'} 삭제`} disabled={busy} onClick={() => {setDraft(previous => previous.filter(entry => entry.id !== asset.id));if(bookmarkImageId===asset.id)setBookmarkImageId(undefined);if(cardImageId===asset.id)setCardImageId(undefined);}}><Trash2 size={18}/></button>
-    )}/>
-    {notice && <p role="status" className="shelf-assets-notice">{notice}</p>}
-    {error && <p role="alert" className="shelf-assets-error">{error}</p>}
-    <footer className="shelf-assets-actions"><span>{draft.length.toLocaleString()}개 이미지{rules.length>0&&` · 이미지 규칙 ${rules.length}개`}{displayDraft.length>0&&` · 이미지 치환 ${displayDraft.length}개`}</span><button type="button" disabled={busy} onClick={onClose}>취소</button><button type="button" className="shelf-assets-save" disabled={busy} onClick={() => void save()}>{busy && <LoaderCircle size={16}/>} 저장</button></footer>
+    <div className="shelf-assets-workspace">
+      <section className="shelf-assets-browser" aria-label="에셋 탐색"><AssetPicker assets={filteredAssets} label="책장 이미지 목록" selectedIds={selected?[selected.id]:[]} disabled={busy} selectionLabel="관리" onSelect={asset=>setSelectedId(asset.id)} emptyText={draft.length?'이 용도로 지정한 이미지가 없어요.':'이미지를 업로드해 시작하세요.'} renderDetails={asset=><div className="shelf-assets-badges">{asset.id===coverId&&<span title="표지"><BookImage size={12}/></span>}{asset.id===bookmarkImageId&&<span title="책갈피"><Bookmark size={12}/></span>}{asset.id===cardImageId&&<span title="공유 카드"><Ticket size={12}/></span>}</div>}/></section>
+      <aside className="shelf-assets-inspector" aria-label="선택 이미지 설정">{selected?<>
+        <div className="shelf-assets-selected-preview"><AssetThumbnail source={selected.src}/></div>
+        <label className="shelf-assets-name"><span>이미지 이름</span><input aria-label={`${draft.findIndex(asset=>asset.id===selected.id)+1}번째 이미지 이름`} value={selected.name} disabled={busy} onChange={event=>{const name=event.target.value;setDraft(previous=>previous.map(asset=>asset.id===selected.id?{...asset,name}:asset));}} onBlur={()=>setDraft(previous=>previous.map(asset=>asset.id===selected.id?{...asset,name:uniqueAssetName(asset.name,previous.filter(other=>other.id!==asset.id).map(other=>other.name.trim()))}:asset))}/></label>
+        <fieldset className="shelf-assets-roles"><legend>이미지 사용처</legend>
+          <label><input type="radio" name={`${titleId}-portrait`} aria-label={`${selected.name || '이미지'} 표지 초상으로 사용`} checked={selected.id===coverId} disabled={busy} onChange={()=>setDraft(previous=>previous.map(asset=>({...asset,type:asset.id===selected.id?'icon':'asset'})))}/><BookImage size={16}/><span>표지</span><Check size={14}/></label>
+          <label><input type="checkbox" aria-label={`${selected.name || '이미지'} 책갈피로 사용`} checked={bookmarkImageId===selected.id} disabled={busy} onChange={()=>setBookmarkImageId(previous=>previous===selected.id?undefined:selected.id)}/><Bookmark size={16}/><span>책갈피</span><Check size={14}/></label>
+          <label><input type="checkbox" aria-label={`${selected.name || '이미지'} 공유 카드로 사용`} checked={cardImageId===selected.id} disabled={busy} onChange={()=>setCardImageId(previous=>previous===selected.id?undefined:selected.id)}/><Ticket size={16}/><span>공유 카드</span><Check size={14}/></label>
+        </fieldset>
+        <button type="button" className="shelf-assets-delete" aria-label={`${selected.name || '이미지'} 삭제`} disabled={busy} onClick={()=>{setDraft(previous=>previous.filter(asset=>asset.id!==selected.id));if(bookmarkImageId===selected.id)setBookmarkImageId(undefined);if(cardImageId===selected.id)setCardImageId(undefined);}}><Trash2 size={15}/><span>이미지 삭제</span></button>
+      </>:<div className="shelf-assets-inspector-empty"><Images size={30}/><span>이미지를 선택하세요</span></div>}</aside>
+    </div>
+    <footer className="shelf-assets-actions"><span title="PNG · JPEG · WEBP · GIF · AVIF · JSON · CHARX · RISUM · ZIP">PNG · JPEG · CHARX · RISUM <span>외</span></span><button type="button" disabled={busy} onClick={close}>취소</button><button type="button" className="shelf-assets-save" disabled={busy} onClick={() => void save()}>{busy && <LoaderCircle size={16} className="animate-spin"/>} 저장</button></footer>
+    {toast.message&&<Toast key={toast.id} message={toast.message} tone={toast.tone} duration={toast.duration} onDismiss={dismiss}/>}
   </dialog>;
 }

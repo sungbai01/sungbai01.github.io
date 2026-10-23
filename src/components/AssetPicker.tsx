@@ -12,4 +12,4 @@ export default function AssetPicker({assets,label='에셋 목록',selectedIds=[]
  </div>)}
  </div></div>;
 }
-function AssetThumbnail({source}:{source:string}){const [failed,setFailed]=useState('');return <span className="asset-picker-thumbnail">{failed===source?<ImageOff size={20} aria-label="미리보기 없음"/>:<img src={source} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={()=>setFailed(source)}/>}</span>;}
+export function AssetThumbnail({source}:{source:string}){const [failed,setFailed]=useState('');return <span className="asset-picker-thumbnail">{failed===source?<ImageOff size={20} aria-label="미리보기 없음"/>:<img src={source} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={()=>setFailed(source)}/>}</span>;}
