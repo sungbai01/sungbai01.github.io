@@ -3,6 +3,12 @@ import { imageReferenceRanges } from './assets';
 
 export type ProseRange = { start: number; end: number };
 
+/** Common display rules apply independently of prompt selection. */
+export function hiddenUserInput(message:{role:string}):boolean{return message.role==='user';}
+export function dollarOnlyRanges(text:string):ProseRange[]{
+ return Array.from(text.matchAll(/^[^\S\r\n]*\$[^\S\r\n]*(?:\r\n?|\n|$)/gm),match=>({start:match.index!,end:match.index!+match[0].length}));
+}
+
 /** Quotes delimit an attribute only immediately after '='. Apostrophes in
  * unquoted prose (Hyuna's apartment) must not consume the closing bracket. */
 export function angleRanges(text: string, protectedRanges: ProseRange[] = []): ProseRange[] {
@@ -66,7 +72,7 @@ export function squareRanges(text:string,protectedRanges:ProseRange[]=[]):ProseR
  * remain protected even inside hidden blocks and while assets are unresolved. */
 export function displayHiddenRanges(text:string,prompt?:DisplayPrompt,images=imageReferenceRanges(text)):ProseRange[]{
  const settings=normalizeDisplayPrompt(prompt);
- return [...(settings.hideCurly?systemRanges(text,images,false):[]),...(settings.hideSquare?squareRanges(text,images):[])].sort((a,b)=>a.start-b.start||b.end-a.end);
+ return [...dollarOnlyRanges(text),...(settings.hideCurly?systemRanges(text,images,false):[]),...(settings.hideSquare?squareRanges(text,images):[])].sort((a,b)=>a.start-b.start||b.end-a.end);
 }
 export function visibleSlice(text:string,start:number,end:number,prompt?:DisplayPrompt):string{
  const images=imageReferenceRanges(text),ranges=[...displayHiddenRanges(text,prompt,images),...images].sort((a,b)=>a.start-b.start||b.end-a.end);

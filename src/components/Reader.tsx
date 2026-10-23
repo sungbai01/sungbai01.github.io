@@ -23,7 +23,7 @@ import { readerPageCount, readReaderViewport,classifyReaderViewport } from '../l
 import BackBarcode from './BackBarcode';
 import ThemePicker from './ThemePicker';
 import {readTheme,saveTheme,THEME_EVENT} from '../lib/appearance';
-import {visibleProse,visibleSlice,displayHiddenRanges} from '../lib/prose';
+import {visibleProse,visibleSlice,displayHiddenRanges,hiddenUserInput} from '../lib/prose';
 import {imageReferenceRanges} from '../lib/assets';
 import {chapterLabel,editedMessages,fragmentKey} from '../lib/bookEditing';
 import BookmarkTitle from './BookmarkTitle';
@@ -451,6 +451,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
     const pattern = new RegExp(escapeRegExp(deferredQuery), 'giu');
     for (let message = 0; message < book.messages.length; message++) {
       const entry = book.messages[message];
+      if(hiddenUserInput(entry))continue;
       const images=imageReferenceRanges(entry.content);const hidden=[...displayHiddenRanges(entry.content,book.displayPrompt,images),...images];
       for (const match of entry.content.matchAll(pattern)) {
         const char = match.index ?? 0;

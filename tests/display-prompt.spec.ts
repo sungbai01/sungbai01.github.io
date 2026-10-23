@@ -27,3 +27,19 @@ test('optional user rename adjusts given-name vocatives and particles without lo
  await expect(intake.getByRole('textbox',{name:'로그의 유저 이름',exact:true})).toHaveValue('박성배');await intake.getByRole('textbox',{name:'변경할 유저 이름',exact:true}).fill('김민준');await intake.getByRole('button',{name:'책 추가',exact:true}).click();await expect(intake).toHaveCount(0);
  const result=await page.evaluate(async()=>{const {loadBooks}=await import('/src/lib/library.ts');return (await loadBooks())[0];});expect(result.messages[0].role).toBe('user');expect(result.messages[0].name).toBe('김민준');expect(result.messages[0].content).toBe('김민준은 김민준이 김민준을 부른다.');expect(result.messages[1].content).toBe('김민준아, 김민준과 김민준으로 가자.');expect(JSON.stringify(result)).not.toMatch(/박성배|성배/);
 });
+
+
+test('common display rules hide user messages and lone dollar lines without altering source',async({page})=>{
+ await page.goto('http://127.0.0.1:5175/');
+ const result=await page.evaluate(async()=>{
+  const {paginate,startsChapter}=await import('/src/lib/pagination.ts');
+  const book={id:'common',title:'common',author:'',description:'',color:'#123456',createdAt:'',updatedAt:'',displayPrompt:{id:'default',hideCurly:false,hideSquare:false},messages:[
+   {role:'user',name:'user',content:'secret input <img="hidden">',chapterStart:true,pageBreakBefore:true,pageBreakAfter:true},
+   {role:'assistant',name:'bot',content:'visible\n$\n$keep',chapter:'same'},
+   {role:'user',name:'user',content:'second secret',chapter:'different',chapterStart:true},
+   {role:'assistant',name:'bot',content:'continued',chapter:'same'}],assets:[{id:'hidden',name:'hidden',type:'asset',src:'data:image/png;base64,AA=='}]};
+  const original=JSON.stringify(book);const measure=document.createElement('div');measure.style.cssText='position:fixed;left:-10000px;width:336px;height:600px;overflow:hidden';document.body.append(measure);const pages=paginate(book,measure);measure.remove();
+  return {unchanged:JSON.stringify(book)===original,text:pages.flatMap(p=>p.fragments.filter(f=>!f.hidden).map(f=>f.text)).join(''),all:pages.flatMap(p=>p.fragments.map(f=>f.text)).join(''),assets:pages.flatMap(p=>p.fragments.filter(f=>f.asset)).length,chapters:book.messages.map((_,index)=>startsChapter(book,index)),pageCount:pages.length};
+ });
+ expect(result.unchanged).toBe(true);expect(result.text).toBe('visible\n$keepcontinued');expect(result.all).toContain('secret input');expect(result.all).toContain('second secret');expect(result.all).toContain('\n$\n');expect(result.assets).toBe(0);expect(result.chapters).toEqual([false,true,false,false]);expect(result.pageCount).toBe(1);
+});

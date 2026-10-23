@@ -12,3 +12,11 @@ test('image markers are protected inside bracket and curly blocks',()=>{const so
 test('default hides user macros too and disabling restores them',()=>{assert.equal(visibleProse('{{user}} said [secret] {meta}'),' said  ');assert.equal(visibleProse('{{user}}',{id:'default',hideCurly:false,hideSquare:true}),'{{user}}');});
 test('hidden ranges use original offsets and handle unfinished blocks',()=>{const source='abc[unfinished';assert.deepEqual(displayHiddenRanges(source),[{start:3,end:14}]);assert.equal(visibleProse(source),'abc');});
 test('cloud serialization preserves raw prose and display settings',()=>{const content=' [raw] {raw} <img="x"> 😀\n$keep\n#keep ';const book={id:'raw',title:'raw',author:'',description:'',createdAt:'',updatedAt:'',color:'#123456',messages:[{role:'user',name:'user',content}],displayPrompt:{id:'default',hideCurly:false,hideSquare:true}};const result=cloudBook(book);assert.equal(result.messages[0].content,content);assert.deepEqual(result.displayPrompt,book.displayPrompt);});
+
+
+test('common dollar-only line hiding preserves dollar prose and original offsets',()=>{
+ const source='first\n$\n  $ \r\n$keep\nprice $5\n$$\nlast\n$';
+ const prompt={id:'default',hideCurly:false,hideSquare:false};
+ assert.equal(visibleProse(source,prompt),'first\n$keep\nprice $5\n$$\nlast\n');
+ for(const range of displayHiddenRanges(source,prompt))assert.equal(source.slice(range.start,range.end).trim(),'$');
+});
