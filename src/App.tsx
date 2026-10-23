@@ -1,3 +1,4 @@
+import {bookAuthor} from './lib/bookAuthor';
 import type {QuotePageRange} from './lib/shareTicket';
 import Toast from './components/Toast';
 import { lazy, Suspense, useCallback, useMemo, useEffect, useLayoutEffect, useRef, useState, useId, type CSSProperties, type ReactNode } from 'react';
@@ -643,7 +644,7 @@ function AccountApp({owner}:{owner:string|null}) {
             <ShelfBox view={view}>{view==='spines'&&<span className="shelf-bookstop shelf-bookstop-start" aria-hidden="true"/>}{shelfDrag.ordered(shelf.id,shelf.books).map((book,index)=><article key={book.id} data-drag-book={book.id} className={`book-item ${view==='spines'?'spine-item':''} ${mark?.bookId===book.id?'book-has-bookmark':''}`} data-bookmarked={mark?.bookId===book.id||undefined} style={{'--cover':book.color,'--delay':`${Math.min(index,8)*60}ms`} as CSSProperties}>
               <button className="book-read" aria-label={`${book.title} 읽기`} title={`${book.title} 읽기`} onClick={()=>openBook(book)}>
                 <div className="book-stage"><div className="book-open">{mark?.bookId===book.id&&<BookRibbon book={book} mark={mark} view={view}/>}{view==='covers'?<Cover book={book}/>:<div className="book-spine"><SpineTitle title={displayBookTitle(book)}/><span className="spine-volume">{String(book.volumeNumber??1).padStart(2,'0')}</span></div>}</div></div>
-                <div className="book-caption"><div><span className="book-title">{book.title}</span><p>{book.author || '저자 모델 미상'}</p></div></div>
+                <div className="book-caption"><div><span className="book-title">{book.title}</span><p>{bookAuthor(book)}</p></div></div>
                 <div className="book-meta"><span>{book.pageCount?.toLocaleString()??'…'}페이지</span><span>{mark?.bookId===book.id&&<Bookmark size={13} fill="currentColor" aria-label="책갈피"/>}</span></div>
               </button>
               {canEdit&&<BookActions book={book} open={menu===book.id} onOpen={()=>setMenu(book.id)} onClose={()=>setMenu(previous=>previous===book.id?null:previous)} onEdit={()=>void editOne(book)} onShare={()=>void shareOne(book)} onDelete={()=>setRemove(book)}/>}

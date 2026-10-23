@@ -163,14 +163,14 @@ test('shelf title and centered quote chooser support writing clearing closing an
  await page.setViewportSize({width:1440,height:1000});await page.route('https://fonts.googleapis.com/**',r=>r.abort());await page.route('https://fonts.gstatic.com/**',r=>r.abort());
  await page.goto('http://127.0.0.1:5175/');await page.evaluate(async()=>{const {mountTicket}=await import('/tests/share-ticket-harness.tsx');mountTicket();});
  await expect(page.getByRole('dialog',{name:'책 공유'})).toBeVisible();await page.evaluate(()=>(window as any).finishBook());
- const title=page.getByRole('textbox',{name:'공유 카드 제목',exact:true});await expect(title).toHaveValue('테스트 책장');await expect(title).toHaveJSProperty('tagName','INPUT');
+ const title=page.getByRole('textbox',{name:'공유 카드 제목',exact:true});await expect(title).toHaveValue('테스트 책장');await expect(title).toHaveJSProperty('tagName','INPUT');await expect(page.locator('.share-ticket-quote-placeholder')).toHaveCount(0);
  const choice=page.getByRole('button',{name:'공유할 대사 선택',exact:true});await choice.click();
  const menu=page.getByRole('group',{name:'대사 편집',exact:true});await expect(menu.locator('button')).toHaveCount(3);expect(await menu.innerText()).toBe('');
  await menu.evaluate(async el=>{await Promise.all(el.getAnimations().map(animation=>animation.finished));});
  const box=await choice.boundingBox(),icons=await menu.boundingBox();expect(Math.abs(icons!.x+icons!.width/2-box!.x-box!.width/2)).toBeLessThan(2);expect(Math.abs(icons!.y+icons!.height/2-box!.y-box!.height/2)).toBeLessThan(2);
  await page.getByRole('button',{name:'대사 메뉴 닫기',exact:true}).click();await expect(menu).toHaveCount(0);await expect(choice).toBeVisible();
  await choice.click();await page.getByRole('button',{name:'작성',exact:true}).click();await expect(menu).toHaveCount(0);
- const field=page.getByRole('textbox',{name:'공유 대사',exact:true});await expect(field).toBeFocused();await field.fill('직접 쓴 대사');await field.fill('');await expect(field).toHaveCount(0);await expect(choice).toHaveText('대사 선택');
+ const field=page.getByRole('textbox',{name:'공유 대사',exact:true});await expect(field).toBeFocused();await field.fill('직접 쓴 대사');await expect(page.locator('.share-ticket-quote-placeholder')).toHaveCount(1);await field.fill('');await expect(page.locator('.share-ticket-quote-placeholder')).toHaveCount(0);await expect(field).toHaveCount(0);await expect(choice).toHaveText('대사 선택');
  await choice.click();await page.getByRole('button',{name:'작성',exact:true}).click();await expect(menu).toHaveCount(0);await field.fill('수정된 대사');await title.click();await expect(choice).toHaveText('수정된 대사');
  await title.fill('새 공유 제목');await expect(page.locator('.share-interactive-ticket h3')).toHaveText('새 공유 제목');await expect(page.locator('.share-card-edit-form')).toHaveCount(0);
  await choice.click();await page.getByRole('button',{name:'본문에서 선택',exact:true}).click();await expect.poll(()=>page.evaluate(()=>(window as any).selectedFromBook)).toBe(true);
@@ -201,4 +201,17 @@ test('typing keeps the decoded background mounted and never restarts image fade'
  expect(await page.locator('.share-ticket-render').getAttribute('src')).not.toBe(old);
  await expect(page.locator('.share-ticket-render')).toHaveCSS('animation-name','none');
  await expect(page.getByRole('textbox',{name:'공유 카드 제목',exact:true})).toHaveValue('실시간 제목');
+});
+
+
+test('author credit is consistent in UI helper and exported card',async({page})=>{
+ await page.goto('http://127.0.0.1:5175/');
+ const result=await page.evaluate(async()=>{
+  const {bookAuthor}=await import('/src/lib/bookAuthor.ts');const {makeTicketCard}=await import('/src/lib/shareTicket.ts');
+  const book={id:'author',title:'저자 표기',author:'GPT 5.5',description:'',color:'#1d3b31',createdAt:'',updatedAt:'',messages:[]};
+  const original=CanvasRenderingContext2D.prototype.fillText,drawn:string[]=[];
+  CanvasRenderingContext2D.prototype.fillText=function(text,...args){drawn.push(text);return original.call(this,text,...args);};
+  try{await makeTicketCard(book,'   ');return {credit:bookAuthor(book),legacy:bookAuthor({author:'',aiModel:'Opus 5.5'}),unknown:bookAuthor({author:''}),drawn};}finally{CanvasRenderingContext2D.prototype.fillText=original;}
+ });
+ expect(result.credit).toBe('GPT 5.5 · 기본 프롬프트');expect(result.legacy).toBe('Opus 5.5 · 기본 프롬프트');expect(result.unknown).toBe('저자 미상 · 기본 프롬프트');expect(result.drawn).toContain('저자');expect(result.drawn).not.toContain('저자 모델');expect(result.drawn.join('')).toContain('GPT 5.5 · 기본 프롬프트');expect(result.drawn).not.toContain('“');
 });

@@ -1,3 +1,4 @@
+import {bookAuthor} from '../lib/bookAuthor';
 import {normalizeDisplayPrompt} from '../../shared/displayPrompt';
 import DisplayPromptControls from './DisplayPromptControls';
 import {resolveDisplayImageReferences} from '../lib/displayRules';
@@ -66,9 +67,6 @@ const PREFERENCES_KEY = 'galpi.reader.appearance.v1';
 const FULLWINDOW_KEY = 'galpi.reader.fullwindow.v1';
 const FOLD_FULLWINDOW_KEY = 'galpi.reader.fold-fullwindow.v1';
 const MAX_FULLWINDOW_PAGE_RATIO = .75;
-const readerCopy = {
-  unknownAuthor: '저자 모델 미상',
-};
 
 function readReaderPreferences(): ReaderPreferences {
   const defaults: ReaderPreferences = { theme: 'paper', fontSize: 18 };
@@ -258,8 +256,8 @@ function PageLeaf({page,book,query,index,onNext,onClose,mobile,editing,onEdit,dr
  const date=(value:string)=>{const parsed=new Date(value);return Number.isNaN(parsed.getTime())?'—':parsed.toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit'});};
  const action=<button className="reader-end-action" data-no-flip disabled={editing} onClick={onNext??onClose}>{onNext?'다음 권 읽기':'서재로'}<ArrowRight size={18}/></button>;
  if(page.kind==='front-cover')return <div className="reader-front-cover"><BookCover book={book} fit/></div>;
- if(page.kind==='colophon')return <div className="reader-paper-shell reader-colophon" style={{'--book-cover':book.color} as CSSProperties}>{bookmark&&<BookmarkSlip {...bookmark}/>}<section className="reader-colophon-details"><dl><div><dt>업로드일</dt><dd>{date(book.uploadedAt??book.createdAt)}</dd></div><div><dt>수정일</dt><dd>{date(book.updatedAt)}</dd></div><div><dt>저자 모델</dt><dd>{book.author?.trim()||book.aiModel?.trim()||readerCopy.unknownAuthor}</dd></div></dl><h2>{coverTitle}</h2></section></div>;
- if(page.kind==='back-cover')return <div className="reader-back-cover reader-true-back" style={{'--book-cover':book.color} as CSSProperties}><div className="reader-back-imprint"><span className="reader-back-colophon">{cleanText(book.author)}</span><span className="reader-back-mark">{cleanText(book.title).replace(/\s*·\s*\d+권\s*$/,'')}</span><span className="reader-back-volume">{book.volumeNumber?String(book.volumeNumber).padStart(2,'0'):''}</span><BackBarcode/>{mobile&&action}</div></div>;
+ if(page.kind==='colophon')return <div className="reader-paper-shell reader-colophon" style={{'--book-cover':book.color} as CSSProperties}>{bookmark&&<BookmarkSlip {...bookmark}/>}<section className="reader-colophon-details"><dl><div><dt>업로드일</dt><dd>{date(book.uploadedAt??book.createdAt)}</dd></div><div><dt>수정일</dt><dd>{date(book.updatedAt)}</dd></div><div><dt>저자</dt><dd>{bookAuthor(book)}</dd></div></dl><h2>{coverTitle}</h2></section></div>;
+ if(page.kind==='back-cover')return <div className="reader-back-cover reader-true-back" style={{'--book-cover':book.color} as CSSProperties}><div className="reader-back-imprint"><span className="reader-back-colophon">{cleanText(bookAuthor(book))}</span><span className="reader-back-mark">{cleanText(book.title).replace(/\s*·\s*\d+권\s*$/,'')}</span><span className="reader-back-volume">{book.volumeNumber?String(book.volumeNumber).padStart(2,'0'):''}</span><BackBarcode/>{mobile&&action}</div></div>;
  if(page.kind==='front-endpaper')return <div className="reader-front-outside"/>;
  if(page.kind==='end')return <div className="reader-end-half">{action}</div>;
  if(page.kind==='padding'||page.kind==='endpaper'||page.kind==='opening-endpaper')return <div className={`reader-paper-shell${page.kind!=='padding'?' reader-endpaper':''}`}>{bookmark&&<BookmarkSlip {...bookmark}/>}</div>;
@@ -950,7 +948,7 @@ export function Reader({ book, dataPending=false, onClose, onReady, onOpenError,
     <div id="reader-drawer" className="reader-drawer" hidden={fullscreen&&!drawerOpen&&!windowEntering&&!drawerClosing} inert={fullscreen&&!drawerOpen} aria-hidden={fullscreen&&!drawerOpen||undefined}>
     <header className="reader-toolbar">
       <button className="reader-icon-button reader-navigation-back" onClick={()=>requestCloseRef.current()} aria-label="책을 닫고 서재로 돌아가기" title="서재로 돌아가기" disabled={editing||saving}><ChevronLeft size={19} /></button>
-      <div className="reader-toolbar-title"><span>{book.title||<span className="skeleton-fill reader-title-loading" aria-label="책 제목을 불러오는 중"/>}</span><small>{book.title?(book.author || readerCopy.unknownAuthor):''}</small></div>
+      <div className="reader-toolbar-title"><span>{book.title||<span className="skeleton-fill reader-title-loading" aria-label="책 제목을 불러오는 중"/>}</span><small>{book.title?bookAuthor(book):''}</small></div>
       <div className="reader-tools">
         {onShare&&<button className="reader-icon-button" aria-label="책 공유" title="공유" disabled={editing||saving||loading||bookmarkBusy} onClick={()=>{setPanel(null);onShare();}}><Share2 size={18}/></button>}
         {onSaveBook&&<button className={`reader-icon-button ${editing?'reader-active':''}`} aria-label="본문 편집" title="간단 수정" aria-pressed={editing} disabled={saving||loading||dataPending} onClick={()=>{if(editing){cancelEditing();return;}setPanel(null);draftsRef.current.clear();setEditError('');setDrawerOpen(false);editingSourceRef.current=bookRef.current;setEditPrompt(normalizeDisplayPrompt(bookRef.current.displayPrompt));editBookmarkRef.current=shelfBookmark?.bookId===book.id?shelfBookmark:null;setEditing(true);}}><Pencil size={18}/></button>}

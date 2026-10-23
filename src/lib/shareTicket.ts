@@ -1,3 +1,4 @@
+import {bookAuthor} from './bookAuthor';
 import type {Book} from './library';
 
 export const SHARE_QUOTE_LIMIT=240;
@@ -15,7 +16,7 @@ export async function makeTicketCard(book:Book,quote='',quotePages?:QuotePageRan
  // block this canvas indefinitely on a cold or unreliable connection.
  const fonts=new Promise<void>(resolve=>{
   const timer=setTimeout(resolve,700);
-  void document.fonts.load('400 48px "Gowun Batang"',(book.title+(book.author??'')+quote).slice(0,512)).then(()=>{clearTimeout(timer);resolve();},()=>{clearTimeout(timer);resolve();});
+  void document.fonts.load('400 48px "Gowun Batang"',(book.title+bookAuthor(book)+quote).slice(0,512)).then(()=>{clearTimeout(timer);resolve();},()=>{clearTimeout(timer);resolve();});
  });
  const artwork=source?new Promise<HTMLImageElement>((resolve,reject)=>{
   const image=new Image();image.crossOrigin='anonymous';image.referrerPolicy='no-referrer';
@@ -66,9 +67,9 @@ export async function makeTicketCard(book:Book,quote='',quotePages?:QuotePageRan
  ctx.fillStyle='#545952';ctx.font='19px sans-serif';ctx.fillText('갈피  /  SHARED BOOK',1160,62);
  ctx.fillStyle='#263d32';ctx.font='18px sans-serif';ctx.fillText('VOLUME',1160,146);
  ctx.font='108px Georgia,serif';ctx.fillText(String(book.volumeNumber??1).padStart(2,'0'),1154,254);
- ctx.fillStyle='#666b63';ctx.font='18px sans-serif';ctx.fillText('저자 모델',1160,356);
+ ctx.fillStyle='#666b63';ctx.font='18px sans-serif';ctx.fillText('저자',1160,356);
  ctx.fillStyle='#263d32';
- const author=fit(book.author?.trim()||book.aiModel?.trim()||'저자 모델 미상',236,4,26,20);
+ const author=fit(bookAuthor(book),236,4,26,20);
  author.rows.forEach((line,i)=>ctx.fillText(line,1160,399+i*author.size*1.45));
  ctx.fillStyle='#263d32';ctx.font='28px "Gowun Batang",serif';ctx.fillText('책 읽기  ↗',1160,660);
  ctx.strokeStyle='#f1eee666';ctx.lineWidth=2;ctx.setLineDash([4,10]);ctx.beginPath();ctx.moveTo(1120,30);ctx.lineTo(1120,690);ctx.stroke();ctx.setLineDash([]);

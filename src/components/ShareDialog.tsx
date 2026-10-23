@@ -1,3 +1,4 @@
+import {bookAuthor} from '../lib/bookAuthor';
 import {useEffect,useId,useMemo,useRef,useState} from 'react';
 import {Download,Images,LoaderCircle,X,Share2,Link,Code2} from 'lucide-react';
 import type {Book} from '../lib/library';
@@ -68,7 +69,7 @@ export default function ShareDialog({book:sourceBook,loadBook,onClose,onManageAs
   <div className="share-ticket-frame"><div className="share-ticket-workspace">
    <article className="share-interactive-ticket" aria-label="저장될 공유 카드">
     <h3 className="sr-only">{cardBook.title}</h3>
-    {preview?<img className="share-ticket-render" src={preview} alt={`${cardBook.title} 공유 카드 미리보기`}/>:<div className="share-ticket-placeholder" style={{backgroundColor:book.color}} aria-busy="true"><div><small>GALPI / A STORY TO KEEP</small></div><aside><small>갈피 / SHARED BOOK</small><strong>{String(book.volumeNumber??1).padStart(2,'0')}</strong><small>{book.author||'저자 모델 미상'}</small></aside></div>}
+    {preview?<img className="share-ticket-render" src={preview} alt={`${cardBook.title} 공유 카드 미리보기`}/>:<div className="share-ticket-placeholder" style={{backgroundColor:book.color}} aria-busy="true"><div><small>GALPI / A STORY TO KEEP</small></div><aside><small>갈피 / SHARED BOOK</small><strong>{String(book.volumeNumber??1).padStart(2,'0')}</strong><small>{bookAuthor(book)}</small></aside></div>}
     <ShareCardEditor title={cardBook.title} quote={quote} locked={locked} layout={layout} onSelectQuote={onSelectQuote} onQuoteChange={onQuoteChange?value=>{setRenderPending(true);onQuoteChange(value);}:undefined} onTitleChange={value=>{setRenderPending(true);setCustomTitle(value);onCardTitleChange?.(value);}}/>
 
    </article>
