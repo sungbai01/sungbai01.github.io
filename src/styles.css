@@ -346,3 +346,7 @@ html,body{overflow-x:clip}
 @media(max-width:560px){.library-title-row{gap:10px;flex-wrap:wrap}.library-title-row .resume-link{max-width:180px}.library-intro{align-items:flex-start}}
 
 .site-header .header-import{margin-left:auto;flex:0 0 40px;width:40px;height:40px;min-height:40px;padding:0}
+
+/* Shared brand roles; use semantic tokens instead of local UI colors. */
+:root{--brand-primary:var(--jade-9);--brand-primary-soft:var(--jade-3);--brand-primary-ink:var(--jade-11);--brand-background:var(--sand-2);--brand-surface:var(--sand-1);--brand-text:var(--sand-12);--brand-muted:var(--sand-10);--brand-border:var(--sand-5);--brand-accent:var(--bronze-9);--brand-red-soft:#fbe7e7;--brand-red-border:#edc0c2;--brand-red-ink:#a3444b}
+.dark{--brand-red-soft:#40272b;--brand-red-border:#684047;--brand-red-ink:#f1b1b6}

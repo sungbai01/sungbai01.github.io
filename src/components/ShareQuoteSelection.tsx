@@ -50,7 +50,7 @@ export default function ShareQuoteSelection({host,onDone,onPrevious,onNext}:{hos
   <button className="reader-icon-button" aria-label="이전 페이지" onClick={()=>{window.getSelection()?.removeAllRanges();onPrevious();}}><ChevronLeft size={18}/></button>
   <span role="status">{text?`${text.length} / ${SHARE_QUOTE_LIMIT}`:'대사를 드래그하세요'}</span>
   <button className="reader-icon-button" aria-label="다음 페이지" onClick={()=>{window.getSelection()?.removeAllRanges();onNext();}}><ChevronRight size={18}/></button>
-  <button className="reader-icon-button" title={tooLong?`${SHARE_QUOTE_LIMIT}자까지 선택하세요`:'선택한 대사 첨부'} aria-label="선택한 대사 첨부" disabled={!text||tooLong} onClick={()=>onDone(text)}><Check size={18}/></button>
+  <button className="reader-icon-button" title={tooLong?`${SHARE_QUOTE_LIMIT}자까지 선택하세요`:text?'선택한 대사 첨부':'대사 없이 공유'} aria-label={text?'선택한 대사 첨부':'대사 없이 공유'} disabled={tooLong} onClick={()=>onDone(text)}><Check size={18}/></button>
   <button className="reader-icon-button" aria-label="대사 선택 취소" onClick={()=>onDone()}><X size={18}/></button>
  </div>;
 }

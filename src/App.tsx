@@ -262,8 +262,8 @@ function AccountApp({owner}:{owner:string|null}) {
   const [sharing,setSharing]=useState<Book|null>(null);
   const [shareQuotes,setShareQuotes]=useState<Record<string,string>>({});
   const [quoteBook,setQuoteBook]=useState<string|null>(null);
-  const [cardBook,setCardBook]=useState<string|null>(null);
-  function selectShareQuote(book:Book){setCardBook(book.id);setQuoteBook(book.id);setSharing(null);if(route!==book.id)openBook(book);}
+
+  function selectShareQuote(book:Book){setQuoteBook(book.id);setSharing(null);if(route!==book.id)openBook(book);}
   function finishShareQuote(text?:string){const book=latestBooks.current.find(item=>item.id===quoteBook);if(book){if(text!==undefined)setShareQuotes(previous=>({...previous,[book.id]:text}));setSharing(book);}setQuoteBook(null);}
   const [managingShares,setManagingShares]=useState(false);
   const [creating,setCreating]=useState<ShelfTarget|null>(null);const [renaming,setRenaming]=useState<ShelfTarget|null>(null);const [assetShelf,setAssetShelf]=useState<ShelfTarget|null>(null);
@@ -602,7 +602,7 @@ function AccountApp({owner}:{owner:string|null}) {
       {openingError&&<BookOpening error={openingError} onBack={()=>{setRoute(null);location.hash='/';}} onRetry={()=>{setReaderReady(null);setOpenError('');if(accountReady)setOpenAttempt(value=>value+1);else location.reload();}}/>}
       {assetManager}
       {managingShares&&<ShareManager onClose={()=>setManagingShares(false)}/>}
-    {sharing&&<ShareDialog book={sharing} loadBook={loadShareBook} quote={shareQuotes[sharing.id]??''} initialMode={cardBook===sharing.id?'card':'url'} onSelectQuote={()=>selectShareQuote(sharing)} onClearQuote={()=>setShareQuotes(previous=>({...previous,[sharing.id]:''}))} onClose={()=>setSharing(null)} onManageAssets={()=>{if(sharing)void openAssets(bookShelf(sharing));}} onLogin={()=>{setSharing(null);setRoute(null);location.hash='/';setDrawerOpen(true);}}/>}
+    {sharing&&<ShareDialog book={sharing} loadBook={loadShareBook} quote={shareQuotes[sharing.id]??''} onSelectQuote={()=>selectShareQuote(sharing)} onClose={()=>setSharing(null)} onManageAssets={()=>{if(sharing)void openAssets(bookShelf(sharing));}}/>}
       {toast&&<div className="toast" role="status">{toast}</div>}
     </>;
   }
@@ -665,7 +665,7 @@ function AccountApp({owner}:{owner:string|null}) {
       </div>
     </Modal>}
     {managingShares&&<ShareManager onClose={()=>setManagingShares(false)}/>}
-    {sharing&&<ShareDialog book={sharing} loadBook={loadShareBook} quote={shareQuotes[sharing.id]??''} initialMode={cardBook===sharing.id?'card':'url'} onSelectQuote={()=>selectShareQuote(sharing)} onClearQuote={()=>setShareQuotes(previous=>({...previous,[sharing.id]:''}))} onClose={()=>setSharing(null)} onManageAssets={()=>{if(sharing)void openAssets(bookShelf(sharing));}} onLogin={()=>{setSharing(null);setDrawerOpen(true);}}/>}
+    {sharing&&<ShareDialog book={sharing} loadBook={loadShareBook} quote={shareQuotes[sharing.id]??''} onSelectQuote={()=>selectShareQuote(sharing)} onClose={()=>setSharing(null)} onManageAssets={()=>{if(sharing)void openAssets(bookShelf(sharing));}}/>}
     {canEdit&&remove&&<Modal title="책 삭제" onClose={()=>setRemove(null)}><p className="modal-description">‘{remove.title}’을 삭제할까요?</p><div className="modal-actions"><button className="secondary-btn" title="삭제 전 이 책을 백업" onClick={()=>void exportOne(remove)}><ArrowDownToLine size={16}/> 백업</button><button className="danger-btn" title="대화와 책갈피를 삭제합니다" disabled={busy} onClick={async()=>{if(!canEdit||deletingRef.current||editingShelf.current||preparingAssets.current||splittingBooks.current.size)return;const assertAccount=accountGuard();deletingRef.current=true;setBusy(true);try{await library.edit(store=>store.deleteBook(remove.id));assertAccount();const next=latestBooks.current.filter(b=>b.id!==remove.id);latestBooks.current=next;setBooks(next);setRemove(null);setToast('삭제 완료');}catch{setToast('삭제 실패');}finally{deletingRef.current=false;setBusy(false);}}}>삭제</button></div></Modal>}
     {toast&&<div className="toast" role="status"><Check size={16}/>{toast}</div>}
   </div>;
