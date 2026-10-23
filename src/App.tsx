@@ -575,12 +575,6 @@ function AccountApp({owner}:{owner:string|null}) {
     if(busy)return;setBusy(true);
     try{if(owner)await loadTargetBooks(shelfBooks(latestBooks.current,shelf).map(book=>book.id));library.assertCurrent();setAssetShelf(shelf);}catch(cause){setError(cause instanceof Error?cause.message:'에셋을 불러오지 못했어요.');}finally{setBusy(false);}
   }
-  async function reloadLibrary(){
-    if(busy||route||edit||renaming||assetShelf||importing||creating)return;
-    setLoading(true);setReadyRoute(null);setReaderReady(null);
-    try{await library.reload();library.assertCurrent();setAccountReady(true);setError('');}
-    catch(cause){setError(cause instanceof Error?cause.message:'목록을 불러오지 못했어요.');}finally{setLoading(false);}
-  }
   async function importGuest(){
     if(!canEdit||busy)return;
     const assertAccount=accountGuard();setBusy(true);
@@ -623,7 +617,7 @@ function AccountApp({owner}:{owner:string|null}) {
             <button disabled={busy||loading} onClick={()=>void exportLibrary()}><ArrowDownToLine size={15}/>백업</button>
             <button disabled={busy||!canEdit} onClick={()=>restore.current?.click()}><Upload size={15}/>복원</button>
           </div>}
-          {owner&&<><button className="nav-item" onClick={()=>{setDrawerOpen(false);setManagingShares(true);}}><Link size={18}/><span>공유 URL 관리</span><ShareCountBadge open={drawerOpen}/></button><button className="nav-item" disabled={busy||loading} onClick={()=>void reloadLibrary()}><RotateCcw size={18}/><span>목록 새로고침</span></button><button className="nav-item" disabled={busy||loading} onClick={()=>void importGuest().catch(cause=>setError(cause instanceof Error?cause.message:'책을 가져오지 못했어요.'))}><Upload size={18}/><span>이 기기 책 가져오기</span></button></>}
+          {owner&&<><button className="nav-item" onClick={()=>{setDrawerOpen(false);setManagingShares(true);}}><Link size={18}/><span>공유 URL 관리</span><ShareCountBadge open={drawerOpen}/></button><button className="nav-item" disabled={busy||loading} onClick={()=>void importGuest().catch(cause=>setError(cause instanceof Error?cause.message:'책을 가져오지 못했어요.'))}><Upload size={18}/><span>이 기기 책 가져오기</span></button></>}
         </nav>
         <section className="drawer-appearance" aria-label="화면 설정"><h2 className="drawer-label">화면</h2><ThemePicker value={theme} onChange={changeTheme}/></section>
 
