@@ -146,7 +146,7 @@ function SortMenu({value,onChange}:{value:string;onChange:(value:string)=>void})
  return <Dropdown label="책 정렬" value={value} compact options={[{value:'recent',label:'최근 저장 순'},{value:'oldest',label:'오래된 순'},{value:'title',label:'제목순'}]} onChange={onChange}/>;
 }
 function BookActions({book,open,onOpen,onClose,onEdit,onDelete}:{book:Book;open:boolean;onOpen:()=>void;onClose:()=>void;onEdit:()=>void;onDelete:()=>void}){
- return <div className={`book-menu-wrap ${open?'menu-open':''}`}><Dropdown label={`${book.title} 관리`} mode="menu" triggerContent={<Ellipsis size={19}/>} minMenuWidth={158} open={open} onOpenChange={next=>next?onOpen():onClose()} options={[{value:'edit',label:'책 편집'},{value:'delete',label:'삭제',danger:true}]} onChange={value=>value==='edit'?onEdit():onDelete()}/></div>;
+ return <div className={`book-menu-wrap ${open?'menu-open':''}`}><Dropdown label={`${book.title} 관리`} mode="menu" triggerContent={<Ellipsis size={19}/>} minMenuWidth={158} align="end" open={open} onOpenChange={next=>next?onOpen():onClose()} options={[{value:'edit',label:'책 편집'},{value:'delete',label:'삭제',danger:true}]} onChange={value=>value==='edit'?onEdit():onDelete()}/></div>;
 }
 function LibraryDrawer({open,children,account,onClose}:{open:boolean;children:ReactNode;account:ReactNode;onClose:()=>void}){
   const ref=useRef<HTMLDialogElement>(null);

@@ -64,7 +64,7 @@
 .book-read:hover .book-open{transform:translateY(-7px)}
 .book-read:hover .book-title{text-decoration:underline;text-underline-offset:3px}
 .book-item>.book-menu-wrap{position:absolute;right:0;top:248px}
-.book-item>.book-menu-wrap>.icon-btn{width:25px;height:25px}
+.book-item>.book-menu-wrap .dropdown-icon-trigger{width:25px;height:25px;min-height:25px}
 .spine-item>.book-menu-wrap{top:248px;right:20px}
 .spine-item .book-read .book-caption,.spine-item .book-read .book-meta{display:none}
 .spine-item{padding-bottom:32px}

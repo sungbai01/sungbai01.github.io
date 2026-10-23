@@ -2,7 +2,7 @@ import {useEffect,useId,useLayoutEffect,useRef,useState,type ReactNode} from 're
 import {Check,ChevronDown} from 'lucide-react';
 import './dropdown.css';
 export type DropdownOption={value:string;label:string;danger?:boolean;disabled?:boolean};
-export default function Dropdown({label,value,options,onChange,disabled=false,compact=false,triggerContent,mode='listbox',open:controlledOpen,onOpenChange,minMenuWidth=0}:{label:string;value?:string;options:readonly DropdownOption[];onChange:(value:string)=>void;disabled?:boolean;compact?:boolean;triggerContent?:ReactNode;mode?:'listbox'|'menu';open?:boolean;onOpenChange?:(open:boolean)=>void;minMenuWidth?:number}){
+export default function Dropdown({label,value,options,onChange,disabled=false,compact=false,triggerContent,mode='listbox',open:controlledOpen,onOpenChange,minMenuWidth=0,align='start'}:{label:string;value?:string;options:readonly DropdownOption[];onChange:(value:string)=>void;disabled?:boolean;compact?:boolean;triggerContent?:ReactNode;mode?:'listbox'|'menu';open?:boolean;onOpenChange?:(open:boolean)=>void;minMenuWidth?:number;align?:'start'|'end'}){
  const id=useId(),root=useRef<HTMLDivElement>(null),trigger=useRef<HTMLButtonElement>(null),menu=useRef<HTMLDivElement>(null);
  const [localOpen,setLocalOpen]=useState(false),[visible,setVisible]=useState(false),[closing,setClosing]=useState(false),[page,setPage]=useState(0);
  const requested=(controlledOpen??localOpen)&&!disabled;const size=60;
@@ -19,13 +19,13 @@ export default function Dropdown({label,value,options,onChange,disabled=false,co
    // Measure at the final width before choosing direction; short lists use their real height.
    list.style.width=`${width}px`;const desired=Math.min(180,list.scrollHeight+list.offsetHeight-list.clientHeight);
    const below=Math.max(0,bottom-anchor.bottom-6),above=Math.max(0,anchor.top-top-6),upward=below<desired&&above>below;
-   const height=Math.min(desired,upward?above:below);const next={left:Math.max(left,Math.min(anchor.left,right-width)),top:upward?anchor.top-6-height:anchor.bottom+6,width,maxHeight:height};
+   const height=Math.min(desired,upward?above:below);const next={left:Math.max(left,Math.min(align==='end'?anchor.right-width:anchor.left,right-width)),top:upward?anchor.top-6-height:anchor.bottom+6,width,maxHeight:height};
    setPosition(previous=>previous&&Object.keys(next).every(key=>previous[key as keyof typeof next]===next[key as keyof typeof next])?previous:next);
   };
   place();const observer=new ResizeObserver(place);observer.observe(button);observer.observe(list);const dialog=button.closest('dialog');if(dialog)observer.observe(dialog);
   const scroll=(event:Event)=>{if(!list.contains(event.target as Node))place();};window.addEventListener('scroll',scroll,true);window.addEventListener('resize',place);visualViewport?.addEventListener('resize',place);visualViewport?.addEventListener('scroll',place);
   return()=>{observer.disconnect();window.removeEventListener('scroll',scroll,true);window.removeEventListener('resize',place);visualViewport?.removeEventListener('resize',place);visualViewport?.removeEventListener('scroll',place);};
- },[visible,requested,page,options.length,minMenuWidth]);
+ },[visible,requested,page,options.length,minMenuWidth,align]);
  useLayoutEffect(()=>{if(!visible||!requested||!position)return;const list=menu.current;focus(list?.querySelector<HTMLButtonElement>('[aria-selected=true], [aria-current=true]')??list?.querySelector<HTMLButtonElement>('.dropdown-option:not(:disabled)')??undefined);},[visible,requested,page,!!position]);
  useEffect(()=>{if(!requested)return;const outside=(event:PointerEvent)=>{if(!root.current?.contains(event.target as Node))changeOpen(false);};document.addEventListener('pointerdown',outside);return()=>document.removeEventListener('pointerdown',outside);},[requested]);
  const focus=(item:HTMLButtonElement|undefined)=>{if(!item)return;item.focus({preventScroll:true});const list=menu.current!;if(item.offsetTop<list.scrollTop)list.scrollTop=item.offsetTop;else if(item.offsetTop+item.offsetHeight>list.scrollTop+list.clientHeight)list.scrollTop=item.offsetTop+item.offsetHeight-list.clientHeight;};
