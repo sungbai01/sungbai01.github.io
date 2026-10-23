@@ -29,7 +29,7 @@ export async function cleanExpiredShares(db:TextDatabase,bucket:ShareBucket){
  ]);
  const {results}=await db.prepare(`SELECT object_key,bytes FROM share_objects WHERE created_at<?1 AND
  NOT EXISTS(SELECT 1 FROM share_media m JOIN book_shares s ON s.share_id=m.share_id WHERE m.object_key=share_objects.object_key AND s.last_access_at>?2)
- ORDER BY created_at LIMIT 5`).bind(now-60*60*1000,now-SHARE_IDLE_MS).all<{object_key:string;bytes:number}>();
+ ORDER BY created_at LIMIT 5`).bind(now-15*60*1000,now-SHARE_IDLE_MS).all<{object_key:string;bytes:number}>();
  for(const object of results){
   await db.prepare("INSERT OR IGNORE INTO share_object_info(object_key,owner_id) VALUES(?1,'')").bind(object.object_key).run();
   const claim=await db.prepare(`UPDATE share_object_info SET deleting=1 WHERE object_key=?1 AND NOT EXISTS(SELECT 1 FROM share_media m JOIN book_shares s ON s.share_id=m.share_id WHERE m.object_key=?1 AND s.last_access_at>?2)`).bind(object.object_key,now-SHARE_IDLE_MS).run();

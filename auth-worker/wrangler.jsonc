@@ -5,7 +5,7 @@
 	"compatibility_date": "2026-10-21",
 	"workers_dev": true,
 	"preview_urls": false,
-	"triggers": {"crons":["*/15 * * * *"]},
+	"triggers": {"crons":["*/5 * * * *"]},
 	"r2_buckets": [{"binding":"SHARE_IMAGES","bucket_name":"galpi-bookshelf-share-images"}],
 	"ratelimits": [
  {"name":"VISITOR_LIMIT","namespace_id":"7864382291","simple":{"limit":240,"period":60}},

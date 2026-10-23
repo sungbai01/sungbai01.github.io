@@ -1,3 +1,4 @@
+import {snapshotHash,shareSnapshot} from '../../shared/shareSnapshot';
 import {cloudBook} from '../../shared/cloudBook';
 import type {Book} from '../../src/lib/library';
 import type {TextDatabase} from './cloud';
@@ -56,9 +57,12 @@ export async function publicShare(request:Request,db:TextDatabase,origin:string,
 export async function manageShare(request:Request,db:TextDatabase,owner:string,bookId:string,origin:string,reply:Reply){
  if(!bookId||bookId.length>160||/[\s/\\\u0000-\u001f]/.test(bookId))return reply({error:'책을 찾을 수 없어요.'},404,origin);
  if(request.method==='GET'){
-  const row=await db.prepare('SELECT share_id, updated_at FROM book_shares WHERE owner_id = ?1 AND book_id = ?2 AND last_access_at>?3').bind(owner,bookId,Date.now()-SHARE_IDLE_MS).first<{share_id:string;updated_at:number}>();
-  const card=row?await db.prepare("SELECT image_id FROM share_media WHERE share_id=?1 AND role='card' ORDER BY image_id LIMIT 1").bind(row.share_id).first<{image_id:string}>():null;
-  return reply({share:row?{...metadata(row),cardUrl:card?`${new URL(request.url).origin}/share-media/${row.share_id}/${card.image_id}`:null}:null},200,origin);
+  const row=await db.prepare('SELECT share_id, updated_at,body FROM book_shares WHERE owner_id = ?1 AND book_id = ?2 AND last_access_at>?3').bind(owner,bookId,Date.now()-SHARE_IDLE_MS).first<{share_id:string;updated_at:number;body:string}>();
+  if(!row)return reply({share:null},200,origin);
+  const saved=await db.prepare('SELECT title,quote,page_start AS pageStart,page_end AS pageEnd,image_position AS imagePosition,background_name AS backgroundName FROM share_card_layout WHERE share_id=?1').bind(row.share_id).first<{title:string;quote:string;pageStart:number|null;pageEnd:number|null;imagePosition:number;backgroundName:string|null}>();
+  const media=await db.prepare('SELECT m.name,m.role,m.image_id AS imageId,i.content_hash AS hash FROM share_media m LEFT JOIN share_object_info i ON i.object_key=m.object_key WHERE m.share_id=?1').bind(row.share_id).all<{name:string;role:string;imageId:string;hash:string|null}>();
+  const snapshot=JSON.parse(row.body) as Book;
+  return reply({share:{...metadata(row),contentHash:await snapshotHash(shareSnapshot(snapshot)),card:{title:saved?.title??snapshot.seriesTitle??snapshot.title,quote:saved?.quote??'',imagePosition:saved?.imagePosition??0,...(saved?.backgroundName?{backgroundName:saved.backgroundName}:{}),...(saved?.pageStart?{quotePages:{start:saved.pageStart,end:saved.pageEnd}}:{})},credit:{author:snapshot.author,aiModel:snapshot.aiModel,color:snapshot.color,volumeNumber:snapshot.volumeNumber,displayPrompt:snapshot.displayPrompt},images:media.results.map(image=>({...image,url:`${new URL(request.url).origin}/share-media/${row.share_id}/${image.imageId}`}))}},200,origin);
  }
  if(request.method==='DELETE'){
   await db.prepare('DELETE FROM book_shares WHERE owner_id = ?1 AND book_id = ?2').bind(owner,bookId).run();
@@ -69,7 +73,6 @@ export async function manageShare(request:Request,db:TextDatabase,owner:string,b
  // Copy the authenticated owner's already validated D1 book only.
  const source=await db.prepare('SELECT body FROM books WHERE owner_id = ?1 AND book_id = ?2 AND deleted = 0').bind(owner,bookId).first<{body:string}>();
  if(!source)return reply({error:'서버에 저장된 책을 찾을 수 없어요.'},404,origin);
- if(!await allowShareAction(db,owner,'publish'))return reply({error:'공유 생성·갱신은 1분에 한 번, 하루 30회까지 가능해요. 잠시 후 다시 시도해 주세요.'},429,origin);
  const book=cloudBook(JSON.parse(source.body) as Book);
  delete book.bookmarks;
  try{await attachImageReferences(request,book);}catch{return reply({error:'이미지 참조를 확인하지 못했어요.'},400,origin);}
@@ -77,6 +80,10 @@ export async function manageShare(request:Request,db:TextDatabase,owner:string,b
  book.description='';
  const body=JSON.stringify(book),bytes=new TextEncoder().encode(body).byteLength;
  if(bytes>1_500_000)return reply({error:'공유할 텍스트 용량이 너무 커요.'},413,origin);
+ const previous=await db.prepare('SELECT share_id,updated_at,body FROM book_shares WHERE owner_id=?1 AND book_id=?2 AND last_access_at>?3').bind(owner,bookId,Date.now()-SHARE_IDLE_MS).first<{share_id:string;updated_at:number;body:string}>();
+ if(previous&&await snapshotHash(shareSnapshot(JSON.parse(previous.body)))===await snapshotHash(shareSnapshot(book)))return reply({share:metadata(previous),changed:false},200,origin);
+ if(!await allowShareAction(db,owner,'publish'))return reply({error:'공유 생성·갱신은 1분에 한 번, 하루 30회까지 가능해요. 잠시 후 다시 시도해 주세요.'},429,origin);
+
  const id=Array.from(crypto.getRandomValues(new Uint8Array(32)),b=>String.fromCharCode(b)).join('');
  const shareId=btoa(id).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
  const now=Date.now();

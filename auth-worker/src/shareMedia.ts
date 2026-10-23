@@ -40,14 +40,26 @@ async function reuseImage(request:Request,db:TextDatabase,owner:string,share:str
  return result.meta.changes?imageUrl(request,share,image):null;
 }
 /** Hash manifests can reuse only server-verified objects belonging to this owner. */
-export async function prepareShareImages(request:Request,db:TextDatabase,owner:string,bookId:string,origin:string,reply:Reply){
+export async function prepareShareImages(request:Request,db:TextDatabase,owner:string,bookId:string,origin:string,reply:Reply,bucket?:ShareBucket){
  const share=await db.prepare('SELECT share_id FROM book_shares WHERE owner_id=?1 AND book_id=?2 AND last_access_at>?3').bind(owner,bookId,Date.now()-SHARE_IDLE_MS).first<{share_id:string}>();if(!share)return reply({error:'공유 링크를 먼저 만들어 주세요.'},404,origin);
  const reader=request.body?.getReader();if(!reader)return reply({error:'이미지 목록이 없어요.'},400,origin);let size=0;const chunks:Uint8Array[]=[];
  try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>100000){await reader.cancel();return reply({error:'이미지 목록이 너무 커요.'},413,origin);}chunks.push(value);}}finally{reader.releaseLock();}
  const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
- let input:{images:{name:string;role:string;hash:string}[]};try{input=JSON.parse(new TextDecoder().decode(bytes));if(!Array.isArray(input.images)||input.images.length>44||input.images.some(item=>!validImageIdentity(item?.name,item?.role,item?.hash)))throw Error();}catch{return reply({error:'이미지 목록이 올바르지 않아요.'},400,origin);}
+ let input:{images:{name:string;role:string;hash:string}[];complete?:boolean};try{input=JSON.parse(new TextDecoder().decode(bytes));if(input.complete!==undefined&&typeof input.complete!=='boolean')throw Error();if(!Array.isArray(input.images)||input.images.length>44||input.images.some(item=>!validImageIdentity(item?.name,item?.role,item?.hash)))throw Error();}catch{return reply({error:'이미지 목록이 올바르지 않아요.'},400,origin);}
  if(!await allowShareAction(db,owner,'image'))return reply({error:'잠시 후 다시 시도해 주세요.'},429,origin);
- const images=[];for(const item of input.images)images.push({...item,url:await reuseImage(request,db,owner,share.share_id,item.name,item.role,item.hash)});
+ const images=[];
+ for(const item of input.images){
+  // Old objects predate SHA storage. Verify bytes once instead of re-uploading.
+  if(bucket){const legacy=await db.prepare('SELECT m.object_key FROM share_media m JOIN share_object_info i ON i.object_key=m.object_key WHERE m.share_id=?1 AND m.name=?2 AND m.role=?3 AND i.owner_id=?4 AND i.content_hash IS NULL AND i.deleting=0').bind(share.share_id,item.name,item.role,owner).first<{object_key:string}>();
+   if(legacy&&await reserve(db,'reads')){const object=await bucket.get(legacy.object_key);if(object){const data=await new Response(object.body).arrayBuffer();if(data.byteLength<=maxImage){const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',data)),byte=>byte.toString(16).padStart(2,'0')).join('');await db.prepare('UPDATE share_object_info SET content_hash=?2 WHERE object_key=?1 AND owner_id=?3 AND deleting=0').bind(legacy.object_key,hash,owner).run();}}}
+  }
+  images.push({...item,url:await reuseImage(request,db,owner,share.share_id,item.name,item.role,item.hash)});
+ }
+ if(input.complete){
+  if(images.some(image=>!image.url))return reply({error:'이미지 업로드가 아직 완료되지 않았어요.'},409,origin);
+  await db.prepare(`DELETE FROM share_media WHERE share_id=?1 AND EXISTS(SELECT 1 FROM book_shares WHERE share_id=?1 AND owner_id=?2 AND last_access_at>?4) AND NOT EXISTS(SELECT 1 FROM json_each(?3) j WHERE json_extract(j.value,'$.name')=share_media.name AND json_extract(j.value,'$.role')=share_media.role)`).bind(share.share_id,owner,JSON.stringify(input.images),Date.now()-SHARE_IDLE_MS).run();
+ }
+
  return reply({images},200,origin);
 }
 export async function uploadShareImage(request:Request,db:TextDatabase,bucket:ShareBucket|undefined,owner:string,bookId:string,origin:string,reply:Reply){

@@ -171,3 +171,28 @@ test('deduplicated image stays alive while another active share references it',a
  await api.cleanExpiredShares(db,storage);assert.equal(deletes,0);
  sql.prepare('DELETE FROM book_shares').run();await api.cleanExpiredShares(db,storage);assert.equal(deletes,1);assert.equal(sql.prepare('SELECT reserved_bytes n FROM share_storage_budget').get().n,0);
 });
+
+test('saved share settings load privately and unchanged refreshes do not write or consume publish quota',async()=>{
+ const {db,sql}=fixture(),body=sql.prepare('SELECT body FROM book_shares').get().body;
+ sql.prepare('INSERT INTO books(owner_id,book_id,body,bytes,revision,updated_at) VALUES(?,?,?,?,1,?)').run(owner,'audit',body,body.length,now);
+ const request=()=>new Request('https://audit/share',{method:'POST',body:JSON.stringify({references:[],bookmarkStyle:'image'})});
+ assert.equal((await api.manageShare(request(),db,owner,'audit',origin,reply)).status,200);
+ const first=sql.prepare('SELECT updated_at FROM book_shares').get().updated_at,writes=sql.prepare('SELECT used FROM share_rate_limits WHERE kind=?').get('publish').used;
+ const same=await api.manageShare(request(),db,owner,'audit',origin,reply);assert.equal((await same.json()).changed,false);assert.equal(sql.prepare('SELECT updated_at FROM book_shares').get().updated_at,first);assert.equal(sql.prepare('SELECT used FROM share_rate_limits WHERE kind=?').get('publish').used,writes);
+ const layout={title:'saved title',quote:'saved quote',quotePages:{start:7,end:8},imagePosition:.75,backgroundName:'portrait'};
+ const cardRequest=()=>new Request('https://audit/card',{method:'PUT',body:JSON.stringify(layout)});
+ assert.equal((await api.saveShareCardLayout(cardRequest(),db,owner,'audit',origin,reply)).status,200);
+ assert.equal((await (await api.saveShareCardLayout(cardRequest(),db,owner,'audit',origin,reply)).json()).changed,false);
+ const loaded=await (await api.manageShare(new Request('https://audit/share'),db,owner,'audit',origin,reply)).json();assert.deepEqual(loaded.share.card,layout);assert.match(loaded.share.contentHash,/^[a-f0-9]{64}$/);assert.deepEqual(loaded.share.images,[]);
+ assert.equal((await (await api.manageShare(new Request('https://audit/share'),db,'stranger','audit',origin,reply)).json()).share,null);
+});
+
+test('legacy image comparison reads once, never uploads, and finalizes only complete manifests',async()=>{
+ const {db,sql}=fixture();let puts=0,gets=0;const data=png(40),storage={...bucket,async put(){puts++;},async get(){gets++;return {body:new Blob([data]).stream()};}};
+ await upload(db,storage,'old',40);sql.prepare('UPDATE share_object_info SET content_hash=NULL').run();const hash=Buffer.from(await crypto.subtle.digest('SHA-256',data)).toString('hex');
+ const check=(images,complete=false)=>api.prepareShareImages(new Request('https://audit/images',{method:'PUT',body:JSON.stringify({images,complete})}),db,owner,'audit',origin,reply,storage);
+ const image={name:'old',role:'asset',hash};assert.ok((await (await check([image])).json()).images[0].url);assert.equal(gets,1);assert.equal(puts,1);
+ assert.ok((await (await check([image])).json()).images[0].url);assert.equal(gets,1);
+ assert.equal((await check([{name:'missing',role:'asset',hash:'0'.repeat(64)}],true)).status,409);assert.equal(sql.prepare('SELECT COUNT(*) n FROM share_media').get().n,1);
+ assert.equal((await check([],true)).status,200);assert.equal(sql.prepare('SELECT COUNT(*) n FROM share_media').get().n,0);assert.equal(sql.prepare('SELECT COUNT(*) n FROM share_objects').get().n,1);
+});

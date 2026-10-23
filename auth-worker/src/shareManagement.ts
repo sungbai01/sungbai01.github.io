@@ -13,7 +13,7 @@ export async function shareManagement(request:Request,db:TextDatabase,owner:stri
  CASE WHEN s.last_access_at+?2<=?3 THEN 'expired' ELSE 'active' END AS status,
  c.title AS cardTitle,c.quote,c.page_start AS pageStart,c.page_end AS pageEnd,c.image_position AS imagePosition,c.background_url AS backgroundUrl,
  json_extract(s.body,'$.author') AS author,json_extract(s.body,'$.color') AS color,json_extract(s.body,'$.displayPrompt') AS displayPrompt,json_extract(s.body,'$.volumeNumber') AS volumeNumber,
- (SELECT image_id FROM share_media m WHERE m.share_id=s.share_id AND (m.name='__galpi_share_background__' OR m.name='__galpi_cover_icon__') ORDER BY CASE m.name WHEN '__galpi_share_background__' THEN 0 ELSE 1 END LIMIT 1) AS backgroundImage,
+ (SELECT image_id FROM share_media m WHERE m.share_id=s.share_id AND (m.name=c.background_name OR m.name='__galpi_share_background__' OR m.name='__galpi_cover_icon__') ORDER BY CASE WHEN m.name=c.background_name THEN 0 WHEN m.name='__galpi_share_background__' THEN 1 ELSE 2 END LIMIT 1) AS backgroundImage,
  (SELECT image_id FROM share_media m WHERE m.share_id=s.share_id AND m.role='card' LIMIT 1) AS cardImage
  FROM book_shares s LEFT JOIN share_card_layout c ON c.share_id=s.share_id WHERE s.owner_id=?1
  UNION ALL

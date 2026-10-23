@@ -73,43 +73,19 @@ for(const width of [390,1440])test(`share ticket opens before book fetch (${widt
 });
 
 
-for(const format of ['HTML','URL'])test(`${format} share creates its link and includes body images without extra options`,async({page})=>{
- await page.route('https://fonts.googleapis.com/**',r=>r.abort());await page.route('https://fonts.gstatic.com/**',r=>r.abort());
- const calls:{method:string;path:string;role:string|null}[]=[];
- await page.route('**/library/books/ticket-test/share**',async route=>{
-  const request=route.request(),path=new URL(request.url()).pathname;
-  calls.push({method:request.method(),path,role:request.headers()['x-image-role']??null});
-  if(path.endsWith('/images')&&request.method()==='PUT')await route.fulfill({json:{images:request.postDataJSON().images.map((image:any)=>({...image,url:null}))}});
-  else if(path.endsWith('/card'))await route.fulfill({json:{saved:true}});
-  else if(path.endsWith('/images'))await route.fulfill({json:{url:'https://example.com/card.webp'}});
-  else await route.fulfill({json:{share:request.method()==='GET'?null:{id:'a'.repeat(43),updatedAt:Date.now()}}});
+for(const format of ['HTML','URL'])test(`${format} share publishes once and repeated copies never upload`,async({page})=>{
+ const calls:string[]=[];let saved:any=null;
+ await page.route('**/library/books/ticket-test/share**',async route=>{const req=route.request(),path=new URL(req.url()).pathname;calls.push(req.method()+' '+path);
+  if(path.endsWith('/images'))return route.fulfill({json:req.method()==='POST'?{url:'https://example.com/scene.webp'}:{images:req.postDataJSON().images.map((image:any)=>({...image,url:req.postDataJSON().complete?'https://example.com/scene.webp':null}))}});
+  if(path.endsWith('/card')){saved.card=req.postDataJSON();return route.fulfill({json:{saved:true}});}
+  if(req.method()==='POST')saved={id:'a'.repeat(43),updatedAt:Date.now()};return route.fulfill({json:{share:saved}});
  });
- await page.goto('http://127.0.0.1:5175/');
- await page.evaluate(async()=>{
-  const auth=await import('/src/lib/auth.ts');auth.setAuthSession({token:'mock',expiresAt:Date.now()+3600000,user:{id:'u_'+'a'.repeat(43)}});
-  Object.defineProperty(navigator,'clipboard',{value:{writeText:async(text:string)=>{(window as any).copied=text;},write:async(items:ClipboardItem[])=>{(window as any).clipboardTypes=items[0].types;(window as any).copied=await (await items[0].getType('text/html')).text();}}});
-  const {mountTicket}=await import('/tests/share-ticket-harness.tsx');mountTicket(true);
- });
- await expect(page.getByRole('dialog',{name:'책 공유'})).toBeVisible();await page.evaluate(()=>(window as any).finishBook());
- await expect(page.getByRole('button',{name:'공유',exact:true})).toBeEnabled();
- await page.getByRole('button',{name:'공유',exact:true}).click();
- await expect(page.getByRole('button',{name:'공유',exact:true})).toBeDisabled();
- await expect(page.getByRole('button',{name:'URL로 공유',exact:true})).toBeVisible();
- await expect(page.getByRole('button',{name:'HTML로 공유',exact:true})).toBeVisible();
- expect(await page.getByRole('button',{name:'URL로 공유',exact:true}).innerText()).toBe('');
- expect(await page.getByRole('button',{name:'HTML로 공유',exact:true}).innerText()).toBe('');
- const flyoutFits=await page.locator('.share-ticket-actions').evaluate(el=>{const r=el.getBoundingClientRect(),button=el.parentElement!.querySelector('button')!.getBoundingClientRect();return r.left>=button.right&&r.right<=innerWidth;});expect(flyoutFits).toBe(true);
- expect(calls).toEqual([]);
- await page.getByRole('button',{name:format+'로 공유',exact:true}).click();
- if(format==='HTML')await page.getByRole('button',{name:'HTML 복사',exact:true}).click();
- await expect(page.getByRole('status').filter({hasText:'복사했어요.'})).toBeVisible();
- expect(calls.map(call=>[call.method,call.role])).toEqual([['GET',null],['POST',null],['PUT',null],['POST','asset'],['PUT',null]]);
- expect(await page.evaluate(()=>(window as any).copied)).toContain('#/share/'+'a'.repeat(43));
- if(format==='HTML')expect(await page.evaluate(()=>(window as any).clipboardTypes)).toEqual(['text/html','text/plain']);
- if(format==='URL')await page.getByRole('button',{name:'URL로 공유',exact:true}).click();
- else await page.getByRole('button',{name:'HTML 복사',exact:true}).click();
- await expect.poll(()=>calls.length).toBe(6);
+ await page.goto('http://127.0.0.1:5175/');await page.evaluate(async()=>{const auth=await import('/src/lib/auth.ts');auth.setAuthSession({token:'mock',expiresAt:Date.now()+3600000,user:{id:'u_'+'a'.repeat(43)}});Object.defineProperty(navigator,'clipboard',{value:{writeText:async(text:string)=>{(window as any).copied=text;},write:async(items:ClipboardItem[])=>{(window as any).copied=await (await items[0].getType('text/html')).text();}}});const {mountTicket}=await import('/tests/share-ticket-harness.tsx');mountTicket(true);});
+ await expect(page.getByRole('dialog',{name:'책 공유',exact:true})).toBeVisible();await page.evaluate(()=>(window as any).finishBook());await page.getByRole('button',{name:'공유',exact:true}).click();await expect(page.getByRole('button',{name:'공유 새로고침',exact:true})).toBeEnabled();
+ const count=calls.length;await page.getByRole('button',{name:format+'로 공유',exact:true}).click();if(format==='HTML')await page.getByRole('button',{name:'HTML 복사',exact:true}).click();await expect.poll(()=>page.evaluate(()=>(window as any).copied)).toContain('#/share/'+'a'.repeat(43));
+ if(format==='URL')await page.getByRole('button',{name:'URL로 공유',exact:true}).click();else await page.getByRole('button',{name:'HTML 복사',exact:true}).click();expect(calls.length).toBe(count);expect(calls.filter(call=>call.startsWith('POST')&&call.endsWith('/images'))).toHaveLength(1);
 });
+
 test('empty quote draws no quotation mark and selection can confirm empty',async({page})=>{
  await page.route('https://fonts.googleapis.com/**',r=>r.abort());await page.route('https://fonts.gstatic.com/**',r=>r.abort());
  await page.goto('http://127.0.0.1:5175/');

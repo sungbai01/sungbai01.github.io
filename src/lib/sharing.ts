@@ -1,3 +1,4 @@
+import {shareSnapshot,snapshotHash} from '../../shared/shareSnapshot';
 import type {ShareCardLayout} from '../../shared/shareCard';
 import {bookAuthor} from './bookAuthor';
 import {beginSkeletonTask} from './loadingActivity';
@@ -12,7 +13,8 @@ export async function getActiveShareCount(signal?:AbortSignal):Promise<number>{
  const response=await fetch(`${apiBase}/library/shares?count=1`,{credentials:'omit',cache:'no-store',signal,headers:{Authorization:`Bearer ${session.token}`}});
  const result=await response.json();if(!response.ok||getAuthSession()?.user.id!==session.user.id||!Number.isSafeInteger(result.activeCount)||result.activeCount<0)throw new Error('공유 개수를 불러오지 못했어요.');return result.activeCount;
 }
-export type ShareInfo={id:string;updatedAt:number;cardUrl?:string|null};
+export type SharedImage={name:string;role:string;hash:string|null;url:string};
+export type ShareInfo={id:string;updatedAt:number;cardUrl?:string|null;contentHash?:string;card?:ShareCardLayout;credit?:Pick<Book,'author'|'aiModel'|'color'|'volumeNumber'|'displayPrompt'>;images?:SharedImage[]};
 export function shareUrl(id:string){return `${location.origin}${location.pathname}#/share/${id}`;}
 export async function shareRequest(bookId:string,method='GET',signal?:AbortSignal,book?:Book):Promise<ShareInfo|null>{
  const session=getAuthSession();if(!session)throw new Error('공유하려면 Google 로그인이 필요해요.');
@@ -53,9 +55,9 @@ export async function saveShareCardLayout(book:Book,layout:ShareCardLayout){
 export {makeTicketCard as makeShareCard} from './shareTicket';
 
 async function hashBlob(blob:Blob){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await blob.arrayBuffer())),byte=>byte.toString(16).padStart(2,'0')).join('');}
-async function existingShareMedia(book:Book,images:{name:string;role:string;hash:string}[]){
+async function existingShareMedia(book:Book,images:{name:string;role:string;hash:string}[],complete=false){
  const session=getAuthSession();if(!session||!apiBase)throw new Error('다시 로그인해 주세요.');
- const response=await fetch(`${apiBase}/library/books/${encodeURIComponent(book.id)}/share/images`,{method:'PUT',credentials:'omit',headers:{Authorization:`Bearer ${session.token}`,'Content-Type':'application/json'},body:JSON.stringify({images})});const result=await response.json();if(!response.ok)throw new Error(result.error||'공유 이미지를 확인하지 못했어요.');if(getAuthSession()?.user.id!==session.user.id)throw new Error('계정이 변경되었어요.');return result.images as {name:string;role:string;hash:string;url:string|null}[];
+ const response=await fetch(`${apiBase}/library/books/${encodeURIComponent(book.id)}/share/images`,{method:'PUT',credentials:'omit',headers:{Authorization:`Bearer ${session.token}`,'Content-Type':'application/json'},body:JSON.stringify({images,complete})});const result=await response.json();if(!response.ok)throw new Error(result.error||'공유 이미지를 확인하지 못했어요.');if(getAuthSession()?.user.id!==session.user.id)throw new Error('계정이 변경되었어요.');return result.images as {name:string;role:string;hash:string;url:string|null}[];
 }
 async function uploadShareMedia(book:Book,blob:Blob,name:string,role:'asset'|'icon'|'card'){
  const session=getAuthSession();if(!session||!apiBase)throw new Error('다시 로그인해 주세요.');
@@ -80,13 +82,38 @@ export function usedShareAssets(book:Book,includeBody=true){
  if(icon)used.set('__galpi_cover_icon__',{id:'cover-icon',name:'__galpi_cover_icon__',src:icon,type:'icon'});
  const mark=book.assets?.find(asset=>asset.id===book.bookmarkAssetId)?.src??icon;
  if(mark)used.set('__galpi_bookmark__',{id:'bookmark-image',name:'__galpi_bookmark__',src:mark,type:'asset'});
+ const background=book.assets?.find(asset=>asset.id===book.shareCardAssetId)?.src??icon;if(background)used.set('__galpi_share_background__',{id:'share-background',name:'__galpi_share_background__',src:background,type:'asset'});
  return [...used.values()];
 }
-export async function uploadBookShareAssets(book:Book,onProgress:(done:number,total:number)=>void,includeBody=true){
- book={...book,imageReferences:await resolveDisplayImageReferences(book)};
- const assets=usedShareAssets(book,includeBody);if(assets.length>40)throw new Error('공유 이미지는 한 권에 40개까지 넣을 수 있어요.');
- const staged=[];const sources=new Map<string,Promise<Blob>>();
- for(const asset of assets){let pending=sources.get(asset.src);if(!pending){pending=shareImageBlob(asset.src);sources.set(asset.src,pending);}const blob=await pending;staged.push({name:asset.name,role:asset.type==='icon'?'icon' as const:'asset' as const,blob,hash:await hashBlob(blob)});}
- const existing=staged.length?await existingShareMedia(book,staged.map(({name,role,hash})=>({name,role,hash}))):[];
- let done=0;const uploaded=new Set(existing.filter(image=>image.url).map(image=>image.hash));for(const image of staged){let url=existing.find(entry=>entry.name===image.name&&entry.role===image.role)?.url;if(!url&&uploaded.has(image.hash))url=(await existingShareMedia(book,[{name:image.name,role:image.role,hash:image.hash}]))[0]?.url;if(!url)await uploadShareMedia(book,image.blob,image.name,image.role);uploaded.add(image.hash);onProgress(++done,assets.length);}
+type StagedImage={name:string;role:'asset'|'icon';hash:string;blob?:Blob};
+export function withSharedAssets(book:Book,share:ShareInfo|null):Book{
+ const remote=share?.images??[],assets=[...(book.assets??[])];
+ for(const image of remote)if(image.role!=='card'&&!assets.some(asset=>asset.name===image.name))assets.push({id:image.name,name:image.name,src:image.url,type:image.role==='icon'?'icon':'asset'});
+ const icon=book.characterIcon??remote.find(image=>image.name==='__galpi_cover_icon__')?.url;
+ return {...book,assets,characterIcon:icon,bookmarkAssetId:book.bookmarkAssetId??assets.find(asset=>asset.name==='__galpi_bookmark__')?.id,shareCardAssetId:book.shareCardAssetId??assets.find(asset=>asset.name==='__galpi_share_background__')?.id};
 }
+export async function prepareShareUpdate(book:Book,share:ShareInfo|null){
+ book=withSharedAssets(book,share);book={...book,imageReferences:await resolveDisplayImageReferences(book)};
+ const references=book.messages.flatMap((message,index)=>extractAssetSegments(message.content,book.assets??[],book.imageRules??[],book.imageReferences?.filter(reference=>reference.message===index)).flatMap(segment=>segment.type==='asset'?[{message:index,start:segment.start,end:segment.end,name:segment.asset.name}]:[]));
+ const hash=await snapshotHash(shareSnapshot(book,references));
+ const assets=usedShareAssets(book);if(assets.length>40)throw new Error('공유 이미지는 한 권에 40개까지 넣을 수 있어요.');
+ const images:StagedImage[]=[],sources=new Map<string,Promise<Blob>>();
+ for(const asset of assets){const old=share?.images?.find(image=>image.url===asset.src);const identity={name:asset.name,role:asset.type==='icon'?'icon' as const:'asset' as const};
+  if(old?.hash){images.push({...identity,hash:old.hash});continue;}
+  let pending=sources.get(asset.src);if(!pending){pending=old?fetch(old.url,{credentials:'omit'}).then(response=>{if(!response.ok)throw new Error('기존 공유 이미지를 확인하지 못했어요.');return response.blob();}):shareImageBlob(asset.src);sources.set(asset.src,pending);}const blob=await pending;images.push({...identity,blob,hash:await hashBlob(blob)});
+ }
+ return {book,hash,images};
+}
+export async function syncShareImages(book:Book,images:StagedImage[],existing:SharedImage[],onProgress:(done:number,total:number)=>void){
+ const same=(image:StagedImage)=>existing.some(old=>old.name===image.name&&old.role===image.role&&old.hash===image.hash);
+ const missing=images.filter(image=>!same(image));const removed=existing.some(old=>!images.some(image=>image.name===old.name&&image.role===old.role));
+ if(!missing.length&&!removed)return false;
+ const matches=missing.length?await existingShareMedia(book,missing):[];let done=0;const seen=new Set(existing.filter(image=>image.hash).map(image=>image.hash));
+ for(const image of missing){let url=matches.find(entry=>entry.name===image.name&&entry.role===image.role)?.url;
+  if(!url&&seen.has(image.hash))url=(await existingShareMedia(book,[image]))[0]?.url;
+  if(!url){if(!image.blob)throw new Error('공유 이미지를 다시 선택해 주세요.');await uploadShareMedia(book,image.blob,image.name,image.role);}
+  seen.add(image.hash);onProgress(++done,missing.length);
+ }
+ await existingShareMedia(book,images,true);return true;
+}
+export async function uploadBookShareAssets(book:Book,onProgress:(done:number,total:number)=>void){const prepared=await prepareShareUpdate(book,null);await syncShareImages(prepared.book,prepared.images,[],onProgress);}
