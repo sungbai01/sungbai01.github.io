@@ -1,3 +1,4 @@
+import {normalizeDisplayPrompt,type DisplayPrompt} from '../../shared/displayPrompt';
 import { imageReferenceRanges } from './assets';
 
 export type ProseRange = { start: number; end: number };
@@ -31,13 +32,13 @@ export function angleRanges(text: string, protectedRanges: ProseRange[] = []): P
  * An unterminated opening brace hides the remaining text rather than leaking
  * a truncated system instruction. Stray closing braces are hidden by themselves.
  */
-export function systemRanges(text: string, protectedRanges: ProseRange[] = []): ProseRange[] {
+export function systemRanges(text: string, protectedRanges: ProseRange[] = [],preserveUser=true): ProseRange[] {
   const result: ProseRange[] = [];
   let depth = 0, start = 0, protectedIndex = 0;
   for (let index = 0; index < text.length; index++) {
     const protectedRange = protectedRanges[protectedIndex];
     if (protectedRange && index === protectedRange.start) { index = protectedRange.end - 1; protectedIndex++; continue; }
-    if (!depth && text.slice(index, index + 8).toLowerCase() === '{{user}}') { index += 7; continue; }
+    if (preserveUser && !depth && text.slice(index, index + 8).toLowerCase() === '{{user}}') { index += 7; continue; }
     if (text[index] === '{') { if (!depth) start = index; depth++; }
     else if (text[index] === '}') {
       if (depth) { depth--; if (!depth) result.push({ start, end: index + 1 }); }
@@ -48,14 +49,30 @@ export function systemRanges(text: string, protectedRanges: ProseRange[] = []): 
   return result;
 }
 
-/** Display-only: never use resulting lengths as original bookmark positions.
- * Resolve images before applying this to prose; unknown brace macros disappear.
- */
-export function visibleProse(text: string): string {
-  let result = '', cursor = 0;
-  const images = imageReferenceRanges(text);
-  const ranges = [...systemRanges(text, images), ...images].sort((a, b) => a.start - b.start || b.end - a.end);
-  for (const range of ranges) { if (range.end <= cursor) continue; result += text.slice(cursor, Math.max(cursor, range.start)); cursor = range.end; }
-  return result + text.slice(cursor);
+/** Nested square blocks use original offsets and skip complete image markers. */
+export function squareRanges(text:string,protectedRanges:ProseRange[]=[]):ProseRange[]{
+ const result:ProseRange[]=[];let depth=0,start=0,protectedIndex=0;
+ for(let index=0;index<text.length;index++){
+  while(protectedRanges[protectedIndex]&&protectedRanges[protectedIndex].end<=index)protectedIndex++;
+  const reference=protectedRanges[protectedIndex];
+  if(reference&&reference.start===index){index=reference.end-1;continue;}
+  if(text[index]==='['){if(!depth)start=index;depth++;}
+  else if(text[index]===']'){if(depth&&!--depth)result.push({start,end:index+1});}
+ }
+ if(depth)result.push({start,end:text.length});
+ return result;
 }
-
+/** Display rules never modify stored text or source positions. Asset ranges
+ * remain protected even inside hidden blocks and while assets are unresolved. */
+export function displayHiddenRanges(text:string,prompt?:DisplayPrompt,images=imageReferenceRanges(text)):ProseRange[]{
+ const settings=normalizeDisplayPrompt(prompt);
+ return [...(settings.hideCurly?systemRanges(text,images,false):[]),...(settings.hideSquare?squareRanges(text,images):[])].sort((a,b)=>a.start-b.start||b.end-a.end);
+}
+export function visibleSlice(text:string,start:number,end:number,prompt?:DisplayPrompt):string{
+ const images=imageReferenceRanges(text),ranges=[...displayHiddenRanges(text,prompt,images),...images].sort((a,b)=>a.start-b.start||b.end-a.end);
+ let result='',cursor=start;
+ for(const range of ranges){if(range.end<=cursor||range.start>=end)continue;result+=text.slice(cursor,Math.max(cursor,range.start));cursor=Math.min(end,range.end);}
+ return result+text.slice(cursor,end);
+}
+/** For full-source previews/search only. Page fragments are already partitioned. */
+export function visibleProse(text:string,prompt?:DisplayPrompt):string{return visibleSlice(text,0,text.length,prompt);}

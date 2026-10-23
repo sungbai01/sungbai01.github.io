@@ -1,3 +1,4 @@
+import {normalizeDisplayPrompt,validDisplayPrompt,type DisplayPrompt,type ImageReference} from '../../shared/displayPrompt';
 /**
  * Standalone, browser-only persistence and import; no dependencies or UI effects.
  * Format reference: https://github.com/kwaroran/Risuai/blob/main/src/ts/characters.ts
@@ -37,6 +38,9 @@ export interface Book {
   aiModel?: string;
   /** Only the chosen replacement name; never the imported identity. */
   userName?: string;
+  displayPrompt?: DisplayPrompt;
+  /** Explicit image associations for public snapshots; source text stays raw. */
+  imageReferences?: ImageReference[];
   description: string;
   color: string;
   /** Optional image-derived shade; color remains the resolved display color. */
@@ -149,7 +153,7 @@ function normalizeMessage(value: unknown, index: number, character: string, user
   return {
     role,
     name: string(value.name, value.speaker, speaker, role === 'user' ? user : role === 'assistant' ? character : role === 'system' ? '시스템' : '서술'),
-    content: content.replace(/\r\n?/g, '\n'),
+    content,
     originalContent: typeof value.originalContent === 'string' ? value.originalContent : content,
     ...(Array.isArray(value.originalMap) ? { originalMap: value.originalMap as Message['originalMap'] } : {}),
     ...(typeof value.chapter === 'string' ? { chapter: value.chapter } : {}),
@@ -221,6 +225,7 @@ function makeBook(value: RecordValue, rows: unknown[], context: ImportContext, i
   if (cover) book.cover = cover;
   const customColor = safeCustomColor(value.customColor);
   if (customColor) book.customColor = customColor;
+  if(value.displayPrompt!==undefined)book.displayPrompt=normalizeDisplayPrompt(value.displayPrompt);
   if (typeof value.userName === 'string') book.userName = value.userName;
   if (typeof value.aiModel === 'string') book.aiModel = value.aiModel;
   const backCover = safeAssetSource(value.backCover);
@@ -334,20 +339,22 @@ function parseText(text: string, context: ImportContext): Book[] {
       !text.split('\n').some(line => line === `--${filenameCharacter}`))) {
     throw new LibraryError('TXT에는 사용자 역할 정보가 없습니다. 원래 캐릭터명_날짜_chat 파일명을 유지하거나 역할 정보가 있는 JSON 파일로 가져와 주세요.');
   }
-  const flush = () => { if (current) { current.content = current.content.trim(); rows.push(current); current = undefined; } };
-  for (const line of text.split('\n')) {
+  const flush = () => { if(current){rows.push(current);current=undefined;} };
+  const lines=text.split('\n');
+  for (const [position,line] of lines.entries()) {
+    const ending=position<lines.length-1?'\n':'';
     const marker = risuText ? line.match(/^--(.+?)\s*$/) : line.match(/^([^:：\n]{1,80})[:：]\s*(.*)$/);
     if (marker) {
       flush();
       const name = marker[1]!.replace(/[:：]\s*$/, '').trim();
       const role = risuText ? name === filenameCharacter ? 'assistant' : 'unknown'
         : /^(user|human|나|사용자)$/i.test(name) ? 'user' : /^system$/i.test(name) ? 'system' : 'assistant';
-      current = { role, name, content: marker[2] ? `${marker[2]}\n` : '' };
+      current = { role, name, content: marker[2] ? marker[2]+ending : '' };
       continue;
     }
-    if (!current && !line.trim()) continue;
+    if (!current && risuText && !line.trim()) continue;
     if (!current) current = { role: 'narrator', name: '서술', content: '' };
-    current.content += `${line}\n`;
+    current.content += line+ending;
   }
   flush();
   return [makeBook({ title }, rows, context, 0)];
@@ -361,9 +368,9 @@ export async function importChatFile(file: File, options: { removeUserInputs?: b
     throw new LibraryError('TXT 또는 JSON 파일을 선택해 주세요.');
   }
   let text: string;
-  try { text = (await file.text()).replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim(); }
+  try { text = (await file.text()).replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n'); }
   catch { throw new LibraryError('파일을 읽지 못했습니다. 파일 접근 권한을 확인해 주세요.'); }
-  if (!text) throw new LibraryError('파일이 비어 있습니다.');
+  if (!text.trim()) throw new LibraryError('파일이 비어 있습니다.');
   if (text.includes('\u0000')) throw new LibraryError('UTF-8 텍스트 파일을 선택해 주세요.');
   const context: ImportContext = {
     title: file.name.replace(/\.[^.]+$/, '') || '가져온 대화',
@@ -491,6 +498,7 @@ function validateBook(book: Book): void {
     (book.bookmarkAssetId !== undefined && typeof book.bookmarkAssetId !== 'string') ||
     (book.shareCardAssetId !== undefined && typeof book.shareCardAssetId !== 'string') ||
     (book.userName !== undefined && (typeof book.userName !== 'string' || book.userName.length > 80)) ||
+    (book.displayPrompt!==undefined&&!validDisplayPrompt(book.displayPrompt)) ||
     (book.aiModel !== undefined && typeof book.aiModel !== 'string') ||
     (book.uploadedAt!==undefined&&(typeof book.uploadedAt!=='string'||!Number.isFinite(Date.parse(book.uploadedAt)))) ||
     (book.assets !== undefined && (!Array.isArray(book.assets) || !book.assets.every(asset => record(asset) &&

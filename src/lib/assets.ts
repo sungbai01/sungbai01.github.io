@@ -133,8 +133,10 @@ export function imageReferenceNames(tag: string): string[] {
  * No HTML, URLs or code are evaluated. Only a known asset name resolves; an
  * unresolved token remains verbatim text. Empty content returns no segments.
  */
-export function extractAssetSegments(content: string, assets: BookAsset[], imageRules: ImageRule[] = []): AssetSegment[] {
+export function extractAssetSegments(content: string, assets: BookAsset[], imageRules: ImageRule[] = [],references:{start:number;end:number;name:string}[]=[]): AssetSegment[] {
   const byName = new Map<string, BookAsset>();
+  const referenceNames=new Map<string,string[]>();
+  for(const reference of references){const key=`${reference.start}:${reference.end}`;const list=referenceNames.get(key)??[];list.push(reference.name);referenceNames.set(key,list);}
   for (const asset of assets) if (!byName.has(asset.name) && safeAssetSource(asset.src)) byName.set(asset.name, asset);
   const aliases = new Map<string, BookAsset | null>();
   const addAlias = (name: string, asset: BookAsset) => {
@@ -166,7 +168,7 @@ export function extractAssetSegments(content: string, assets: BookAsset[], image
     let name = (match[1] ?? match[2] ?? match[3] ?? '').trim();
     if (name.startsWith('<') && name.endsWith('>')) name = name.slice(1, -1);
     name = name.replace(/^\{\{(?:img|image|raw)::([^{}]+)\}\}$/i, '$1').replace(/\\([\\()[\] ])/g, '$1').trim();
-    const candidates = [...imageRuleCandidates(match[0], imageRules), ...(/^(?:<img|\[img)/i.test(match[0]) ? imageReferenceNames(match[0]) : [name])];
+    const candidates = [...(referenceNames.get(`${start}:${start+match[0].length}`)??[]), ...imageRuleCandidates(match[0], imageRules), ...(/^(?:<img|\[img)/i.test(match[0]) ? imageReferenceNames(match[0]) : [name])];
     let asset: BookAsset | undefined;
     for (const candidate of candidates) {
       asset = byName.get(candidate) ?? aliases.get(candidate) ?? undefined;

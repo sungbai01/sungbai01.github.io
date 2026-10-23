@@ -5,7 +5,7 @@ import {readFileSync,readdirSync} from 'node:fs';
 import {createRequire} from 'node:module';
 const require=createRequire(new URL('../auth-worker/package.json',import.meta.url));
 const {build}=require('esbuild');
-const bundle=await build({stdin:{contents:`export {default as worker} from './auth-worker/src/index.ts';export {uploadShareImage,publicShareImage} from './auth-worker/src/shareMedia.ts';export {cleanExpiredShares} from './auth-worker/src/shareExpiry.ts';export {publicShare} from './auth-worker/src/shares.ts';export {verifySession,issueSession,revokeSession} from './auth-worker/src/sessions.ts';`,resolveDir:process.cwd(),loader:'ts'},bundle:true,platform:'node',format:'esm',write:false,logLevel:'silent'});
+const bundle=await build({stdin:{contents:`export {default as worker} from './auth-worker/src/index.ts';export {uploadShareImage,publicShareImage} from './auth-worker/src/shareMedia.ts';export {cleanExpiredShares} from './auth-worker/src/shareExpiry.ts';export {publicShare,manageShare} from './auth-worker/src/shares.ts';export {libraryApi} from './auth-worker/src/cloud.ts';export {verifySession,issueSession,revokeSession} from './auth-worker/src/sessions.ts';`,resolveDir:process.cwd(),loader:'ts'},bundle:true,platform:'node',format:'esm',write:false,logLevel:'silent'});
 const api=await import('data:text/javascript;base64,'+Buffer.from(bundle.outputFiles[0].contents).toString('base64'));
 const {SignJWT}=await import('../auth-worker/node_modules/jose/dist/webapi/index.js');
 const origin='https://sungbai01.github.io',owner='u_'+'a'.repeat(43),share='S'.repeat(43),now=Date.now();
@@ -93,4 +93,17 @@ test('image cache saves R2 reads while deleted share is denied before cache hit'
  const saved=new Map();globalThis.caches={default:{async match(key){return saved.get(key.url)?.clone();},async put(key,value){saved.set(key.url,value.clone());}}};let gets=0;
  const storage={...bucket,async get(){gets++;return bucket.get();}};const request=new Request('https://audit/share-media/'+share+'/'+imageId);
  try{assert.equal((await api.publicShareImage(request,db,storage)).status,200);assert.equal((await api.publicShareImage(request,db,storage)).status,200);assert.equal(gets,1);sql.prepare('DELETE FROM book_shares').run();assert.equal((await api.publicShareImage(request,db,storage)).status,404);assert.equal(gets,1);}finally{delete globalThis.caches;}
+});
+
+test('D1 prompt validation and shared image references never rewrite raw messages',async()=>{
+ const {db,sql}=fixture(),text='<img="rawToken"> [hidden] {hidden} 😀\n#keep\n$keep';
+ const book={id:'audit',title:'audit',author:'',description:'',color:'#123456',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),messages:[{role:'assistant',name:'a',content:text}],displayPrompt:{id:'default',hideCurly:false,hideSquare:true}};
+ const request=value=>new Request('https://audit/library/books/audit',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({book:value,baseRevision:0})});
+ assert.equal((await api.libraryApi(request({...book,displayPrompt:{...book.displayPrompt,hideCurly:'false'}}),db,owner,origin,reply)).status,400);
+ assert.equal((await api.libraryApi(request(book),db,owner,origin,reply)).status,200);
+ const publish=new Request('https://audit/library/books/audit/share',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({references:[{message:0,start:0,end:16,name:'happy'}]})});
+ assert.equal((await api.manageShare(publish,db,owner,'audit',origin,reply)).status,200);
+ const snapshot=JSON.parse(sql.prepare('SELECT body FROM book_shares WHERE share_id=?').get(share).body);
+ assert.equal(snapshot.messages[0].content,text);assert.deepEqual(snapshot.displayPrompt,book.displayPrompt);assert.deepEqual(snapshot.imageReferences,[{message:0,start:0,end:16,name:'happy'}]);
+ const stored=JSON.parse(sql.prepare('SELECT body FROM books WHERE owner_id=? AND book_id=?').get(owner,'audit').body);assert.equal(stored.messages[0].content,text);
 });

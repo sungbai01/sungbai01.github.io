@@ -1,3 +1,4 @@
+import type {ImageReference} from '../../shared/displayPrompt';
 import type { Book } from './library';
 import { imageReferenceRanges } from './assets';
 import { imageOutputTemplates, normalizeImageRules } from './imageRules';
@@ -144,4 +145,39 @@ export async function applyBookDisplayRules(book: Book, rules: DisplayRule[]): P
     }
     return { ...book, displayRules: normalized, messages, ...(bookmarks ? { bookmarks } : {}) };
   } finally { worker?.terminate(); }
+}
+
+const referenceCache=new WeakMap<Book['messages'],{rules:Book['displayRules'];promise:Promise<ImageReference[]>}>();
+/** Resolve card-specific image syntax in an isolated worker, retaining original
+ * token ranges. The returned hints are render data, never rewritten messages. */
+export function resolveDisplayImageReferences(book:Book):Promise<ImageReference[]>{
+ if(book.imageReferences)return Promise.resolve(book.imageReferences);
+ if(!book.displayRules?.length)return Promise.resolve([]);
+ const cached=referenceCache.get(book.messages);if(cached?.rules===book.displayRules)return cached.promise;
+ const promise=(async()=>{
+  const rules=normalizeDisplayRules(book.displayRules);if(!rules.length)return [];
+  const worker=new Worker(new URL('./displayRules.worker.ts',import.meta.url),{type:'module'});
+  const result:ImageReference[]=[],resolved=new Map<string,string[]>();
+  const deadline=Date.now()+15000;
+  try{
+   await runWorker(worker,{source:'',current:'',role:'',anchors:[],rules,validateOnly:true});
+   for(const [messageIndex,message] of book.messages.entries()){
+    for(const range of imageReferenceRanges(message.content)){
+     if(Date.now()>deadline||result.length>=10000)return result;
+     const token=message.content.slice(range.start,range.end);if(token.length>2048)continue;
+     const key=message.role+'\0'+token;
+     let names=resolved.get(key);
+     if(!names){
+      const output=await runWorker(worker,{source:token,current:token,role:message.role.toLowerCase(),anchors:[],rules});
+      names=/^(?:\s*\{\{img::[^{}<>\r\n\u0000]+\}\}\s*)+$/.test(output.content)?[...output.content.matchAll(/\{\{img::([^{}<>\r\n\u0000]+)\}\}/g)].map(match=>match[1]):[];
+      resolved.set(key,names);
+     }
+     // The renderer chooses the first available named asset for each token.
+     for(const name of names.slice(0,16))result.push({message:messageIndex,...range,name});
+    }
+   }
+   return result;
+  }finally{worker.terminate();}
+ })().catch(()=>[] as ImageReference[]);
+ referenceCache.set(book.messages,{rules:book.displayRules,promise});return promise;
 }

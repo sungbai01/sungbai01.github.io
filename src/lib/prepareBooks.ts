@@ -1,79 +1,14 @@
 import {beginSkeletonTask} from './loadingActivity';
 import type { Book } from './library';
-import { cleanText, paginate, pageTextInsets, PAGE_LAYOUT_VERSION } from './pagination';
+import { paginate, pageTextInsets, PAGE_LAYOUT_VERSION } from './pagination';
 import { CURRENT_VOLUME_POLICY, splitBookByPages } from './volumes';
-import { imageReferenceRanges } from './assets';
-import { angleRanges, systemRanges, visibleProse } from './prose';
-import { applyBookDisplayRules } from './displayRules';
+import {resolveDisplayImageReferences} from './displayRules';
+import { normalizeDisplayPrompt } from '../../shared/displayPrompt';
 import '../components/reader.css';
 
 /** Fixed import layout; reader font/viewport changes never regroup volumes. */
 export const IMPORT_PAGE_LAYOUT = { width: 400, height: 650, padding: 32, contentWidth: 336, contentHeight: 463.5, fontSize: 18 } as const;
 
-export type PrepareBooksOptions = { removeEmoji?: boolean; removeSquareBrackets?: boolean; removeAngleBrackets?: boolean; removeDollarLines?: boolean; removeHashLines?:boolean };
-
-function preprocessBook(book: Book, options: PrepareBooksOptions): Book {
-  // Known image references are identifiers, not prose. Keep their original
-  // spelling (including emoji in an asset name) so image resolution survives.
-  const clean = (text: string) => options.removeEmoji !== false ? cleanText(text) : text;
-  const strippedContent = (content: string, end = content.length) => {
-    const references = imageReferenceRanges(content);
-    const segments: { type: 'asset' | 'text'; start: number; end: number }[] = [];
-    let cursor = 0;
-    for (const range of references) {
-      if (range.start > cursor) segments.push({ type: 'text', start: cursor, end: range.start });
-      segments.push({ type: 'asset', ...range }); cursor = range.end;
-    }
-    if (cursor < content.length) segments.push({ type: 'text', start: cursor, end: content.length });
-    const hidden = systemRanges(content, references);
-    const dollarRanges=options.removeDollarLines!==false?[...content.matchAll(/^[\t ]*\$[^\r\n]*(?:\r\n?|\n|$)/gm)].map(match=>({start:match.index!,end:match.index!+match[0].length})):[];
-    const hashRanges=options.removeHashLines!==false?[...content.matchAll(/^[\t ]*#[^\r\n]*(?:\r\n?|\n|$)/gm)].map(match=>({start:match.index!,end:match.index!+match[0].length})):[];
-    const lineRanges=[...dollarRanges,...hashRanges];
-    hidden.push(...lineRanges);
-    // Scan the complete source before slicing prefixes for bookmark/maps.
-    // Even unresolved image identifiers survive so cards can be added later.
-    let protectedIndex = 0, squareDepth = 0, squareStart = 0;
-    for (let index = 0; index < content.length; index++) {
-      while (references[protectedIndex] && references[protectedIndex]!.end <= index) protectedIndex++;
-      const reference = references[protectedIndex];
-      if (reference && index === reference.start) { index = reference.end - 1; protectedIndex++; continue; }
-      if (options.removeSquareBrackets !== false) {
-        if (content[index] === '[') { if (!squareDepth) squareStart = index; squareDepth++; }
-        else if (content[index] === ']' && squareDepth && --squareDepth === 0) hidden.push({ start: squareStart, end: index + 1 });
-      }
-    }
-    if(options.removeAngleBrackets!==false)hidden.push(...angleRanges(content,references));
-    hidden.sort((left, right) => left.start - right.start || right.end - left.end);
-    return segments.map(segment => {
-      const limit = Math.min(end, segment.end);
-      if (segment.start >= limit) return '';
-      if (segment.type === 'asset')return lineRanges.some(range=>segment.start<range.end&&segment.end>range.start)?'':content.slice(segment.start,limit);
-      let value = '', cursor = segment.start;
-      for (const range of hidden) {
-        if (range.end <= cursor || range.start >= limit) continue;
-        value += content.slice(cursor, Math.max(cursor, range.start)); cursor = Math.min(limit, range.end);
-      }
-      return clean(value + content.slice(cursor, limit));
-    }).join('');
-  };
-  return { ...book, title: clean(book.title), author: clean(book.author), description: clean(visibleProse(book.description)),
-    messages: book.messages.map(message => ({ ...message, name: clean(message.name), originalContent: message.originalContent ?? message.content,
-      content: strippedContent(message.content),
-      originalMap: (message.originalMap ?? [{ source: 0, output: 0 }, { source: (message.originalContent ?? message.content).length, output: message.content.length }])
-        .map(point => ({ source: point.source, output: strippedContent(message.content, point.output).length })),
-      ...(message.chapter === undefined ? {} : { chapter: clean(message.chapter) }) })),
-    ...(book.bookmarks === undefined ? {} : { bookmarks: book.bookmarks.map(mark => ({ ...mark,
-      char: strippedContent(book.messages[mark.message]?.content ?? '', mark.char).length,
-      ...(mark.label === undefined ? {} : { label: clean(mark.label) }) })) }) };
-}
-
-/** Call ONLY on new import/text confirmation, never on Reader open, resize,
- * font change or backup restoration. Returns books; does not persist them.
- * Emoji, square-block and angle-tag removal default on, before measurement
- * and bookmark remapping. False retains that category. Image identifiers,
- * including unresolved references, are always protected; curly system prose
- * is still removed. Normal text between HTML tags is retained.
- */
 async function withFixedMeasurement<T>(task:(measure:HTMLDivElement,insets:{top:number;bottom:number})=>Promise<T>):Promise<T> {
   if (typeof document === 'undefined' || !document.body) throw new Error('가져오기 준비는 브라우저에서 사용해 주세요.');
   const host = document.createElement('div');
@@ -106,21 +41,22 @@ async function withFixedMeasurement<T>(task:(measure:HTMLDivElement,insets:{top:
 
 /** Counts body leaves only: no preprocessing, splitting, bookmark remapping or storage. */
 export async function measureBookPageCount(book:Book):Promise<number>{
-  return withFixedMeasurement(async(measure,insets)=>paginate(book,measure,{pageHeight:IMPORT_PAGE_LAYOUT.height,contentTop:insets.top}).length);
+  return withFixedMeasurement(async(measure,insets)=>paginate({...book,imageReferences:await resolveDisplayImageReferences(book)},measure,{pageHeight:IMPORT_PAGE_LAYOUT.height,contentTop:insets.top}).length);
 }
-export async function prepareBooks(books:Book[],options:PrepareBooksOptions={}):Promise<Book[]>{
+/** Measure and split source messages without rewriting text or applying display rules. */
+export async function prepareBooks(books:Book[]):Promise<Book[]>{
   return withFixedMeasurement(async(measure,insets)=>{
     const result: Book[] = [];
     for (const source of books) {
       // Already prepared volumes keep their grouping if a caller submits them
       // again. Backup restores must bypass this API to preserve all content.
-      const ruled = source.displayRules?.length ? await applyBookDisplayRules(source, source.displayRules) : source;
-      if (source.volumePolicy === 'chapters-100-v1' || source.volumePolicy === CURRENT_VOLUME_POLICY) { result.push({...ruled,pageCount:paginate(ruled,measure,{pageHeight:IMPORT_PAGE_LAYOUT.height,contentTop:insets.top}).length,pageLayoutVersion:PAGE_LAYOUT_VERSION}); continue; }
-      const book = preprocessBook(ruled, options);
-      const volumes=splitBookByPages(book,paginate(book,measure,{pageHeight:IMPORT_PAGE_LAYOUT.height,contentTop:insets.top}));
+      const book = {...source, displayPrompt: normalizeDisplayPrompt(source.displayPrompt)};
+      const displayBook={...book,imageReferences:await resolveDisplayImageReferences(book)};
+      if (source.volumePolicy === 'chapters-100-v1' || source.volumePolicy === CURRENT_VOLUME_POLICY) { result.push({...book,pageCount:paginate(displayBook,measure,{pageHeight:IMPORT_PAGE_LAYOUT.height,contentTop:insets.top}).length,pageLayoutVersion:PAGE_LAYOUT_VERSION}); continue; }
+      const volumes=splitBookByPages(book,paginate(displayBook,measure,{pageHeight:IMPORT_PAGE_LAYOUT.height,contentTop:insets.top}));
       for(const volume of volumes){
         // A continuation volume may gain a heading/parity leaf at its new start.
-        const pageCount=volumes.length>1?paginate(volume,measure,{pageHeight:IMPORT_PAGE_LAYOUT.height,contentTop:insets.top}).length:volume.pageCount!;
+        const pageCount=volumes.length>1?await measureBookPageCount(volume):volume.pageCount!;
         result.push({...volume,pageCount,pageLayoutVersion:PAGE_LAYOUT_VERSION,volumePolicy:CURRENT_VOLUME_POLICY});
         if(volumes.length>1)await new Promise<void>(resolve=>setTimeout(resolve,0));
       }

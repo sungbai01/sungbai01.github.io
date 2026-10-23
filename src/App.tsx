@@ -29,7 +29,8 @@ import './components/library-drawer.css';
 import {readTheme,saveTheme,THEME_EVENT,type Theme} from './lib/appearance';
 import { importAssetFile, normalizeAssets, portraitPalette } from './lib/assets';
 import {normalizeImageRules,type ImageRule} from './lib/imageRules';
-import {applyBookDisplayRules,type DisplayRule} from './lib/displayRules';
+import {type DisplayRule} from './lib/displayRules';
+import {normalizeDisplayPrompt} from '../shared/displayPrompt';
 
 type BookAsset = NonNullable<Book['assets']>[number];
 type BookmarkAnchor={message:number;char:number;label?:string;progress?:number};
@@ -102,6 +103,7 @@ function reuseBookReferences(book:Book,previous:Book|undefined):Book{
   if(equalRows(book.bookmarks,previous.bookmarks,['message','char','label','progress']))next.bookmarks=previous.bookmarks;
   if(book.imageRules===previous.imageRules||JSON.stringify(book.imageRules)===JSON.stringify(previous.imageRules))next.imageRules=previous.imageRules;
   if(book.displayRules===previous.displayRules||JSON.stringify(book.displayRules)===JSON.stringify(previous.displayRules))next.displayRules=previous.displayRules;
+  if(JSON.stringify(normalizeDisplayPrompt(book.displayPrompt))===JSON.stringify(normalizeDisplayPrompt(previous.displayPrompt)))next.displayPrompt=previous.displayPrompt;
   const fields=new Set([...Object.keys(previous),...Object.keys(next)]);
   return [...fields].every(field=>next[field as keyof Book]===previous[field as keyof Book])?previous:next;
 }
@@ -354,12 +356,13 @@ function AccountApp({owner}:{owner:string|null}) {
     const patch:Partial<Book>={};
     if(book.messages!==baseline.messages)patch.messages=book.messages;
     if(book.bookmarks!==baseline.bookmarks)patch.bookmarks=book.bookmarks;
+    if(JSON.stringify(normalizeDisplayPrompt(book.displayPrompt))!==JSON.stringify(normalizeDisplayPrompt(baseline.displayPrompt)))patch.displayPrompt=normalizeDisplayPrompt(book.displayPrompt);
 
     if(book.updatedAt!==baseline.updatedAt)patch.updatedAt=book.updatedAt;
     await commitBooks([book.id],async current=>{
       const stored=current.find(item=>item.id===book.id);if(!stored)throw new Error('책을 찾지 못했어요.');
       const updated={...stored,...patch};
-      if(updated.pageCount===undefined||updated.pageLayoutVersion!==PAGE_LAYOUT_VERSION||!equalRows(updated.messages,stored.messages,['role','name','content','chapter','chapterTitle','chapterStart'])){
+      if(updated.pageCount===undefined||updated.pageLayoutVersion!==PAGE_LAYOUT_VERSION||!equalRows(updated.messages,stored.messages,['role','name','content','chapter','chapterTitle','chapterStart','pageBreakBefore','pageBreakAfter'])||JSON.stringify(normalizeDisplayPrompt(updated.displayPrompt))!==JSON.stringify(normalizeDisplayPrompt(stored.displayPrompt))){
         updated.pageCount=await measureBookPageCount(updated);updated.pageLayoutVersion=PAGE_LAYOUT_VERSION;
       }
       return [updated];
@@ -431,7 +434,7 @@ function AccountApp({owner}:{owner:string|null}) {
     let incoming:Book[]=[];
     if(request.mode==='file'){
       const failures:string[]=[];
-      for(const file of request.files){try{incoming.push(...(await importChatFile(file,{removeUserInputs:request.removeUserInputs})).map(book=>({...book,author:request.author.trim(),aiModel:undefined,...(request.title.trim()?{title:book.seriesId?`${request.title.trim()} · ${book.volumeNumber??1}권`:request.title.trim(),...(book.seriesId||book.seriesTitle?{seriesTitle:request.title.trim()}:{})}:{})})));}catch(cause){failures.push(`${file.name}: ${cause instanceof Error?cause.message:'파일을 읽지 못했어요.'}`);}}
+      for(const file of request.files){try{incoming.push(...(await importChatFile(file)).map(book=>({...book,author:request.author.trim(),aiModel:undefined,...(request.title.trim()?{title:book.seriesId?`${request.title.trim()} · ${book.volumeNumber??1}권`:request.title.trim(),...(book.seriesId||book.seriesTitle?{seriesTitle:request.title.trim()}:{})}:{})})));}catch(cause){failures.push(`${file.name}: ${cause instanceof Error?cause.message:'파일을 읽지 못했어요.'}`);}}
       if(failures.length)throw new Error(failures.join('\n'));
     }else{
       const now=new Date().toISOString();
@@ -439,8 +442,7 @@ function AccountApp({owner}:{owner:string|null}) {
     }
     const target=creating;const siblings=target?shelfBooks(latestBooks.current,target):[];
     if(target&&siblings.length)incoming=incoming.map(book=>({...book,assets:shelfAssets(latestBooks.current,target),imageRules:shelfImageRules(latestBooks.current,target),displayRules:shelfDisplayRules(latestBooks.current,target),characterIcon:portrait(siblings[0]!),bookmarkAssetId:siblings[0]!.bookmarkAssetId,shareCardAssetId:siblings[0]!.shareCardAssetId,bookmarkStyle:siblings[0]!.bookmarkStyle,color:siblings[0]!.color,customColor:siblings[0]!.customColor}));
-    // The optional card is staged with the logs and applied before their single
-    // preprocessing pass. Nothing is persisted merely by selecting a file.
+    // Stage optional card assets and display-rule metadata before measurement.
     if(request.mode==='file'&&request.cardFile){
       const card=await importAssetFile(request.cardFile);
       const icon=card.assets.find(asset=>asset.type==='icon');
@@ -455,7 +457,7 @@ function AccountApp({owner}:{owner:string|null}) {
     }
     if(request.mode==='file')incoming=incoming.map(book=>replaceBookUserName(book,request.sourceUserNames,request.userName));
     // Parse every staged file first. Preparation happens once, before any write.
-    const prepared=await prepareBooks(incoming,{removeEmoji:request.removeEmoji,removeSquareBrackets:request.removeSquareBrackets,removeAngleBrackets:request.removeAngleBrackets,removeDollarLines:request.removeDollarLines,removeHashLines:request.removeHashLines});
+    const prepared=await prepareBooks(incoming.map(book=>({...book,displayPrompt:normalizeDisplayPrompt(request.displayPrompt)})));
     assertAccount();
     if(!prepared.length)throw new Error('추가할 본문이 없어요.');
     let createdBook:Book|undefined;
@@ -486,8 +488,8 @@ function AccountApp({owner}:{owner:string|null}) {
       for(const book of snapshot){
         const imageId=assets.some(asset=>asset.id===bookmarkAssetId)?bookmarkAssetId:undefined;
         const styled={...book,assets,imageRules,displayRules,bookmarkAssetId:imageId,shareCardAssetId:assets.some(asset=>asset.id===shareCardAssetId)?shareCardAssetId:undefined,bookmarkStyle:imageId&&imageId!==book.bookmarkAssetId?'image' as const:!imageId&&book.bookmarkStyle==='image'?'normal' as const:book.bookmarkStyle,characterIcon:icon?.src,...(palette?{color:palette,customColor:palette}:assets.length?{}:{cover:undefined,backCover:undefined,color:colors[0]!,customColor:undefined})};
-        const ruled=await applyBookDisplayRules(styled,displayRules);
-        if(ruled.pageCount===undefined||ruled.pageLayoutVersion!==PAGE_LAYOUT_VERSION||!equalRows(ruled.messages,book.messages,['role','name','content','chapter','chapterTitle','chapterStart'])||!equalRows(ruled.assets,book.assets,['id','name','src','type'])){
+        const ruled=styled;
+        if(ruled.pageCount===undefined||ruled.pageLayoutVersion!==PAGE_LAYOUT_VERSION||!equalRows(ruled.messages,book.messages,['role','name','content','chapter','chapterTitle','chapterStart'])||!equalRows(ruled.assets,book.assets,['id','name','src','type'])||JSON.stringify(ruled.imageRules)!==JSON.stringify(book.imageRules)||JSON.stringify(ruled.displayRules)!==JSON.stringify(book.displayRules)){
           ruled.pageCount=await measureBookPageCount(ruled);ruled.pageLayoutVersion=PAGE_LAYOUT_VERSION;
         }
         processed.set(book.id,ruled);
@@ -537,7 +539,7 @@ function AccountApp({owner}:{owner:string|null}) {
     try{
       const data=JSON.parse(await file.text());assertAccount();
       if(data.format!=='galpi-backup'||!Array.isArray(data.books))throw new Error('갈피에서 내보낸 책장 백업 파일을 선택해 주세요.');
-      const normalized=await importChatFile(new File([JSON.stringify(data.books)],'backup.json',{type:'application/json'}),{removeUserInputs:false});assertAccount();
+      const normalized=await importChatFile(new File([JSON.stringify(data.books)],'backup.json',{type:'application/json'}));assertAccount();
       const merged=await library.edit(async store=>storeBooks(normalized,await store.loadBooks(),store,assertAccount,!owner),{publish:!!owner});assertAccount();
       if(!owner){latestBooks.current=merged;setBooks(merged);}setToast(`${normalized.length}권을 복원했어요.`);
     }catch(e){setError(e instanceof Error?e.message:'백업을 복원하지 못했어요.');}

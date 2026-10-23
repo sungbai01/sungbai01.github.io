@@ -1,13 +1,13 @@
 import type { Book, BookAsset } from './library';
 import { extractAssetSegments, imageReferenceRanges, type AssetSegment } from './assets';
-import { systemRanges, visibleProse } from './prose';
+import { displayHiddenRanges } from './prose';
 
 export type Anchor = { message: number; char: number };
 export type Fragment = Anchor & { end: number; name: string; text: string; hidden?: boolean; chapter?: number; asset?: BookAsset; assetSize?: number };
 export type PaperPage = { fragments: Fragment[]; intro: boolean; asset?: BookAsset; chapter?: number; chapterTitle?: string; chapterMessage?: number; pageNumber?:number; draftPage?:string; kind?: 'paper' | 'asset' | 'padding' | 'endpaper' | 'opening-endpaper' | 'back-cover' | 'end' | 'front-cover' | 'front-endpaper' | 'colophon' };
 
 export const CHAPTER_HEADER_RATIO = .25;
-export const PAGE_LAYOUT_VERSION = 5;
+export const PAGE_LAYOUT_VERSION = 6;
 
 export function inlineAssetSize(contentWidth: number, availableHeight: number): number {
   // Scale with the prose area; keep square images within the page's text height.
@@ -56,7 +56,7 @@ export function speakerName(message: Book['messages'][number]): string {
 
 /** Render the same small Markdown subset as Reader, via text nodes only. */
 function measureText(target: HTMLElement, text: string): void {
-  const prose = visibleProse(text);
+  const prose = text;
   const visible = target.classList.contains('reader-chapter-opening') ? prose.trimStart() : prose;
   const parts = visible.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|_[^_\n]+_|“[^”]+”|「[^」]+」)/g);
   target.replaceChildren();
@@ -95,6 +95,8 @@ export function paginate(book: Book, measure: HTMLDivElement, options: Paginatio
   measure.replaceChildren();
   const nextPage = () => { current = { fragments: [], intro: false }; pages.push(current); measure.replaceChildren(); measure.style.height = `${baseHeight}px`; };
   try {
+  const imageReferences=new Map<number,NonNullable<Book['imageReferences']>>();
+  for(const reference of book.imageReferences??[]){const list=imageReferences.get(reference.message)??[];list.push(reference);imageReferences.set(reference.message,list);}
   const chapterTails=new Set<number>();
   let tail=-1;
   book.messages.forEach((message,index)=>{
@@ -110,7 +112,7 @@ export function paginate(book: Book, measure: HTMLDivElement, options: Paginatio
       if (current.fragments.length) nextPage();
     }
     const content = message.content || '', name = speakerName(message);
-    const extracted = extractAssetSegments(content, book.assets ?? [],book.imageRules??[]);
+    const extracted = extractAssetSegments(content, book.assets ?? [],book.imageRules??[],imageReferences.get(messageIndex));
     const references = imageReferenceRanges(content);
     const unresolved = references.filter(range => !extracted.some(segment => segment.type === 'asset' && segment.start === range.start && segment.end === range.end));
     const hiddenRanges: { start: number; end: number }[] = [];
@@ -119,7 +121,7 @@ export function paginate(book: Book, measure: HTMLDivElement, options: Paginatio
     const tailRanges=trailing?[{start:trailing.index,end:content.length}]:[];
     const leading=startsChapter(book,messageIndex)?/^(?:[\t ]*(?:\r\n?|\n))+/.exec(content):null;
     const leadingRanges=leading?[{start:0,end:leading[0].length}]:[];
-    for (const range of [...systemRanges(content, references), ...unresolved, ...tailRanges, ...leadingRanges].sort((a, b) => a.start - b.start)) {
+    for (const range of [...displayHiddenRanges(content, book.displayPrompt, references), ...unresolved, ...tailRanges, ...leadingRanges].sort((a, b) => a.start - b.start)) {
       const previous = hiddenRanges[hiddenRanges.length - 1];
       if (previous && range.start <= previous.end) previous.end = Math.max(previous.end, range.end);
       else hiddenRanges.push({ ...range });
@@ -164,7 +166,7 @@ export function paginate(book: Book, measure: HTMLDivElement, options: Paginatio
         current.fragments.push({ message: messageIndex, char: segment.start, end: segment.end, name, text: content.slice(segment.start, segment.end), asset: segment.asset, assetSize: measured.size });
         pendingHeading = false; continue;
       }
-      if (!visibleProse(content.slice(segment.start, segment.end)).trim()) {
+      if (!content.slice(segment.start, segment.end).trim()) {
         current.fragments.push({ message: messageIndex, char: segment.start, end: segment.end, name,
           text: content.slice(segment.start, segment.end), hidden: true });
         continue;

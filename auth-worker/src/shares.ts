@@ -9,7 +9,7 @@ type Reply=(body:unknown,status:number,origin:string)=>Response;
 const tokenPattern=/^[A-Za-z0-9_-]{43}$/;
 const metadata=(row:{share_id:string;updated_at:number}|null)=>row?{id:row.share_id,updatedAt:row.updated_at}:null;
 
-async function canonicalImages(request:Request,book:Book){
+async function attachImageReferences(request:Request,book:Book){
  const reader=request.body?.getReader();if(!reader)return;
  let size=0;const chunks:Uint8Array[]=[];
  try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>1_000_000){await reader.cancel();throw new Error('Too large');}chunks.push(value);}}finally{reader.releaseLock();}
@@ -27,15 +27,10 @@ async function canonicalImages(request:Request,book:Book){
   if(!/^(?:<img\b|\[img\b|\{\{(?:img|image|raw)::|!\[)/i.test(original))throw new Error('Not an image');
   const list=references.get(message)??[];list.push({start,end,name});references.set(message,list);
  }
- for(const [index,list] of references){
-  list.sort((a,b)=>b.start-a.start);let boundary=book.messages[index].content.length;
-  for(const item of list){
-   if(item.end>boundary)throw new Error('Overlapping references');
-   const message=book.messages[index],replacement=`{{img::${item.name}}}`;
-   for(const mark of book.bookmarks??[])if(mark.message===index){if(mark.char>=item.end)mark.char+=replacement.length-(item.end-item.start);else if(mark.char>item.start)mark.char=item.start;}
-   message.content=message.content.slice(0,item.start)+replacement+message.content.slice(item.end);boundary=item.start;
-  }
- }
+ // Keep source bytes and source bookmark positions intact. Store only bounded,
+ // validated token associations for recipients without the publisher's card.
+ book.imageReferences=[...references].flatMap(([message,list])=>list.map(reference=>({message,...reference})));
+
 }
 
 /** Public capability URLs expose only an explicitly published text snapshot. */
@@ -77,7 +72,7 @@ export async function manageShare(request:Request,db:TextDatabase,owner:string,b
  if(!await allowShareAction(db,owner,'publish'))return reply({error:'공유 생성·갱신은 1분에 한 번, 하루 30회까지 가능해요. 잠시 후 다시 시도해 주세요.'},429,origin);
  const book=cloudBook(JSON.parse(source.body) as Book);
  delete book.bookmarks;
- try{await canonicalImages(request,book);}catch{return reply({error:'이미지 참조를 확인하지 못했어요.'},400,origin);}
+ try{await attachImageReferences(request,book);}catch{return reply({error:'이미지 참조를 확인하지 못했어요.'},400,origin);}
  delete book.seriesId;delete book.pageLayoutVersion;
  book.description='';
  const body=JSON.stringify(book),bytes=new TextEncoder().encode(body).byteLength;

@@ -1,3 +1,4 @@
+import {validDisplayPrompt} from '../../shared/displayPrompt';
 import {cloudBook} from '../../shared/cloudBook';
 import type {Book} from '../../src/lib/library';
 
@@ -17,12 +18,13 @@ function date(value:unknown){text(value,40);if(!Number.isFinite(Date.parse(value
 function validate(value:unknown,id:string):Book{
  if(!object(value))fail();
  const b=value as Record<string,unknown>;
- keys(b,['id','title','author','description','color','createdAt','uploadedAt','updatedAt','messages','userName','aiModel','customColor','seriesId','seriesTitle','volumeNumber','volumeCount','volumePolicy','bookmarks','bookmarkStyle','pageCount','pageLayoutVersion']);
+ keys(b,['id','title','author','description','color','createdAt','uploadedAt','updatedAt','messages','displayPrompt','userName','aiModel','customColor','seriesId','seriesTitle','volumeNumber','volumeCount','volumePolicy','bookmarks','bookmarkStyle','pageCount','pageLayoutVersion']);
  if(b.id!==id)fail();
  text(b.title,2000);text(b.author,2000);text(b.description,10000);date(b.createdAt);date(b.updatedAt);
  if(typeof b.color!=='string'||!/^#(?:[a-f\d]{3}|[a-f\d]{6})$/i.test(b.color))fail();
  if(b.customColor!==undefined&&(typeof b.customColor!=='string'||!/^#(?:[a-f\d]{3}|[a-f\d]{6})$/i.test(b.customColor)))fail();
  if(b.uploadedAt!==undefined)date(b.uploadedAt);
+ if(b.displayPrompt!==undefined&&!validDisplayPrompt(b.displayPrompt))fail();
  if(b.userName!==undefined)text(b.userName,80);
  for(const key of ['aiModel','seriesTitle'])if(b[key]!==undefined)text(b[key],2000);
  if(b.seriesId!==undefined&&!idValid(b.seriesId))fail();

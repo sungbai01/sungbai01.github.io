@@ -1,3 +1,5 @@
+import {normalizeDisplayPrompt} from '../../shared/displayPrompt';
+import DisplayPromptControls from './DisplayPromptControls';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import type { Book } from '../lib/library';
@@ -32,6 +34,7 @@ function EditorPicker({ label, options, value, onChange }: { label: string; opti
 /** Mount once per book (use key={book.id} when switching books). */
 export default function AdvancedBookEditor({ book, onSave, onClose }: AdvancedBookEditorProps) {
   const [source] = useState(() => book.messages.length ? book : { ...book, messages: [{ role: 'assistant', name: book.author || '서술', content: '' }] });
+  const [prompt,setPrompt]=useState(()=>normalizeDisplayPrompt(book.displayPrompt));
   const [drafts, setDrafts] = useState(new Map<number, AdvancedMessageDraft>());
   const [selected, setSelected] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -45,7 +48,7 @@ export default function AdvancedBookEditor({ book, onSave, onClose }: AdvancedBo
   const titleId = useId(), confirmId = useId();
   const { toast, notify, dismiss } = useToast();
   const chapters = useMemo(() => source.messages.flatMap((message, index) => startsChapter(source, index) ? [{ index, title: message.chapterTitle }] : []), [source]);
-  const dirty = drafts.size > 0;
+  const dirty = drafts.size > 0||JSON.stringify(prompt)!==JSON.stringify(normalizeDisplayPrompt(source.displayPrompt));
   const message = source.messages[selected], draft = drafts.get(selected);
   const chapter = [...chapters].reverse().find(entry => entry.index <= selected);
   const locked = saving || closing || confirmClose;
@@ -91,7 +94,8 @@ export default function AdvancedBookEditor({ book, onSave, onClose }: AdvancedBo
     // Let the disabled state paint before scanning a long pasted manuscript.
     await new Promise(resolve => setTimeout(resolve, 0));
     try {
-      await onSave(applyAdvancedEdits(source, drafts));
+      const edited=applyAdvancedEdits(source,drafts);
+      await onSave({...edited,displayPrompt:prompt,updatedAt:new Date().toISOString()});
       if (alive.current) finishClose();
     } catch (cause) {
       if (alive.current) notify(cause instanceof Error ? cause.message : '저장하지 못했어요. 다시 시도해 주세요.', 'error');
@@ -105,7 +109,7 @@ export default function AdvancedBookEditor({ book, onSave, onClose }: AdvancedBo
     <div className="advanced-editor-shell">
       <header><div><h2 id={titleId}>고급 수정</h2><p>{source.title}</p></div><button type="button" className="advanced-editor-close" aria-label="닫기" title="닫기" disabled={locked} onClick={requestClose}><X size={20}/></button></header>
       <fieldset disabled={locked} inert={locked || undefined}>
-        <nav aria-label="본문 이동">
+        <DisplayPromptControls value={prompt} onChange={setPrompt} disabled={locked}/><nav aria-label="본문 이동">
           <EditorPicker label="챕터" value={chapter?.index} onChange={setSelected} options={chapters.map((entry, number) => ({ value: entry.index, label: `${number + 1}. ${drafts.get(entry.index)?.chapterTitle ?? entry.title ?? '제목 없음'}` }))}/>
           <EditorPicker label="메시지" value={selected} onChange={setSelected} options={source.messages.map((entry, index) => ({ value: index, label: `${index + 1}. ${entry.name || entry.role}` }))}/>
           <button type="button" title="이전 메시지" aria-label="이전 메시지" disabled={selected <= 0} onClick={() => setSelected(value => value - 1)}><ChevronLeft size={18}/></button>

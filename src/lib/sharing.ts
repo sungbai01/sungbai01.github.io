@@ -1,6 +1,7 @@
 import {beginSkeletonTask} from './loadingActivity';
 import {getAuthSession} from './auth';
 import type {Book} from './library';
+import {resolveDisplayImageReferences} from './displayRules';
 import {extractAssetSegments} from './assets';
 const apiBase=(import.meta.env.VITE_AUTH_API_URL as string|undefined)?.trim().replace(/\/+$/,'');
 export type ShareInfo={id:string;updatedAt:number;cardUrl?:string|null};
@@ -8,7 +9,8 @@ export function shareUrl(id:string){return `${location.origin}${location.pathnam
 export async function shareRequest(bookId:string,method='GET',signal?:AbortSignal,book?:Book):Promise<ShareInfo|null>{
  const session=getAuthSession();if(!session)throw new Error('공유하려면 Google 로그인이 필요해요.');
  if(!apiBase)throw new Error('공유 서버에 연결하지 못했어요.');
- const response=await fetch(`${apiBase}/library/books/${encodeURIComponent(bookId)}/share`,{method,credentials:'omit',cache:'no-store',signal,headers:{Authorization:`Bearer ${session.token}`,...(method==='POST'?{'Content-Type':'application/json'}:{})},...(method==='POST'?{body:JSON.stringify({bookmarkStyle:book?.bookmarkStyle??'normal',references:book?book.messages.flatMap((message,index)=>extractAssetSegments(message.content,book.assets??[],book.imageRules??[]).flatMap(segment=>segment.type==='asset'?[{message:index,start:segment.start,end:segment.end,name:segment.asset.name}]:[])):[]})}:{})});
+ if(book&&method==='POST')book={...book,imageReferences:await resolveDisplayImageReferences(book)};
+ const response=await fetch(`${apiBase}/library/books/${encodeURIComponent(bookId)}/share`,{method,credentials:'omit',cache:'no-store',signal,headers:{Authorization:`Bearer ${session.token}`,...(method==='POST'?{'Content-Type':'application/json'}:{})},...(method==='POST'?{body:JSON.stringify({bookmarkStyle:book?.bookmarkStyle??'normal',references:book?book.messages.flatMap((message,index)=>extractAssetSegments(message.content,book.assets??[],book.imageRules??[],book.imageReferences?.filter(reference=>reference.message===index)).flatMap(segment=>segment.type==='asset'?[{message:index,start:segment.start,end:segment.end,name:segment.asset.name}]:[])):[]})}:{})});
  const result=await response.json() as {share?:ShareInfo|null;error?:string};
  if(!response.ok)throw new Error(result.error||'공유를 완료하지 못했어요.');
  if(getAuthSession()?.user.id!==session.user.id)throw new Error('계정이 변경되었어요.');
@@ -51,7 +53,7 @@ async function shareImageBlob(src:string):Promise<Blob>{
 }
 export function usedShareAssets(book:Book,includeBody=true){
  const used=new Map<string,NonNullable<Book['assets']>[number]>();
- if(includeBody)for(const message of book.messages)for(const segment of extractAssetSegments(message.content,book.assets??[],book.imageRules??[]))if(segment.type==='asset')used.set(segment.asset.name,segment.asset);
+ if(includeBody)for(const [index,message] of book.messages.entries())for(const segment of extractAssetSegments(message.content,book.assets??[],book.imageRules??[],book.imageReferences?.filter(reference=>reference.message===index)))if(segment.type==='asset')used.set(segment.asset.name,segment.asset);
  const icon=book.characterIcon??book.assets?.find(asset=>asset.type==='icon')?.src;
  if(icon)used.set('__galpi_cover_icon__',{id:'cover-icon',name:'__galpi_cover_icon__',src:icon,type:'icon'});
  const mark=book.assets?.find(asset=>asset.id===book.bookmarkAssetId)?.src??icon;
@@ -59,6 +61,7 @@ export function usedShareAssets(book:Book,includeBody=true){
  return [...used.values()];
 }
 export async function uploadBookShareAssets(book:Book,onProgress:(done:number,total:number)=>void,includeBody=true){
+ book={...book,imageReferences:await resolveDisplayImageReferences(book)};
  const assets=usedShareAssets(book,includeBody);if(assets.length>40)throw new Error('공유 이미지는 한 권에 40개까지 넣을 수 있어요.');
  let done=0;for(const asset of assets){const blob=await shareImageBlob(asset.src);await uploadShareMedia(book,blob,asset.name,asset.type==='icon'?'icon':'asset');onProgress(++done,assets.length);}
 }
